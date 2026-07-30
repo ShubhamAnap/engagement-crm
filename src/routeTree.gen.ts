@@ -10,11 +10,50 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AgentsRouteImport } from './routes/agents'
+import { Route as AiChatRouteImport } from './routes/ai-chat'
+import { Route as AnalyticsRouteImport } from './routes/analytics'
+import { Route as AutomationRouteImport } from './routes/automation'
+import { Route as ChannelsRouteImport } from './routes/channels'
 import { Route as CommandCenterRouteImport } from './routes/command-center'
+import { Route as CustomersRouteImport } from './routes/customers'
+import { Route as HumanSupportRouteImport } from './routes/human-support'
+import { Route as InboxRouteImport } from './routes/inbox'
+import { Route as KnowledgeRouteImport } from './routes/knowledge'
+import { Route as LeadsRouteImport } from './routes/leads'
+import { Route as PipelineRouteImport } from './routes/pipeline'
+import { Route as ProductsRouteImport } from './routes/products'
+import { Route as ReportsRouteImport } from './routes/reports'
+import { Route as SettingsRouteImport } from './routes/settings'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgentsRoute = AgentsRouteImport.update({
+  id: '/agents',
+  path: '/agents',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AiChatRoute = AiChatRouteImport.update({
+  id: '/ai-chat',
+  path: '/ai-chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AnalyticsRoute = AnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AutomationRoute = AutomationRouteImport.update({
+  id: '/automation',
+  path: '/automation',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ChannelsRoute = ChannelsRouteImport.update({
+  id: '/channels',
+  path: '/channels',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CommandCenterRoute = CommandCenterRouteImport.update({
@@ -22,31 +61,181 @@ const CommandCenterRoute = CommandCenterRouteImport.update({
   path: '/command-center',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CustomersRoute = CustomersRouteImport.update({
+  id: '/customers',
+  path: '/customers',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HumanSupportRoute = HumanSupportRouteImport.update({
+  id: '/human-support',
+  path: '/human-support',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InboxRoute = InboxRouteImport.update({
+  id: '/inbox',
+  path: '/inbox',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KnowledgeRoute = KnowledgeRouteImport.update({
+  id: '/knowledge',
+  path: '/knowledge',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LeadsRoute = LeadsRouteImport.update({
+  id: '/leads',
+  path: '/leads',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PipelineRoute = PipelineRouteImport.update({
+  id: '/pipeline',
+  path: '/pipeline',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProductsRoute = ProductsRouteImport.update({
+  id: '/products',
+  path: '/products',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReportsRoute = ReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/agents': typeof AgentsRoute
+  '/ai-chat': typeof AiChatRoute
+  '/analytics': typeof AnalyticsRoute
+  '/automation': typeof AutomationRoute
+  '/channels': typeof ChannelsRoute
   '/command-center': typeof CommandCenterRoute
+  '/customers': typeof CustomersRoute
+  '/human-support': typeof HumanSupportRoute
+  '/inbox': typeof InboxRoute
+  '/knowledge': typeof KnowledgeRoute
+  '/leads': typeof LeadsRoute
+  '/pipeline': typeof PipelineRoute
+  '/products': typeof ProductsRoute
+  '/reports': typeof ReportsRoute
+  '/settings': typeof SettingsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/agents': typeof AgentsRoute
+  '/ai-chat': typeof AiChatRoute
+  '/analytics': typeof AnalyticsRoute
+  '/automation': typeof AutomationRoute
+  '/channels': typeof ChannelsRoute
   '/command-center': typeof CommandCenterRoute
+  '/customers': typeof CustomersRoute
+  '/human-support': typeof HumanSupportRoute
+  '/inbox': typeof InboxRoute
+  '/knowledge': typeof KnowledgeRoute
+  '/leads': typeof LeadsRoute
+  '/pipeline': typeof PipelineRoute
+  '/products': typeof ProductsRoute
+  '/reports': typeof ReportsRoute
+  '/settings': typeof SettingsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/agents': typeof AgentsRoute
+  '/ai-chat': typeof AiChatRoute
+  '/analytics': typeof AnalyticsRoute
+  '/automation': typeof AutomationRoute
+  '/channels': typeof ChannelsRoute
   '/command-center': typeof CommandCenterRoute
+  '/customers': typeof CustomersRoute
+  '/human-support': typeof HumanSupportRoute
+  '/inbox': typeof InboxRoute
+  '/knowledge': typeof KnowledgeRoute
+  '/leads': typeof LeadsRoute
+  '/pipeline': typeof PipelineRoute
+  '/products': typeof ProductsRoute
+  '/reports': typeof ReportsRoute
+  '/settings': typeof SettingsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/command-center'
+  fullPaths:
+    | '/'
+    | '/agents'
+    | '/ai-chat'
+    | '/analytics'
+    | '/automation'
+    | '/channels'
+    | '/command-center'
+    | '/customers'
+    | '/human-support'
+    | '/inbox'
+    | '/knowledge'
+    | '/leads'
+    | '/pipeline'
+    | '/products'
+    | '/reports'
+    | '/settings'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/command-center'
-  id: '__root__' | '/' | '/command-center'
+  to:
+    | '/'
+    | '/agents'
+    | '/ai-chat'
+    | '/analytics'
+    | '/automation'
+    | '/channels'
+    | '/command-center'
+    | '/customers'
+    | '/human-support'
+    | '/inbox'
+    | '/knowledge'
+    | '/leads'
+    | '/pipeline'
+    | '/products'
+    | '/reports'
+    | '/settings'
+  id:
+    | '__root__'
+    | '/'
+    | '/agents'
+    | '/ai-chat'
+    | '/analytics'
+    | '/automation'
+    | '/channels'
+    | '/command-center'
+    | '/customers'
+    | '/human-support'
+    | '/inbox'
+    | '/knowledge'
+    | '/leads'
+    | '/pipeline'
+    | '/products'
+    | '/reports'
+    | '/settings'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AgentsRoute: typeof AgentsRoute
+  AiChatRoute: typeof AiChatRoute
+  AnalyticsRoute: typeof AnalyticsRoute
+  AutomationRoute: typeof AutomationRoute
+  ChannelsRoute: typeof ChannelsRoute
   CommandCenterRoute: typeof CommandCenterRoute
+  CustomersRoute: typeof CustomersRoute
+  HumanSupportRoute: typeof HumanSupportRoute
+  InboxRoute: typeof InboxRoute
+  KnowledgeRoute: typeof KnowledgeRoute
+  LeadsRoute: typeof LeadsRoute
+  PipelineRoute: typeof PipelineRoute
+  ProductsRoute: typeof ProductsRoute
+  ReportsRoute: typeof ReportsRoute
+  SettingsRoute: typeof SettingsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -58,6 +247,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/agents': {
+      id: '/agents'
+      path: '/agents'
+      fullPath: '/agents'
+      preLoaderRoute: typeof AgentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ai-chat': {
+      id: '/ai-chat'
+      path: '/ai-chat'
+      fullPath: '/ai-chat'
+      preLoaderRoute: typeof AiChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/analytics': {
+      id: '/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof AnalyticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/automation': {
+      id: '/automation'
+      path: '/automation'
+      fullPath: '/automation'
+      preLoaderRoute: typeof AutomationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/channels': {
+      id: '/channels'
+      path: '/channels'
+      fullPath: '/channels'
+      preLoaderRoute: typeof ChannelsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/command-center': {
       id: '/command-center'
       path: '/command-center'
@@ -65,12 +289,89 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CommandCenterRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/customers': {
+      id: '/customers'
+      path: '/customers'
+      fullPath: '/customers'
+      preLoaderRoute: typeof CustomersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/human-support': {
+      id: '/human-support'
+      path: '/human-support'
+      fullPath: '/human-support'
+      preLoaderRoute: typeof HumanSupportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/inbox': {
+      id: '/inbox'
+      path: '/inbox'
+      fullPath: '/inbox'
+      preLoaderRoute: typeof InboxRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/knowledge': {
+      id: '/knowledge'
+      path: '/knowledge'
+      fullPath: '/knowledge'
+      preLoaderRoute: typeof KnowledgeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/leads': {
+      id: '/leads'
+      path: '/leads'
+      fullPath: '/leads'
+      preLoaderRoute: typeof LeadsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pipeline': {
+      id: '/pipeline'
+      path: '/pipeline'
+      fullPath: '/pipeline'
+      preLoaderRoute: typeof PipelineRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/products': {
+      id: '/products'
+      path: '/products'
+      fullPath: '/products'
+      preLoaderRoute: typeof ProductsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reports': {
+      id: '/reports'
+      path: '/reports'
+      fullPath: '/reports'
+      preLoaderRoute: typeof ReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AgentsRoute: AgentsRoute,
+  AiChatRoute: AiChatRoute,
+  AnalyticsRoute: AnalyticsRoute,
+  AutomationRoute: AutomationRoute,
+  ChannelsRoute: ChannelsRoute,
   CommandCenterRoute: CommandCenterRoute,
+  CustomersRoute: CustomersRoute,
+  HumanSupportRoute: HumanSupportRoute,
+  InboxRoute: InboxRoute,
+  KnowledgeRoute: KnowledgeRoute,
+  LeadsRoute: LeadsRoute,
+  PipelineRoute: PipelineRoute,
+  ProductsRoute: ProductsRoute,
+  ReportsRoute: ReportsRoute,
+  SettingsRoute: SettingsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

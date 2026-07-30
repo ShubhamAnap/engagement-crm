@@ -85,21 +85,25 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "EnerTech Engage — AI Customer Engagement Platform" },
+      { title: "Dashboard — EnerTech Engage" },
       {
         name: "description",
         content:
-          "Omnichannel AI customer engagement platform for EnerTech UPS Pvt. Ltd. — inbox, AI agents, CRM and analytics.",
+          "Live operations dashboard: conversations, AI resolution rate, escalations, leads and revenue for EnerTech UPS.",
       },
       { name: "author", content: "EnerTech UPS Pvt. Ltd." },
-      { property: "og:title", content: "EnerTech Engage" },
+      { property: "og:title", content: "Dashboard — EnerTech Engage" },
       {
         property: "og:description",
-        content: "Omnichannel AI customer engagement platform for EnerTech UPS Pvt. Ltd.",
+        content: "Live operations dashboard: conversations, AI resolution rate, escalations, leads and revenue for EnerTech UPS.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "Dashboard — EnerTech Engage" },
+      { name: "twitter:description", content: "Live operations dashboard: conversations, AI resolution rate, escalations, leads and revenue for EnerTech UPS." },
+      { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/3217ce3f-b8cb-4968-8df6-3564a6f5c307" },
+      { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/3217ce3f-b8cb-4968-8df6-3564a6f5c307" },
     ],
     links: [
       { rel: "preconnect", href: "https://fonts.googleapis.com" },

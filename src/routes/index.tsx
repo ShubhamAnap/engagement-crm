@@ -41,7 +41,7 @@ export const Route = createFileRoute("/")({
       { property: "og:title", content: "Dashboard — EnerTech Engage" },
       {
         property: "og:description",
-        content: "Live operations dashboard for EnerTech UPS customer engagement.",
+        content: "Live operations dashboard: conversations, AI resolution rate, escalations, leads and revenue for EnerTech UPS.",
       },
     ],
   }),

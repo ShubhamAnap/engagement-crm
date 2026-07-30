@@ -68,17 +68,21 @@ const groups: { label: string; items: Item[] }[] = [
 export function AppSidebar({
   collapsed,
   onToggle,
+  mobile = false,
 }: {
   collapsed: boolean;
   onToggle: () => void;
+  mobile?: boolean;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   return (
     <aside
       className={cn(
-        "sticky top-0 hidden h-screen shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200 md:flex",
+        "sticky top-0 h-screen shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200",
+        mobile ? "flex w-[248px]" : "hidden md:flex",
         collapsed ? "w-[68px]" : "w-[248px]",
+        mobile && "w-[248px]",
       )}
     >
       <div className="flex h-14 items-center gap-2.5 border-b border-sidebar-border px-4">
@@ -151,7 +155,7 @@ export function AppSidebar({
       </nav>
 
       <div className="border-t border-sidebar-border p-2.5">
-        <Button
+        {!mobile && <Button
           variant="ghost"
           size="sm"
           onClick={onToggle}
@@ -160,7 +164,7 @@ export function AppSidebar({
         >
           <ChevronsLeft className={cn("size-4 transition-transform", collapsed && "rotate-180")} />
           {!collapsed && <span className="text-xs">Collapse</span>}
-        </Button>
+        </Button>}
       </div>
     </aside>
   );

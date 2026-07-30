@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EnerTech widget demo site</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        background: #f7f3ea;
+        color: #1c1917;
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 64px 24px;
+      }
+      h1 {
+        font-size: 2.4rem;
+        margin-bottom: 0.4rem;
+      }
+      p {
+        line-height: 1.6;
+        color: #44403c;
+      }
+      .note {
+        margin-top: 2rem;
+        padding: 1rem 1.25rem;
+        border: 1px solid #d6d3d1;
+        background: #fff;
+        border-radius: 8px;
+        font-family: system-ui, sans-serif;
+        font-size: 14px;
+      }
+      code {
+        font-family: ui-monospace, monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Sample customer website</h1>
+      <p>
+        This page simulates any customer site. The EnerTech chat bubble is loaded via
+        <code>widget.js</code>. Messages appear in EnerTech Engage → Inbox.
+      </p>
+      <div class="note">
+        1. Open <strong>Channels</strong> in EnerTech Engage and copy the embed snippet.<br />
+        2. Paste it here (or set <code>data-key</code> below from your <code>.env</code>
+        <code>VITE_WIDGET_PUBLIC_KEY</code>).<br />
+        3. Refresh this page, open the bubble, send a message, then check Inbox.
+      </div>
+    </main>
+
+    <script>
+      (function () {
+        var params = new URLSearchParams(location.search);
+        var key = params.get("key") || "";
+        var s = document.createElement("script");
+        s.src = "/widget.js";
+        s.async = true;
+        s.setAttribute("data-app-url", location.origin);
+        s.setAttribute("data-key", key);
+        if (!key) {
+          console.warn("[EnerTech] Add ?key=YOUR_VITE_WIDGET_PUBLIC_KEY to this URL, or paste embed code from Channels.");
+        }
+        document.body.appendChild(s);
+      })();
+    </script>
+  </body>
+</html>

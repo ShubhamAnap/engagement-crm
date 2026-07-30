@@ -22,7 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { org } from "@/data/mock";
+import { useAuth } from "@/lib/auth";
 
 type Item = { to: string; label: string; icon: typeof Inbox; badge?: string };
 
@@ -69,12 +69,17 @@ export function AppSidebar({
   collapsed,
   onToggle,
   mobile = false,
+  onNavigate,
 }: {
   collapsed: boolean;
   onToggle: () => void;
   mobile?: boolean;
+  onNavigate?: () => void;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { profile } = useAuth();
+  const orgShort = profile?.org.short ?? "EnerTech";
+  const orgPlan = profile?.org.plan ?? "Enterprise";
 
   return (
     <aside
@@ -86,17 +91,24 @@ export function AppSidebar({
       )}
     >
       <div className="flex h-14 items-center gap-2.5 border-b border-sidebar-border px-4">
-        <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
-          <Cpu className="size-4.5" />
-        </div>
-        {!collapsed && (
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
-              {org.short}
-            </p>
-            <p className="truncate text-[11px] text-muted-foreground">{org.plan} workspace</p>
+        <Link
+          to="/"
+          onClick={() => onNavigate?.()}
+          className="flex min-w-0 items-center gap-2.5"
+          aria-label="Go to dashboard"
+        >
+          <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
+            <Cpu className="size-4.5" />
           </div>
-        )}
+          {!collapsed && (
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
+                {orgShort}
+              </p>
+              <p className="truncate text-[11px] text-muted-foreground">{orgPlan} workspace</p>
+            </div>
+          )}
+        </Link>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2.5 py-3" aria-label="Main">
@@ -114,6 +126,7 @@ export function AppSidebar({
                 const link = (
                   <Link
                     to={item.to}
+                    onClick={() => onNavigate?.()}
                     className={cn(
                       "group flex h-9 items-center gap-2.5 rounded-lg px-2 text-sm font-medium transition-colors",
                       active
@@ -155,16 +168,21 @@ export function AppSidebar({
       </nav>
 
       <div className="border-t border-sidebar-border p-2.5">
-        {!mobile && <Button
-          variant="ghost"
-          size="sm"
-          onClick={onToggle}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className={cn("w-full justify-start gap-2 text-muted-foreground", collapsed && "justify-center")}
-        >
-          <ChevronsLeft className={cn("size-4 transition-transform", collapsed && "rotate-180")} />
-          {!collapsed && <span className="text-xs">Collapse</span>}
-        </Button>}
+        {!mobile && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onToggle}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className={cn(
+              "w-full justify-start gap-2 text-muted-foreground",
+              collapsed && "justify-center",
+            )}
+          >
+            <ChevronsLeft className={cn("size-4 transition-transform", collapsed && "rotate-180")} />
+            {!collapsed && <span className="text-xs">Collapse</span>}
+          </Button>
+        )}
       </div>
     </aside>
   );

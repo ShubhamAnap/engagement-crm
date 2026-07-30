@@ -1,24 +1,41 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { PageHeader, Panel, Pill, Toolbar, TablePagination, StatCard, ChannelIcon, ScoreBar, EmptyState } from "@/components/shared/ui-kit";
+import { PageHeader, Panel, Pill, StatCard } from "@/components/shared/ui-kit";
 import { AlertTriangle, BookOpen, Brain, Target } from "lucide-react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/ai-chat")({
   head: () => ({
     meta: [
       { title: "AI Chat Support — EnerTech Engage" },
-      { name: "description", content: "Inspect what the AI retrieved, remembered and reasoned before every answer it sent." },
+      {
+        name: "description",
+        content: "Inspect what the AI retrieved, remembered and reasoned before every answer it sent.",
+      },
       { property: "og:title", content: "AI Chat Support — EnerTech Engage" },
-      { property: "og:description", content: "Inspect what the AI retrieved, remembered and reasoned before every answer it sent." },
+      {
+        property: "og:description",
+        content: "Inspect what the AI retrieved, remembered and reasoned before every answer it sent.",
+      },
     ],
   }),
   component: Page,
 });
 
 function Page() {
+  const navigate = useNavigate();
+
   return (
     <>
-      <PageHeader title="AI Chat Support" description="Inspect what the AI retrieved, remembered and reasoned before every answer it sent." actions={<Button size="sm">Open playground</Button>} />
+      <PageHeader
+        title="AI Chat Support"
+        description="Inspect what the AI retrieved, remembered and reasoned before every answer it sent."
+        actions={
+          <Button size="sm" onClick={() => navigate({ to: "/inbox" })}>
+            Open inbox
+          </Button>
+        }
+      />
       <div className="space-y-4 p-6">
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard label="Answers Today" value="1,284" delta="+8.1%" trend="up" icon={Brain} />
@@ -28,16 +45,33 @@ function Page() {
         </div>
         <div className="grid gap-4 lg:grid-cols-2">
           <Panel title="Answer Inspector" description="CV-4821 · message #4">
-            <p className="rounded-lg bg-secondary p-3 text-sm">12 × 42Ah in the same string configuration gives roughly 68–74 minutes at the same load.</p>
+            <p className="rounded-lg bg-secondary p-3 text-sm">
+              12 × 42Ah in the same string configuration gives roughly 68–74 minutes at the same load.
+            </p>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              <div className="rounded-lg border border-border p-2.5"><p className="text-[11px] uppercase text-muted-foreground">Confidence</p><p className="num text-lg font-semibold text-success">0.91</p></div>
-              <div className="rounded-lg border border-border p-2.5"><p className="text-[11px] uppercase text-muted-foreground">Hallucination risk</p><p className="num text-lg font-semibold">Low</p></div>
+              <div className="rounded-lg border border-border p-2.5">
+                <p className="text-[11px] uppercase text-muted-foreground">Confidence</p>
+                <p className="num text-lg font-semibold text-success">0.91</p>
+              </div>
+              <div className="rounded-lg border border-border p-2.5">
+                <p className="text-[11px] uppercase text-muted-foreground">Hallucination risk</p>
+                <p className="num text-lg font-semibold">Low</p>
+              </div>
             </div>
             <p className="mt-3 text-xs uppercase text-muted-foreground">Retrieved documents</p>
             <ul className="mt-1.5 space-y-1.5 text-sm">
-              <li className="flex justify-between rounded-lg border border-border px-3 py-2"><span>Battery Runtime Matrix 2026</span><Pill tone="success">0.94</Pill></li>
-              <li className="flex justify-between rounded-lg border border-border px-3 py-2"><span>EN-3000X Datasheet v4.2</span><Pill tone="success">0.89</Pill></li>
-              <li className="flex justify-between rounded-lg border border-border px-3 py-2"><span>SMF Battery Ageing Guide</span><Pill tone="warning">0.62</Pill></li>
+              <li className="flex justify-between rounded-lg border border-border px-3 py-2">
+                <span>Battery Runtime Matrix 2026</span>
+                <Pill tone="success">0.94</Pill>
+              </li>
+              <li className="flex justify-between rounded-lg border border-border px-3 py-2">
+                <span>EN-3000X Datasheet v4.2</span>
+                <Pill tone="success">0.89</Pill>
+              </li>
+              <li className="flex justify-between rounded-lg border border-border px-3 py-2">
+                <span>SMF Battery Ageing Guide</span>
+                <Pill tone="warning">0.62</Pill>
+              </li>
             </ul>
           </Panel>
           <div className="space-y-4">
@@ -50,13 +84,35 @@ function Page() {
               </ol>
             </Panel>
             <Panel title="Memory">
-              <p className="text-sm text-muted-foreground">Remembers: Kochi site, existing EN-1000X units, distributor slab B, prefers WhatsApp.</p>
+              <p className="text-sm text-muted-foreground">
+                Remembers: Kochi site, existing EN-1000X units, distributor slab B, prefers WhatsApp.
+              </p>
             </Panel>
             <Panel title="Product Recommendation">
-              <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-medium">EN-3000X + 12 × EN-SMF42</p><p className="text-xs text-muted-foreground">Recommendation weight 0.94</p></div><Pill tone="primary">₹1,02,340</Pill></div>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">EN-3000X + 12 × EN-SMF42</p>
+                  <p className="text-xs text-muted-foreground">Recommendation weight 0.94</p>
+                </div>
+                <Pill tone="primary">₹1,02,340</Pill>
+              </div>
             </Panel>
             <Panel title="Suggested Next Action">
-              <div className="flex flex-wrap gap-2"><Button size="sm">Send quotation</Button><Button size="sm" variant="outline">Schedule site visit</Button><Button size="sm" variant="outline">Escalate to human</Button></div>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" onClick={() => navigate({ to: "/leads" })}>
+                  Send quotation
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => toast("Site visit scheduling comes in a later phase")}
+                >
+                  Schedule site visit
+                </Button>
+                <Button size="sm" variant="outline" asChild>
+                  <Link to="/human-support">Escalate to human</Link>
+                </Button>
+              </div>
             </Panel>
           </div>
         </div>

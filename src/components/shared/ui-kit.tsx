@@ -16,6 +16,7 @@ import {
   Search,
   SlidersHorizontal,
   ArrowUpDown,
+  Store,
   type LucideIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -179,6 +180,7 @@ export const channelMeta: Record<
   email: { label: "Email", icon: Mail, tone: "neutral" },
   instagram: { label: "Instagram", icon: Instagram, tone: "danger" },
   facebook: { label: "Facebook", icon: Facebook, tone: "info" },
+  indiamart: { label: "IndiaMART", icon: Store, tone: "warning" },
   api: { label: "API", icon: Globe, tone: "primary" },
   webhook: { label: "Webhook", icon: Globe, tone: "warning" },
 };
@@ -207,12 +209,18 @@ export function Toolbar({
   onChange,
   right,
   children,
+  filter,
+  sort,
 }: {
   placeholder?: string;
   value?: string;
   onChange?: (v: string) => void;
   right?: ReactNode;
   children?: ReactNode;
+  /** Custom Filter control. Pass `null` to hide. Omit for default inert button. */
+  filter?: ReactNode | null;
+  /** Custom Sort control. Pass `null` to hide. Omit for default inert button. */
+  sort?: ReactNode | null;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
@@ -227,12 +235,20 @@ export function Toolbar({
         />
       </div>
       {children}
-      <Button variant="outline" size="sm" className="h-9 gap-1.5">
-        <SlidersHorizontal className="size-4" /> Filter
-      </Button>
-      <Button variant="outline" size="sm" className="h-9 gap-1.5">
-        <ArrowUpDown className="size-4" /> Sort
-      </Button>
+      {filter === null
+        ? null
+        : (filter ?? (
+            <Button variant="outline" size="sm" className="h-9 gap-1.5" type="button" disabled>
+              <SlidersHorizontal className="size-4" /> Filter
+            </Button>
+          ))}
+      {sort === null
+        ? null
+        : (sort ?? (
+            <Button variant="outline" size="sm" className="h-9 gap-1.5" type="button" disabled>
+              <ArrowUpDown className="size-4" /> Sort
+            </Button>
+          ))}
       {right}
     </div>
   );
@@ -252,13 +268,13 @@ export function TablePagination({ total, shown }: { total: number; shown: number
         <Button variant="secondary" size="icon" className="size-8" aria-label="Page 1">
           1
         </Button>
-        <Button variant="ghost" size="icon" className="size-8" aria-label="Page 2">
+        <Button variant="ghost" size="icon" className="size-8" aria-label="Page 2" disabled title="Pagination coming soon">
           2
         </Button>
-        <Button variant="ghost" size="icon" className="size-8" aria-label="Page 3">
+        <Button variant="ghost" size="icon" className="size-8" aria-label="Page 3" disabled title="Pagination coming soon">
           3
         </Button>
-        <Button variant="outline" size="icon" className="size-8" aria-label="Next page">
+        <Button variant="outline" size="icon" className="size-8" aria-label="Next page" disabled title="Pagination coming soon">
           <ChevronRight className="size-4" />
         </Button>
       </div>

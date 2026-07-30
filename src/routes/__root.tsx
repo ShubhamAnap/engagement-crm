@@ -4,13 +4,15 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
+  useNavigate,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
-import { reportLovableError } from "../lib/lovable-error-reporting";
+import { reportClientError } from "../lib/error-reporting";
 import { useState } from "react";
 import { ThemeProvider, themeInitScript } from "@/lib/theme";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -19,6 +21,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { TopBar } from "@/components/layout/TopBar";
 import { ChatWidget } from "@/components/ChatWidget";
+import { AuthProvider, useAuth } from "@/lib/auth";
 
 function NotFoundComponent() {
   return (
@@ -46,7 +49,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
   useEffect(() => {
-    reportLovableError(error, { boundary: "tanstack_root_error_component" });
+    reportClientError(error, { boundary: "root_error_component" });
   }, [error]);
 
   return (
@@ -85,25 +88,27 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Dashboard — EnerTech Engage" },
+      { title: "EnerTech Engage" },
       {
         name: "description",
         content:
-          "Live operations dashboard: conversations, AI resolution rate, escalations, leads and revenue for EnerTech UPS.",
+          "AI customer engagement platform for EnerTech UPS — conversations, leads, knowledge and support.",
       },
       { name: "author", content: "EnerTech UPS Pvt. Ltd." },
-      { property: "og:title", content: "Dashboard — EnerTech Engage" },
+      { property: "og:title", content: "EnerTech Engage" },
       {
         property: "og:description",
-        content: "Live operations dashboard: conversations, AI resolution rate, escalations, leads and revenue for EnerTech UPS.",
+        content:
+          "AI customer engagement platform for EnerTech UPS — conversations, leads, knowledge and support.",
       },
       { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@Lovable" },
-      { name: "twitter:title", content: "Dashboard — EnerTech Engage" },
-      { name: "twitter:description", content: "Live operations dashboard: conversations, AI resolution rate, escalations, leads and revenue for EnerTech UPS." },
-      { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/3217ce3f-b8cb-4968-8df6-3564a6f5c307" },
-      { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/3217ce3f-b8cb-4968-8df6-3564a6f5c307" },
+      { name: "twitter:card", content: "summary" },
+      { name: "twitter:title", content: "EnerTech Engage" },
+      {
+        name: "twitter:description",
+        content:
+          "AI customer engagement platform for EnerTech UPS — conversations, leads, knowledge and support.",
+      },
     ],
     links: [
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -128,11 +133,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
-      <body>
+      <body suppressHydrationWarning>
         {children}
         <Scripts />
       </body>
@@ -142,33 +147,91 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
-  const [collapsed, setCollapsed] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <TooltipProvider delayDuration={200}>
-          <div className="flex min-h-screen w-full bg-background">
-            <AppSidebar collapsed={collapsed} onToggle={() => setCollapsed((v) => !v)} />
-            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-              <SheetContent side="left" className="w-[248px] p-0">
-                <SheetTitle className="sr-only">Navigation</SheetTitle>
-                <AppSidebar collapsed={false} onToggle={() => {}} mobile />
-              </SheetContent>
-            </Sheet>
-            <div className="flex min-w-0 flex-1 flex-col">
-              <TopBar onOpenMobileNav={() => setMobileOpen(true)} />
-              <main className="min-w-0 flex-1">
-                {/* Required: nested routes render here. */}
-                <Outlet />
-              </main>
-            </div>
-          </div>
-          <ChatWidget />
-          <Toaster position="bottom-left" />
+          <AuthProvider>
+            <AuthenticatedShell />
+            <Toaster position="bottom-left" />
+          </AuthProvider>
         </TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>
+  );
+}
+
+function AuthenticatedShell() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const navigate = useNavigate();
+  const { session, loading } = useAuth();
+  const [mounted, setMounted] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const isLogin = pathname === "/login";
+  const isEmbed = pathname === "/embed";
+  const isPublic = isLogin || isEmbed;
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!session && !isPublic) {
+      void navigate({ to: "/login" });
+    }
+  }, [loading, session, isPublic, navigate]);
+
+  // Close mobile drawer after route changes
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
+  if (isPublic) {
+    return <Outlet />;
+  }
+
+  if (!mounted || loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
+        Loading workspace…
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
+        Redirecting to sign in…
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="flex min-h-screen w-full bg-background">
+        <AppSidebar collapsed={collapsed} onToggle={() => setCollapsed((v) => !v)} />
+        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+          <SheetContent side="left" className="w-[248px] p-0">
+            <SheetTitle className="sr-only">Navigation</SheetTitle>
+            <AppSidebar
+              collapsed={false}
+              onToggle={() => {}}
+              mobile
+              onNavigate={() => setMobileOpen(false)}
+            />
+          </SheetContent>
+        </Sheet>
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <TopBar onOpenMobileNav={() => setMobileOpen(true)} />
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
+            <Outlet />
+          </main>
+        </div>
+      </div>
+      <ChatWidget />
+    </>
   );
 }

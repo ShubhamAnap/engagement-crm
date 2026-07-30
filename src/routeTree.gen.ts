@@ -17,14 +17,21 @@ import { Route as AutomationRouteImport } from './routes/automation'
 import { Route as ChannelsRouteImport } from './routes/channels'
 import { Route as CommandCenterRouteImport } from './routes/command-center'
 import { Route as CustomersRouteImport } from './routes/customers'
+import { Route as EmbedRouteImport } from './routes/embed'
 import { Route as HumanSupportRouteImport } from './routes/human-support'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as KnowledgeRouteImport } from './routes/knowledge'
 import { Route as LeadsRouteImport } from './routes/leads'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as PipelineRouteImport } from './routes/pipeline'
 import { Route as ProductsRouteImport } from './routes/products'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as ApiWebhooksEmailRouteImport } from './routes/api/webhooks/email'
+import { Route as ApiWebhooksFacebookRouteImport } from './routes/api/webhooks/facebook'
+import { Route as ApiWebhooksIndiamartRouteImport } from './routes/api/webhooks/indiamart'
+import { Route as ApiWebhooksInstagramRouteImport } from './routes/api/webhooks/instagram'
+import { Route as ApiWebhooksWhatsappRouteImport } from './routes/api/webhooks/whatsapp'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -66,6 +73,11 @@ const CustomersRoute = CustomersRouteImport.update({
   path: '/customers',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EmbedRoute = EmbedRouteImport.update({
+  id: '/embed',
+  path: '/embed',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const HumanSupportRoute = HumanSupportRouteImport.update({
   id: '/human-support',
   path: '/human-support',
@@ -84,6 +96,11 @@ const KnowledgeRoute = KnowledgeRouteImport.update({
 const LeadsRoute = LeadsRouteImport.update({
   id: '/leads',
   path: '/leads',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PipelineRoute = PipelineRouteImport.update({
@@ -106,6 +123,31 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWebhooksEmailRoute = ApiWebhooksEmailRouteImport.update({
+  id: '/api/webhooks/email',
+  path: '/api/webhooks/email',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWebhooksFacebookRoute = ApiWebhooksFacebookRouteImport.update({
+  id: '/api/webhooks/facebook',
+  path: '/api/webhooks/facebook',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWebhooksIndiamartRoute = ApiWebhooksIndiamartRouteImport.update({
+  id: '/api/webhooks/indiamart',
+  path: '/api/webhooks/indiamart',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWebhooksInstagramRoute = ApiWebhooksInstagramRouteImport.update({
+  id: '/api/webhooks/instagram',
+  path: '/api/webhooks/instagram',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWebhooksWhatsappRoute = ApiWebhooksWhatsappRouteImport.update({
+  id: '/api/webhooks/whatsapp',
+  path: '/api/webhooks/whatsapp',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -116,14 +158,21 @@ export interface FileRoutesByFullPath {
   '/channels': typeof ChannelsRoute
   '/command-center': typeof CommandCenterRoute
   '/customers': typeof CustomersRoute
+  '/embed': typeof EmbedRoute
   '/human-support': typeof HumanSupportRoute
   '/inbox': typeof InboxRoute
   '/knowledge': typeof KnowledgeRoute
   '/leads': typeof LeadsRoute
+  '/login': typeof LoginRoute
   '/pipeline': typeof PipelineRoute
   '/products': typeof ProductsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
+  '/api/webhooks/email': typeof ApiWebhooksEmailRoute
+  '/api/webhooks/facebook': typeof ApiWebhooksFacebookRoute
+  '/api/webhooks/indiamart': typeof ApiWebhooksIndiamartRoute
+  '/api/webhooks/instagram': typeof ApiWebhooksInstagramRoute
+  '/api/webhooks/whatsapp': typeof ApiWebhooksWhatsappRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -134,14 +183,21 @@ export interface FileRoutesByTo {
   '/channels': typeof ChannelsRoute
   '/command-center': typeof CommandCenterRoute
   '/customers': typeof CustomersRoute
+  '/embed': typeof EmbedRoute
   '/human-support': typeof HumanSupportRoute
   '/inbox': typeof InboxRoute
   '/knowledge': typeof KnowledgeRoute
   '/leads': typeof LeadsRoute
+  '/login': typeof LoginRoute
   '/pipeline': typeof PipelineRoute
   '/products': typeof ProductsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
+  '/api/webhooks/email': typeof ApiWebhooksEmailRoute
+  '/api/webhooks/facebook': typeof ApiWebhooksFacebookRoute
+  '/api/webhooks/indiamart': typeof ApiWebhooksIndiamartRoute
+  '/api/webhooks/instagram': typeof ApiWebhooksInstagramRoute
+  '/api/webhooks/whatsapp': typeof ApiWebhooksWhatsappRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -153,14 +209,21 @@ export interface FileRoutesById {
   '/channels': typeof ChannelsRoute
   '/command-center': typeof CommandCenterRoute
   '/customers': typeof CustomersRoute
+  '/embed': typeof EmbedRoute
   '/human-support': typeof HumanSupportRoute
   '/inbox': typeof InboxRoute
   '/knowledge': typeof KnowledgeRoute
   '/leads': typeof LeadsRoute
+  '/login': typeof LoginRoute
   '/pipeline': typeof PipelineRoute
   '/products': typeof ProductsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
+  '/api/webhooks/email': typeof ApiWebhooksEmailRoute
+  '/api/webhooks/facebook': typeof ApiWebhooksFacebookRoute
+  '/api/webhooks/indiamart': typeof ApiWebhooksIndiamartRoute
+  '/api/webhooks/instagram': typeof ApiWebhooksInstagramRoute
+  '/api/webhooks/whatsapp': typeof ApiWebhooksWhatsappRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -173,14 +236,21 @@ export interface FileRouteTypes {
     | '/channels'
     | '/command-center'
     | '/customers'
+    | '/embed'
     | '/human-support'
     | '/inbox'
     | '/knowledge'
     | '/leads'
+    | '/login'
     | '/pipeline'
     | '/products'
     | '/reports'
     | '/settings'
+    | '/api/webhooks/email'
+    | '/api/webhooks/facebook'
+    | '/api/webhooks/indiamart'
+    | '/api/webhooks/instagram'
+    | '/api/webhooks/whatsapp'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -191,14 +261,21 @@ export interface FileRouteTypes {
     | '/channels'
     | '/command-center'
     | '/customers'
+    | '/embed'
     | '/human-support'
     | '/inbox'
     | '/knowledge'
     | '/leads'
+    | '/login'
     | '/pipeline'
     | '/products'
     | '/reports'
     | '/settings'
+    | '/api/webhooks/email'
+    | '/api/webhooks/facebook'
+    | '/api/webhooks/indiamart'
+    | '/api/webhooks/instagram'
+    | '/api/webhooks/whatsapp'
   id:
     | '__root__'
     | '/'
@@ -209,14 +286,21 @@ export interface FileRouteTypes {
     | '/channels'
     | '/command-center'
     | '/customers'
+    | '/embed'
     | '/human-support'
     | '/inbox'
     | '/knowledge'
     | '/leads'
+    | '/login'
     | '/pipeline'
     | '/products'
     | '/reports'
     | '/settings'
+    | '/api/webhooks/email'
+    | '/api/webhooks/facebook'
+    | '/api/webhooks/indiamart'
+    | '/api/webhooks/instagram'
+    | '/api/webhooks/whatsapp'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -228,14 +312,21 @@ export interface RootRouteChildren {
   ChannelsRoute: typeof ChannelsRoute
   CommandCenterRoute: typeof CommandCenterRoute
   CustomersRoute: typeof CustomersRoute
+  EmbedRoute: typeof EmbedRoute
   HumanSupportRoute: typeof HumanSupportRoute
   InboxRoute: typeof InboxRoute
   KnowledgeRoute: typeof KnowledgeRoute
   LeadsRoute: typeof LeadsRoute
+  LoginRoute: typeof LoginRoute
   PipelineRoute: typeof PipelineRoute
   ProductsRoute: typeof ProductsRoute
   ReportsRoute: typeof ReportsRoute
   SettingsRoute: typeof SettingsRoute
+  ApiWebhooksEmailRoute: typeof ApiWebhooksEmailRoute
+  ApiWebhooksFacebookRoute: typeof ApiWebhooksFacebookRoute
+  ApiWebhooksIndiamartRoute: typeof ApiWebhooksIndiamartRoute
+  ApiWebhooksInstagramRoute: typeof ApiWebhooksInstagramRoute
+  ApiWebhooksWhatsappRoute: typeof ApiWebhooksWhatsappRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -296,6 +387,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CustomersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/embed': {
+      id: '/embed'
+      path: '/embed'
+      fullPath: '/embed'
+      preLoaderRoute: typeof EmbedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/human-support': {
       id: '/human-support'
       path: '/human-support'
@@ -322,6 +420,13 @@ declare module '@tanstack/react-router' {
       path: '/leads'
       fullPath: '/leads'
       preLoaderRoute: typeof LeadsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pipeline': {
@@ -352,6 +457,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/webhooks/email': {
+      id: '/api/webhooks/email'
+      path: '/api/webhooks/email'
+      fullPath: '/api/webhooks/email'
+      preLoaderRoute: typeof ApiWebhooksEmailRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/webhooks/facebook': {
+      id: '/api/webhooks/facebook'
+      path: '/api/webhooks/facebook'
+      fullPath: '/api/webhooks/facebook'
+      preLoaderRoute: typeof ApiWebhooksFacebookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/webhooks/indiamart': {
+      id: '/api/webhooks/indiamart'
+      path: '/api/webhooks/indiamart'
+      fullPath: '/api/webhooks/indiamart'
+      preLoaderRoute: typeof ApiWebhooksIndiamartRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/webhooks/instagram': {
+      id: '/api/webhooks/instagram'
+      path: '/api/webhooks/instagram'
+      fullPath: '/api/webhooks/instagram'
+      preLoaderRoute: typeof ApiWebhooksInstagramRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/webhooks/whatsapp': {
+      id: '/api/webhooks/whatsapp'
+      path: '/api/webhooks/whatsapp'
+      fullPath: '/api/webhooks/whatsapp'
+      preLoaderRoute: typeof ApiWebhooksWhatsappRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -364,15 +504,32 @@ const rootRouteChildren: RootRouteChildren = {
   ChannelsRoute: ChannelsRoute,
   CommandCenterRoute: CommandCenterRoute,
   CustomersRoute: CustomersRoute,
+  EmbedRoute: EmbedRoute,
   HumanSupportRoute: HumanSupportRoute,
   InboxRoute: InboxRoute,
   KnowledgeRoute: KnowledgeRoute,
   LeadsRoute: LeadsRoute,
+  LoginRoute: LoginRoute,
   PipelineRoute: PipelineRoute,
   ProductsRoute: ProductsRoute,
   ReportsRoute: ReportsRoute,
   SettingsRoute: SettingsRoute,
+  ApiWebhooksEmailRoute: ApiWebhooksEmailRoute,
+  ApiWebhooksFacebookRoute: ApiWebhooksFacebookRoute,
+  ApiWebhooksIndiamartRoute: ApiWebhooksIndiamartRoute,
+  ApiWebhooksInstagramRoute: ApiWebhooksInstagramRoute,
+  ApiWebhooksWhatsappRoute: ApiWebhooksWhatsappRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

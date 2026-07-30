@@ -9,6 +9,7 @@ import {
   Menu,
   Monitor,
   Moon,
+  Palette,
   Plus,
   Search,
   Settings,
@@ -34,8 +35,8 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "sonner";
-import { useTheme } from "@/lib/theme";
-import { currentUser } from "@/data/mock";
+import { COLOR_PALETTES, useTheme } from "@/lib/theme";
+import { useAuth } from "@/lib/auth";
 import { Pill } from "@/components/shared/ui-kit";
 
 const searchTargets = [
@@ -58,16 +59,46 @@ const searchTargets = [
 ];
 
 const notifications = [
-  { title: "Escalation from AI · Technical Agent", body: "CV-4820 · Sunrise Hospitals · confidence 0.41", time: "4m", unread: true },
-  { title: "Webhook endpoint failing", body: "orders-sync returned 502 three times", time: "22m", unread: true },
-  { title: "Quotation QT-1182 viewed", body: "Metro Datacenters opened the proposal", time: "1h", unread: false },
-  { title: "Datasheets re-indexed", body: "3,210 chunks embedded successfully", time: "2h", unread: false },
+  {
+    title: "Escalation from AI · Technical Agent",
+    body: "CV-4820 · Sunrise Hospitals · confidence 0.41",
+    time: "4m",
+    unread: true,
+    to: "/inbox" as const,
+  },
+  {
+    title: "Webhook endpoint failing",
+    body: "orders-sync returned 502 three times",
+    time: "22m",
+    unread: true,
+    to: "/channels" as const,
+  },
+  {
+    title: "Quotation QT-1182 viewed",
+    body: "Metro Datacenters opened the proposal",
+    time: "1h",
+    unread: false,
+    to: "/leads" as const,
+  },
+  {
+    title: "Datasheets re-indexed",
+    body: "3,210 chunks embedded successfully",
+    time: "2h",
+    unread: false,
+    to: "/knowledge" as const,
+  },
 ];
 
 export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
   const [open, setOpen] = useState(false);
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, palette, setPalette } = useTheme();
   const navigate = useNavigate();
+  const { profile, signOut } = useAuth();
+
+  const displayName = profile?.fullName ?? "User";
+  const displayEmail = profile?.email ?? "";
+  const displayRole = profile?.role ?? "Agent";
+  const displayInitials = profile?.initials ?? "?";
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -112,17 +143,20 @@ export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel>Create</DropdownMenuLabel>
-            <DropdownMenuItem onSelect={() => toast.success("New lead form opened")}>
+            <DropdownMenuItem onSelect={() => navigate({ to: "/leads" })}>
               New lead
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => toast.success("Quotation draft created")}>
-              New quotation
+            <DropdownMenuItem onSelect={() => navigate({ to: "/inbox" })}>
+              Open inbox
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => navigate({ to: "/knowledge" })}>
               Upload knowledge document
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => navigate({ to: "/automation" })}>
               New automation
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => navigate({ to: "/channels" })}>
+              Website embed code
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -143,29 +177,58 @@ export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
             </div>
             <ul className="max-h-80 overflow-y-auto">
               {notifications.map((n) => (
-                <li
-                  key={n.title}
-                  className="border-b border-border px-3 py-2.5 last:border-0 hover:bg-secondary/60"
-                >
-                  <div className="flex items-start gap-2">
-                    {n.unread ? (
-                      <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary" />
-                    ) : (
-                      <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-transparent" />
-                    )}
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{n.title}</p>
-                      <p className="truncate text-xs text-muted-foreground">{n.body}</p>
+                <li key={n.title} className="border-b border-border last:border-0">
+                  <button
+                    type="button"
+                    className="w-full px-3 py-2.5 text-left hover:bg-secondary/60"
+                    onClick={() => navigate({ to: n.to })}
+                  >
+                    <div className="flex items-start gap-2">
+                      {n.unread ? (
+                        <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary" />
+                      ) : (
+                        <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-transparent" />
+                      )}
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{n.title}</p>
+                        <p className="truncate text-xs text-muted-foreground">{n.body}</p>
+                      </div>
+                      <span className="num ml-auto shrink-0 text-[11px] text-muted-foreground">
+                        {n.time}
+                      </span>
                     </div>
-                    <span className="num ml-auto shrink-0 text-[11px] text-muted-foreground">
-                      {n.time}
-                    </span>
-                  </div>
+                  </button>
                 </li>
               ))}
             </ul>
           </PopoverContent>
         </Popover>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" aria-label="Choose color theme">
+              <Palette className="size-[18px]" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>Color theme</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {COLOR_PALETTES.map((item) => (
+              <DropdownMenuItem key={item.id} onSelect={() => setPalette(item.id)}>
+                <span
+                  className="size-3.5 shrink-0 rounded-full border border-border"
+                  style={{ backgroundColor: item.swatch }}
+                  aria-hidden
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm leading-tight">{item.label}</span>
+                  <span className="block text-[11px] leading-tight text-muted-foreground">{item.description}</span>
+                </span>
+                {palette === item.id ? <Check className="ml-auto size-3.5" /> : null}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -193,38 +256,46 @@ export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
             <button className="flex items-center gap-2 rounded-lg px-1.5 py-1 transition-colors hover:bg-secondary">
               <Avatar className="size-7">
                 <AvatarFallback className="bg-primary/15 text-[11px] font-semibold text-primary">
-                  {currentUser.initials}
+                  {displayInitials}
                 </AvatarFallback>
               </Avatar>
               <span className="hidden text-left lg:block">
-                <span className="block text-xs font-medium leading-tight">{currentUser.name}</span>
+                <span className="block text-xs font-medium leading-tight">{displayName}</span>
                 <span className="block text-[11px] leading-tight text-muted-foreground">
-                  {currentUser.role}
+                  {displayRole}
                 </span>
               </span>
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-60">
             <DropdownMenuLabel className="flex flex-col gap-1">
-              <span>{currentUser.name}</span>
-              <span className="text-xs font-normal text-muted-foreground">{currentUser.email}</span>
+              <span>{displayName}</span>
+              <span className="text-xs font-normal text-muted-foreground">{displayEmail}</span>
               <Pill tone="primary" className="mt-1 w-fit">
-                {currentUser.role}
+                {displayRole}
               </Pill>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
-              <Link to="/settings">
+              <Link to="/settings" search={{ tab: "profile" }}>
                 <CircleUser className="size-4" /> Profile
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
-              <Link to="/settings">
+              <Link to="/settings" search={{ tab: "company" }}>
                 <Settings className="size-4" /> Workspace settings
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => toast("Signed out of this device")}>
+            <DropdownMenuItem
+              onSelect={() => {
+                void (async () => {
+                  await signOut();
+                  toast.success("Signed out");
+                  navigate({ to: "/login" });
+                })();
+              }}
+            >
               <LogOut className="size-4" /> Sign out
             </DropdownMenuItem>
           </DropdownMenuContent>

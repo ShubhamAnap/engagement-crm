@@ -205,7 +205,7 @@ function Page() {
         requirement: form.requirement,
         productLabel: form.requirement,
         location: form.location,
-        salesPerson: form.salesPerson || matched?.name || profile.full_name || profile.email,
+        salesPerson: form.salesPerson || matched?.name || profile.fullName || profile.email,
         tags: form.tags.split(/[,;]+/).map((t) => t.trim()).filter(Boolean),
         notes: form.notes,
         status: form.status,
@@ -359,7 +359,7 @@ function Page() {
     setForm({
       ...defaultForm,
       ownerId: profile?.id || "",
-      salesPerson: profile?.full_name || profile?.email || "",
+      salesPerson: profile?.fullName || profile?.email || "",
     });
     setDialogOpen(true);
   };

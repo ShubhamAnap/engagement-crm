@@ -1,5 +1,6 @@
 ﻿import { getBrowserSupabase } from "@/lib/supabase";
 import type { DbProduct, StockStatus } from "@/lib/db-types";
+import { downloadCsv } from "@/lib/csv";
 
 const KNOWLEDGE_BUCKET = "knowledge";
 
@@ -168,4 +169,43 @@ export async function removeProductCataloguePdf(options: {
 
 export function productCatalogueHref(product: DbProduct): string | null {
   return product.catalog_pdf_url || (product.catalog_pdf_path ? publicCatalogueUrl(product.catalog_pdf_path) : null);
+}
+
+export function downloadProductsCsv(products: DbProduct[], filename?: string) {
+  const rows: string[][] = [
+    [
+      "SKU",
+      "Name",
+      "Category",
+      "Stock",
+      "Quantity",
+      "Price",
+      "Battery",
+      "Runtime",
+      "AI Weight",
+      "Catalogue URL",
+      "Created At",
+      "ID",
+    ],
+  ];
+  for (const p of products) {
+    rows.push([
+      p.sku ?? "",
+      p.name ?? "",
+      p.category ?? "",
+      p.stock_status ?? "",
+      String(p.quantity ?? ""),
+      p.price_label ?? "",
+      p.battery_spec ?? "",
+      p.runtime_spec ?? "",
+      String(p.ai_weight ?? ""),
+      productCatalogueHref(p) ?? "",
+      p.created_at ?? "",
+      p.id,
+    ]);
+  }
+  downloadCsv(
+    filename || `enertech-products-${new Date().toISOString().slice(0, 10)}.csv`,
+    rows,
+  );
 }

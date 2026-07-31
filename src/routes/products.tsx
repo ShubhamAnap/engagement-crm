@@ -38,6 +38,7 @@ import type { DbProduct, StockStatus } from "@/lib/db-types";
 import {
   createProduct,
   deleteProduct,
+  downloadProductsCsv,
   listProducts,
   productCatalogueHref,
   removeProductCataloguePdf,
@@ -256,7 +257,27 @@ function Page() {
       />
       <div className="space-y-4 p-6">
         <Panel bodyClassName="p-0">
-          <Toolbar placeholder="Search SKU, name or category…" value={search} onChange={setSearch} right={<Button size="sm" variant="outline" onClick={() => toast("Bulk actions come next")}>Bulk actions</Button>} />
+          <Toolbar
+            placeholder="Search SKU, name or category…"
+            value={search}
+            onChange={setSearch}
+            right={
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  if (filteredProducts.length === 0) {
+                    toast.message("Nothing to export");
+                    return;
+                  }
+                  downloadProductsCsv(filteredProducts);
+                  toast.success(`Exported ${filteredProducts.length} products`);
+                }}
+              >
+                Export CSV
+              </Button>
+            }
+          />
 
           {productsQuery.isLoading ? (
             <div className="p-6 text-sm text-muted-foreground">Loading products…</div>

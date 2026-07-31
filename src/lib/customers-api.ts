@@ -1,5 +1,6 @@
 ﻿import { getBrowserSupabase } from "@/lib/supabase";
 import type { DbCustomer } from "@/lib/db-types";
+import { downloadCsv } from "@/lib/csv";
 
 export type CustomerInput = {
   orgId: string;
@@ -67,4 +68,27 @@ export async function deleteCustomer(customerId: string): Promise<void> {
   const supabase = getBrowserSupabase();
   const { error } = await supabase.from("customers").delete().eq("id", customerId);
   if (error) throw error;
+}
+
+export function downloadCustomersCsv(customers: DbCustomer[], filename?: string) {
+  const rows: string[][] = [
+    ["Name", "Company", "Email", "Phone", "Notes", "Installed Base", "Created At", "ID"],
+  ];
+  for (const c of customers) {
+    const meta = (c.metadata || {}) as Record<string, unknown>;
+    rows.push([
+      c.name ?? "",
+      c.company ?? "",
+      c.email ?? "",
+      c.phone ?? "",
+      c.notes ?? "",
+      typeof meta.installedBase === "string" ? meta.installedBase : "",
+      c.created_at ?? "",
+      c.id,
+    ]);
+  }
+  downloadCsv(
+    filename || `enertech-customers-${new Date().toISOString().slice(0, 10)}.csv`,
+    rows,
+  );
 }

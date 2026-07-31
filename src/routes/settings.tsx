@@ -447,12 +447,6 @@ function Page() {
                     ) : null}
                   </div>
                 </div>
-                <p className="mt-3 text-xs text-muted-foreground">
-                  If upload fails, run{" "}
-                  <code className="rounded bg-secondary px-1">015_org_branding.sql</code> once in
-                  Supabase → SQL Editor (adds logo columns + branding bucket). The app will also try
-                  the existing knowledge bucket as a fallback.
-                </p>
               </Panel>
             </TabsContent>
 

@@ -65,6 +65,8 @@ export const TRIGGER_OPTIONS: Array<{ value: AutomationTrigger; label: string }>
 ];
 
 export const ACTION_TYPE_OPTIONS = [
+  { value: "wait", label: "Wait (delay)" },
+  { value: "if_else", label: "If / Else (branch)" },
   { value: "set_lead_priority", label: "Set lead priority" },
   { value: "set_lead_status", label: "Set lead status" },
   { value: "set_follow_up_hours", label: "Schedule follow-up (hours)" },
@@ -76,6 +78,28 @@ export const ACTION_TYPE_OPTIONS = [
   { value: "send_whatsapp_template", label: "Send WhatsApp template" },
   { value: "send_email", label: "Send email" },
   { value: "notify_team", label: "Notify team (in-app)" },
+] as const;
+
+export const LEAF_ACTION_TYPE_OPTIONS = ACTION_TYPE_OPTIONS.filter(
+  (o) => o.value !== "if_else",
+);
+
+export const CONDITION_FIELD_OPTIONS = [
+  { value: "lead_status", label: "Lead status" },
+  { value: "priority", label: "Priority" },
+  { value: "source", label: "Source" },
+  { value: "channel", label: "Channel" },
+  { value: "has_phone", label: "Has phone" },
+  { value: "has_email", label: "Has email" },
+  { value: "sales_person", label: "Sales person" },
+] as const;
+
+export const CONDITION_OP_OPTIONS = [
+  { value: "eq", label: "Equals" },
+  { value: "neq", label: "Not equals" },
+  { value: "contains", label: "Contains" },
+  { value: "is_set", label: "Is set" },
+  { value: "is_empty", label: "Is empty" },
 ] as const;
 
 export function successRate(a: DbAutomation): number {
@@ -260,8 +284,14 @@ export const testAutomationRun = createServerFn({ method: "POST" })
 
 /** Process leads whose next_follow_up_at is past (also called by cron). */
 export const processDueFollowUpsFn = createServerFn({ method: "POST" }).handler(async () => {
-  const { processDueFollowUps } = await import("@/server/automation-engine");
-  return processDueFollowUps();
+  const { processDueFollowUps, processScheduledAutomationSteps } = await import(
+    "@/server/automation-engine"
+  );
+  const [followUps, waits] = await Promise.all([
+    processDueFollowUps(),
+    processScheduledAutomationSteps(),
+  ]);
+  return { ...followUps, waits };
 });
 
 export async function listPendingApprovals(

@@ -1,10 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { processDueFollowUps } from "@/server/automation-engine";
+import {
+  processDueFollowUps,
+  processScheduledAutomationSteps,
+} from "@/server/automation-engine";
 import { tickIndiaMartBackfill } from "@/server/indiamart";
 import { tickTradeIndiaBackfill } from "@/server/tradeindia";
 
 /**
- * Scheduled jobs: due follow-ups + IndiaMART/TradeIndia backfill ticks.
+ * Scheduled jobs: due follow-ups + Wait resumes + IndiaMART/TradeIndia backfill ticks.
  * Point Render cron at:
  *   POST {VITE_APP_URL}/api/cron/automations
  * Header: Authorization: Bearer {CRON_SECRET}
@@ -16,8 +19,11 @@ export const Route = createFileRoute("/api/cron/automations")({
       GET: async ({ request }) => {
         const ok = authorize(request);
         if (!ok) return new Response("Unauthorized", { status: 401 });
-        const [followUps, indiamart, tradeindia] = await Promise.all([
+        const [followUps, waits, indiamart, tradeindia] = await Promise.all([
           processDueFollowUps(),
+          processScheduledAutomationSteps().catch((err) => ({
+            error: err instanceof Error ? err.message : "wait resume failed",
+          })),
           tickIndiaMartBackfill().catch((err) => ({
             error: err instanceof Error ? err.message : "indiamart tick failed",
           })),
@@ -25,13 +31,16 @@ export const Route = createFileRoute("/api/cron/automations")({
             error: err instanceof Error ? err.message : "tradeindia tick failed",
           })),
         ]);
-        return Response.json({ success: true, followUps, indiamart, tradeindia });
+        return Response.json({ success: true, followUps, waits, indiamart, tradeindia });
       },
       POST: async ({ request }) => {
         const ok = authorize(request);
         if (!ok) return new Response("Unauthorized", { status: 401 });
-        const [followUps, indiamart, tradeindia] = await Promise.all([
+        const [followUps, waits, indiamart, tradeindia] = await Promise.all([
           processDueFollowUps(),
+          processScheduledAutomationSteps().catch((err) => ({
+            error: err instanceof Error ? err.message : "wait resume failed",
+          })),
           tickIndiaMartBackfill().catch((err) => ({
             error: err instanceof Error ? err.message : "indiamart tick failed",
           })),
@@ -39,7 +48,7 @@ export const Route = createFileRoute("/api/cron/automations")({
             error: err instanceof Error ? err.message : "tradeindia tick failed",
           })),
         ]);
-        return Response.json({ success: true, followUps, indiamart, tradeindia });
+        return Response.json({ success: true, followUps, waits, indiamart, tradeindia });
       },
     },
   },

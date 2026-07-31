@@ -28,7 +28,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { EmptyState, PageHeader, Panel, TablePagination, Toolbar } from "@/components/shared/ui-kit";
 import { useAuth } from "@/lib/auth";
 import type { DbCustomer } from "@/lib/db-types";
-import { createCustomer, deleteCustomer, listCustomers, updateCustomer } from "@/lib/customers-api";
+import { createCustomer, deleteCustomer, downloadCustomersCsv, listCustomers, updateCustomer } from "@/lib/customers-api";
 
 type CustomerFormState = {
   name: string;
@@ -171,7 +171,22 @@ function Page() {
             placeholder="Search customers…"
             value={search}
             onChange={setSearch}
-            right={<Button size="sm" variant="outline" onClick={() => toast("CSV export comes next")}>Export CSV</Button>}
+            right={
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  if (filteredCustomers.length === 0) {
+                    toast.message("Nothing to export");
+                    return;
+                  }
+                  downloadCustomersCsv(filteredCustomers);
+                  toast.success(`Exported ${filteredCustomers.length} customers`);
+                }}
+              >
+                Export CSV
+              </Button>
+            }
           />
 
           {customersQuery.isLoading ? (

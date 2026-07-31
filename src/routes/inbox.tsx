@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -26,8 +26,9 @@ import {
   listMessages,
   markConversationRead,
   sendAgentMessage,
+  uploadAgentAttachment,
 } from "@/lib/chat-api";
-import type { ChannelType, LeadStatus, PriorityLevel } from "@/lib/db-types";
+import type { ChannelType, DbMessage, LeadStatus, PriorityLevel } from "@/lib/db-types";
 import { updateLeadStage } from "@/lib/leads-api";
 import { cn } from "@/lib/utils";
 
@@ -35,6 +36,32 @@ const filters = ["All", "Unread", "Assigned", "Website", "WhatsApp", "Instagram"
 const leadStatuses: LeadStatus[] = ["New", "Contacted", "Qualified", "Proposal", "Negotiation", "Won", "Lost"];
 const leadPriorities: PriorityLevel[] = ["High", "Medium", "Low"];
 const LAYOUT_KEY = "enertech-inbox-layout-v1";
+
+function messageAttachment(m: DbMessage): { url: string; fileName: string; isImage: boolean } | null {
+  const meta = (m.metadata || {}) as Record<string, unknown>;
+  const url = typeof meta.url === "string" ? meta.url : null;
+  const fileName =
+    (typeof meta.file_name === "string" && meta.file_name) ||
+    (url ? decodeURIComponent(url.split("/").pop() || "file") : "file");
+  if (url) {
+    const isImage =
+      String(meta.mime_type || "").startsWith("image/") ||
+      /\.(png|jpe?g|webp|gif)(\?|$)/i.test(fileName) ||
+      /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
+    return { url, fileName, isImage };
+  }
+  if (meta.attachment) {
+    const match = m.body.match(/https?:\/\/\S+/);
+    if (match) {
+      return {
+        url: match[0],
+        fileName,
+        isImage: /\.(png|jpe?g|webp|gif)(\?|$)/i.test(match[0]),
+      };
+    }
+  }
+  return null;
+}
 
 export const Route = createFileRoute("/inbox")({
   validateSearch: (search: Record<string, unknown>): { c?: string } => ({
@@ -73,6 +100,8 @@ function Page() {
   const [channelFilter, setChannelFilter] = useState<string>("All");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const attachInputRef = useRef<HTMLInputElement>(null);
   const [leadStatus, setLeadStatus] = useState<LeadStatus>("New");
   const [leadPriority, setLeadPriority] = useState<PriorityLevel>("Medium");
   const [layout, setLayout] = useState<Record<string, number> | undefined>(undefined);
@@ -186,6 +215,43 @@ function Page() {
     }
   }
 
+  async function onAttachFile(file: File) {
+    if (!selected || !profile) return;
+    setUploading(true);
+    try {
+      const msg = await uploadAgentAttachment({
+        conversationId: selected.id,
+        orgId,
+        profileId: profile.id,
+        assigneeLabel: profile.fullName || profile.email || "Human agent",
+        file,
+      });
+      const body = msg.body as string;
+      // Push file link on external channels when possible
+      if (selected.channel === "whatsapp") {
+        const { sendWhatsAppAgentReply } = await import("@/server/whatsapp");
+        await sendWhatsAppAgentReply({ data: { conversationId: selected.id, body } });
+      }
+      if (selected.channel === "email") {
+        const { sendEmailAgentReply } = await import("@/server/email");
+        await sendEmailAgentReply({ data: { conversationId: selected.id, body } });
+      }
+      if (selected.channel === "facebook" || selected.channel === "instagram") {
+        const { sendMetaAgentReply } = await import("@/server/meta-messenger");
+        await sendMetaAgentReply({ data: { conversationId: selected.id, body } });
+      }
+      await queryClient.invalidateQueries({ queryKey: ["messages", selected.id] });
+      await queryClient.invalidateQueries({ queryKey: ["conversations", orgId] });
+      toast.success("Attachment shared in conversation");
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+      if (attachInputRef.current) attachInputRef.current.value = "";
+    }
+  }
+
   async function onRefreshInbox() {
     try {
       await Promise.all([
@@ -278,14 +344,55 @@ function Page() {
             ) : (
               (messagesQuery.data ?? []).map((m) => {
                 const isCustomer = m.sender === "customer";
+                const attach = messageAttachment(m);
+                const caption = attach
+                  ? m.body.replace(attach.url, "").replace(/\n+/g, " ").trim()
+                  : m.body;
                 return (
                   <div key={m.id} className={isCustomer ? "flex justify-start" : "flex justify-end"}>
                     <div className="max-w-[min(78%,28rem)]">
-                      <div className={isCustomer ? "rounded-xl bg-secondary px-3 py-2 text-sm" : "rounded-xl bg-primary px-3 py-2 text-sm text-primary-foreground"}>{m.body}</div>
+                      <div
+                        className={
+                          isCustomer
+                            ? "rounded-xl bg-secondary px-3 py-2 text-sm"
+                            : "rounded-xl bg-primary px-3 py-2 text-sm text-primary-foreground"
+                        }
+                      >
+                        {attach?.isImage ? (
+                          <a href={attach.url} target="_blank" rel="noreferrer" className="block">
+                            <img
+                              src={attach.url}
+                              alt={attach.fileName}
+                              className="mb-1 max-h-48 max-w-full rounded-lg object-contain"
+                            />
+                            {caption ? <p>{caption}</p> : null}
+                          </a>
+                        ) : attach ? (
+                          <p>
+                            {caption ? `${caption} — ` : null}
+                            <a
+                              href={attach.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className={
+                                isCustomer
+                                  ? "underline"
+                                  : "underline text-primary-foreground"
+                              }
+                            >
+                              {attach.fileName}
+                            </a>
+                          </p>
+                        ) : (
+                          m.body
+                        )}
+                      </div>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                         <span className="num">{formatClock(m.created_at)}</span>
                         <span className="capitalize">{m.sender}</span>
-                        {m.confidence != null ? <Pill tone="success">conf {Number(m.confidence).toFixed(2)}</Pill> : null}
+                        {m.confidence != null ? (
+                          <Pill tone="success">conf {Number(m.confidence).toFixed(2)}</Pill>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -296,9 +403,49 @@ function Page() {
           <div className="shrink-0 border-t border-border p-3">
             <div className="mb-2 flex items-center gap-1.5 text-xs text-primary"><Sparkles className="size-3.5" /> Reply as {profile?.fullName || "agent"} — saved to this conversation</div>
             <div className="flex items-center gap-1.5">
-              <Button variant="ghost" size="icon" className="size-9 shrink-0" aria-label="Attach" onClick={() => toast("Attachments coming later")}><Paperclip className="size-4" /></Button>
-              <Input className="h-9" placeholder="Write a reply…" aria-label="Reply" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void onSendReply(); } }} disabled={sending} />
-              <Button size="icon" className="size-9 shrink-0" aria-label="Send" onClick={() => void onSendReply()} disabled={sending || !draft.trim()}><Send className="size-4" /></Button>
+              <input
+                ref={attachInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void onAttachFile(file);
+                }}
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-9 shrink-0"
+                aria-label="Attach"
+                disabled={uploading || sending}
+                onClick={() => attachInputRef.current?.click()}
+              >
+                <Paperclip className={`size-4 ${uploading ? "animate-pulse" : ""}`} />
+              </Button>
+              <Input
+                className="h-9"
+                placeholder={uploading ? "Uploading…" : "Write a reply…"}
+                aria-label="Reply"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void onSendReply();
+                  }
+                }}
+                disabled={sending || uploading}
+              />
+              <Button
+                size="icon"
+                className="size-9 shrink-0"
+                aria-label="Send"
+                onClick={() => void onSendReply()}
+                disabled={sending || uploading || !draft.trim()}
+              >
+                <Send className="size-4" />
+              </Button>
             </div>
           </div>
         </div>

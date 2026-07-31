@@ -112,7 +112,7 @@ function CommandCenter() {
       await claimConversation({
         conversationId: id,
         profileId: profile.id,
-        assigneeLabel: profile.full_name || profile.email,
+        assigneeLabel: profile.fullName || profile.email,
       });
     },
     onSuccess: async (_, id) => {

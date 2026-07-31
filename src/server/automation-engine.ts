@@ -1,7 +1,11 @@
 import type {
   AutomationAction,
+  AutomationConditionField,
+  AutomationConditionOp,
+  AutomationLeafAction,
   AutomationTrigger,
   AutomationTriggerConfig,
+  AutomationWaitUnit,
 } from "@/lib/automation-types";
 import { createServiceSupabase } from "@/lib/supabase";
 
@@ -21,6 +25,7 @@ export type AutomationContext = {
   email?: string | null;
   leadName?: string | null;
   company?: string | null;
+  salesPerson?: string | null;
 };
 
 function fillVars(text: string, ctx: AutomationContext): string {
@@ -59,7 +64,7 @@ async function enrichContext(
   if (out.leadId) {
     const { data: lead } = await supabase
       .from("leads")
-      .select("name, company, phone, email, source, priority, status")
+      .select("name, company, phone, email, source, priority, status, sales_person")
       .eq("id", out.leadId)
       .eq("org_id", ORG_ID)
       .maybeSingle();
@@ -71,10 +76,166 @@ async function enrichContext(
       out.source = out.source || (lead.source as string) || null;
       out.priority = out.priority || (lead.priority as string) || null;
       out.leadStatus = out.leadStatus || (lead.status as string) || null;
+      out.salesPerson = out.salesPerson || (lead.sales_person as string) || null;
     }
   }
 
   return out;
+}
+
+function conditionFieldValue(field: AutomationConditionField, ctx: AutomationContext): string {
+  switch (field) {
+    case "lead_status":
+      return (ctx.toStatus || ctx.leadStatus || "").trim();
+    case "priority":
+      return (ctx.priority || "").trim();
+    case "source":
+      return (ctx.source || "").trim();
+    case "channel":
+      return (ctx.channel || "").trim();
+    case "has_phone":
+      return ctx.phone?.trim() ? "yes" : "";
+    case "has_email":
+      return ctx.email?.trim() ? "yes" : "";
+    case "sales_person":
+      return (ctx.salesPerson || "").trim();
+    default:
+      return "";
+  }
+}
+
+function evaluateCondition(
+  field: AutomationConditionField,
+  op: AutomationConditionOp,
+  value: string | undefined,
+  ctx: AutomationContext,
+): boolean {
+  const actual = conditionFieldValue(field, ctx);
+  const expected = (value || "").trim();
+
+  switch (op) {
+    case "is_set":
+      return Boolean(actual);
+    case "is_empty":
+      return !actual;
+    case "eq":
+      return actual.toLowerCase() === expected.toLowerCase();
+    case "neq":
+      return actual.toLowerCase() !== expected.toLowerCase();
+    case "contains":
+      return actual.toLowerCase().includes(expected.toLowerCase());
+    default:
+      return false;
+  }
+}
+
+function waitMs(amount: number, unit: AutomationWaitUnit): number {
+  const n = Math.max(1, Number(amount) || 1);
+  if (unit === "days") return n * 24 * 60 * 60 * 1000;
+  if (unit === "hours") return n * 60 * 60 * 1000;
+  return n * 60 * 1000;
+}
+
+async function scheduleRemainingActions(
+  supabase: ReturnType<typeof createServiceSupabase>,
+  opts: {
+    automationId: string;
+    automationName: string;
+    ctx: AutomationContext;
+    remaining: AutomationAction[];
+    amount: number;
+    unit: AutomationWaitUnit;
+  },
+): Promise<string> {
+  const runAt = new Date(Date.now() + waitMs(opts.amount, opts.unit)).toISOString();
+  const { data, error } = await supabase
+    .from("automation_scheduled_steps")
+    .insert({
+      org_id: ORG_ID,
+      automation_id: opts.automationId,
+      automation_name: opts.automationName,
+      lead_id: opts.ctx.leadId || null,
+      conversation_id: opts.ctx.conversationId || null,
+      context: opts.ctx,
+      remaining_actions: opts.remaining,
+      run_at: runAt,
+      status: "pending",
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    // Table may not exist yet — fail clearly
+    throw new Error(
+      error.message.includes("automation_scheduled_steps")
+        ? "Wait requires migration 016_automation_wait_branch.sql"
+        : error.message,
+    );
+  }
+  return `${runAt}:${data.id as string}`;
+}
+
+type SequenceResult = { steps: string[]; paused: boolean };
+
+/**
+ * Run actions in order. Wait pauses and schedules the rest (plus parent continuation).
+ * If/Else picks Yes/No branch; wait inside a branch also continues the parent after the branch.
+ */
+async function runActionSequence(
+  supabase: ReturnType<typeof createServiceSupabase>,
+  actions: AutomationAction[],
+  ctx: AutomationContext,
+  meta: { automationId: string; automationName: string },
+  continuation: AutomationAction[] = [],
+): Promise<SequenceResult> {
+  const steps: string[] = [];
+
+  for (let i = 0; i < actions.length; i++) {
+    const action = actions[i];
+
+    if (action.type === "wait") {
+      const remaining = [...actions.slice(i + 1), ...continuation];
+      const scheduled = await scheduleRemainingActions(supabase, {
+        automationId: meta.automationId,
+        automationName: meta.automationName,
+        ctx,
+        remaining,
+        amount: action.amount,
+        unit: action.unit,
+      });
+      steps.push(`wait:${action.amount}${action.unit}->${scheduled}`);
+      return { steps, paused: true };
+    }
+
+    if (action.type === "if_else") {
+      const pass = evaluateCondition(action.field, action.op, action.value, ctx);
+      const branch = (pass ? action.thenActions : action.elseActions) || [];
+      steps.push(
+        `if_else:${action.field}:${action.op}:${action.value || ""}→${pass ? "yes" : "no"}`,
+      );
+      const parentAfter = [...actions.slice(i + 1), ...continuation];
+      const sub = await runActionSequence(
+        supabase,
+        branch as AutomationAction[],
+        ctx,
+        meta,
+        parentAfter,
+      );
+      steps.push(...sub.steps);
+      if (sub.paused) return { steps, paused: true };
+      continue;
+    }
+
+    try {
+      steps.push(await executeLeafAction(supabase, action, ctx));
+    } catch (stepErr) {
+      const msg = stepErr instanceof Error ? stepErr.message : "step failed";
+      steps.push(`error:${action.type}:${msg}`);
+      throw new Error(msg);
+    }
+  }
+
+  return { steps, paused: false };
 }
 
 function configMatch(expected: unknown, actual: string | null | undefined): boolean {
@@ -98,12 +259,14 @@ function matchesTriggerConfig(
   return true;
 }
 
-async function executeAction(
+async function executeLeafAction(
   supabase: ReturnType<typeof createServiceSupabase>,
-  action: AutomationAction,
+  action: AutomationLeafAction,
   ctx: AutomationContext,
 ): Promise<string> {
   switch (action.type) {
+    case "wait":
+      return "skipped:wait (use sequence runner)";
     case "set_lead_priority": {
       if (!ctx.leadId) return "skipped:set_lead_priority (no lead)";
       await supabase
@@ -281,6 +444,10 @@ function actionBrief(actions: AutomationAction[]): string {
           return `Status ${a.status}`;
         case "set_sales_person":
           return `Sales ${a.salesPerson}`;
+        case "wait":
+          return `Wait ${a.amount}${a.unit[0]}`;
+        case "if_else":
+          return `If ${a.field} ${a.op}${a.value ? ` ${a.value}` : ""}`;
         default:
           return a.type;
       }
@@ -363,22 +530,16 @@ async function executeAutomationRow(
   auto: DbAutomation,
   trigger: string,
   enriched: AutomationContext,
-): Promise<{ ok: boolean; steps: string[]; error?: string }> {
-  const results: string[] = [];
-  let failed: string | null = null;
+): Promise<{ ok: boolean; steps: string[]; error?: string; paused?: boolean }> {
   const actions = Array.isArray(auto.actions) ? auto.actions : [];
+  let results: string[] = [];
 
   try {
-    for (const action of actions) {
-      try {
-        results.push(await executeAction(supabase, action as AutomationAction, enriched));
-      } catch (stepErr) {
-        const msg = stepErr instanceof Error ? stepErr.message : "step failed";
-        results.push(`error:${(action as AutomationAction).type}:${msg}`);
-        failed = msg;
-      }
-    }
-    if (failed) throw new Error(failed);
+    const seq = await runActionSequence(supabase, actions, enriched, {
+      automationId: auto.id,
+      automationName: auto.name,
+    });
+    results = seq.steps;
 
     await supabase
       .from("automations")
@@ -391,12 +552,12 @@ async function executeAutomationRow(
     await supabase.from("automation_runs").insert({
       org_id: ORG_ID,
       automation_id: auto.id,
-      status: "success",
+      status: seq.paused ? "scheduled" : "success",
       trigger_type: trigger,
       input: enriched,
-      output: { steps: results },
+      output: { steps: results, paused: seq.paused },
     });
-    return { ok: true, steps: results };
+    return { ok: true, steps: results, paused: seq.paused };
   } catch (err) {
     const message = err instanceof Error ? err.message : "run failed";
     await supabase
@@ -719,6 +880,114 @@ export async function processDueFollowUps(limit = 40): Promise<{
   }
 
   return { processed: rows.length, ran, ok, pending };
+}
+
+/**
+ * Resume workflows paused on Wait nodes (cron every 1–5 min).
+ */
+export async function processScheduledAutomationSteps(limit = 40): Promise<{
+  processed: number;
+  ok: number;
+  failed: number;
+  paused: number;
+}> {
+  const supabase = createServiceSupabase();
+  const now = new Date().toISOString();
+
+  const { data: rows, error } = await supabase
+    .from("automation_scheduled_steps")
+    .select(
+      "id, automation_id, automation_name, lead_id, conversation_id, context, remaining_actions",
+    )
+    .eq("org_id", ORG_ID)
+    .eq("status", "pending")
+    .lte("run_at", now)
+    .order("run_at", { ascending: true })
+    .limit(limit);
+
+  if (error) {
+    if (error.message.includes("automation_scheduled_steps")) {
+      return { processed: 0, ok: 0, failed: 0, paused: 0 };
+    }
+    console.error("processScheduledAutomationSteps", error.message);
+    return { processed: 0, ok: 0, failed: 0, paused: 0 };
+  }
+
+  let ok = 0;
+  let failed = 0;
+  let paused = 0;
+  const list = rows || [];
+
+  for (const row of list) {
+    await supabase
+      .from("automation_scheduled_steps")
+      .update({ status: "running", updated_at: now })
+      .eq("id", row.id);
+
+    const ctx = await enrichContext(supabase, {
+      ...((row.context && typeof row.context === "object" ? row.context : {}) as AutomationContext),
+      leadId: (row.lead_id as string) || undefined,
+      conversationId: (row.conversation_id as string) || undefined,
+    });
+    const remaining = Array.isArray(row.remaining_actions)
+      ? (row.remaining_actions as AutomationAction[])
+      : [];
+
+    try {
+      const seq = await runActionSequence(
+        supabase,
+        remaining,
+        ctx,
+        {
+          automationId: row.automation_id as string,
+          automationName: (row.automation_name as string) || "Automation",
+        },
+      );
+
+      await supabase.from("automation_runs").insert({
+        org_id: ORG_ID,
+        automation_id: row.automation_id,
+        status: seq.paused ? "scheduled" : "success",
+        trigger_type: "wait_resume",
+        input: ctx,
+        output: { steps: seq.steps, paused: seq.paused, scheduled_step_id: row.id },
+      });
+
+      await supabase
+        .from("automation_scheduled_steps")
+        .update({
+          status: "done",
+          updated_at: new Date().toISOString(),
+          last_error: null,
+        })
+        .eq("id", row.id);
+
+      if (seq.paused) paused += 1;
+      else ok += 1;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "resume failed";
+      failed += 1;
+      await supabase
+        .from("automation_scheduled_steps")
+        .update({
+          status: "error",
+          last_error: message,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", row.id);
+      await supabase.from("automation_runs").insert({
+        org_id: ORG_ID,
+        automation_id: row.automation_id,
+        status: "failed",
+        trigger_type: "wait_resume",
+        input: ctx,
+        output: {},
+        error: message,
+      });
+    }
+  }
+
+  return { processed: list.length, ok, failed, paused };
 }
 
 /** Non-blocking helper for call sites */

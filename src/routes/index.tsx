@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ChannelIcon, EmptyState, PageHeader, Panel, Pill, StatCard } from "@/components/shared/ui-kit";
 import { useAuth } from "@/lib/auth";
+import { downloadCsv } from "@/lib/csv";
 import { getDashboardSnapshot } from "@/lib/dashboard-api";
 
 export const Route = createFileRoute("/")({
@@ -100,7 +101,40 @@ function Dashboard() {
             <Button
               size="sm"
               className="gap-1.5"
-              onClick={() => toast("CSV/PDF export comes with the Analytics module")}
+              disabled={!data}
+              onClick={() => {
+                if (!data) {
+                  toast.message("Dashboard still loading");
+                  return;
+                }
+                const rows: string[][] = [["Metric", "Value", "Delta", "Hint"]];
+                for (const k of data.kpis ?? []) {
+                  rows.push([
+                    k.label,
+                    String(k.value),
+                    "delta" in k && k.delta != null ? String(k.delta) : "",
+                    "hint" in k && k.hint != null ? String(k.hint) : "",
+                  ]);
+                }
+                rows.push([]);
+                rows.push(["Channel", "Conversations"]);
+                for (const c of data.channelSplit ?? []) {
+                  rows.push([c.name, String(c.value)]);
+                }
+                downloadCsv(
+                  `enertech-dashboard-${new Date().toISOString().slice(0, 10)}.csv`,
+                  rows,
+                );
+                toast.success("Dashboard CSV downloaded", {
+                  description: "For full reports, open Analytics or Reports.",
+                  action: {
+                    label: "Reports",
+                    onClick: () => {
+                      window.location.href = "/reports";
+                    },
+                  },
+                });
+              }}
             >
               <Download className="size-4" /> Export
             </Button>

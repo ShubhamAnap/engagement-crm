@@ -27,9 +27,19 @@ import { EmptyState, PageHeader, Panel, Pill, StatCard } from "@/components/shar
 import { WorkflowCanvas } from "@/components/automation/WorkflowCanvas";
 import { useAuth } from "@/lib/auth";
 import { ENERTECH_ORG_ID, formatRelativeTime } from "@/lib/chat-api";
-import type { AutomationAction, AutomationTrigger } from "@/lib/automation-types";
+import type {
+  AutomationAction,
+  AutomationConditionField,
+  AutomationConditionOp,
+  AutomationLeafAction,
+  AutomationTrigger,
+  AutomationWaitUnit,
+} from "@/lib/automation-types";
 import {
   ACTION_TYPE_OPTIONS,
+  CONDITION_FIELD_OPTIONS,
+  CONDITION_OP_OPTIONS,
+  LEAF_ACTION_TYPE_OPTIONS,
   TRIGGER_OPTIONS,
   createAutomation,
   deleteAutomation,
@@ -51,7 +61,8 @@ export const Route = createFileRoute("/automation")({
       { title: "Automation — EnerTech Engage" },
       {
         name: "description",
-        content: "Workflows that qualify leads, sync CRM actions, and chase follow-ups automatically.",
+        content:
+          "WATI-style workflows: triggers, Wait delays, If/Else branches, WhatsApp, email, and CRM actions.",
       },
       { property: "og:title", content: "Automation — EnerTech Engage" },
     ],
@@ -67,6 +78,10 @@ function statusTone(status: AutomationStatus): "success" | "warning" | "neutral"
 
 function actionSummary(action: AutomationAction): string {
   switch (action.type) {
+    case "wait":
+      return `Wait ${action.amount} ${action.unit}`;
+    case "if_else":
+      return `If ${action.field} ${action.op}${action.value ? ` ${action.value}` : ""} → Yes ${action.thenActions?.length || 0} / No ${action.elseActions?.length || 0}`;
     case "set_lead_priority":
       return `Set priority → ${action.priority}`;
     case "set_lead_status":
@@ -94,8 +109,10 @@ function actionSummary(action: AutomationAction): string {
   }
 }
 
-function defaultAction(type: AutomationAction["type"]): AutomationAction {
+function defaultLeafAction(type: AutomationLeafAction["type"]): AutomationLeafAction {
   switch (type) {
+    case "wait":
+      return { type: "wait", amount: 30, unit: "minutes" };
     case "set_lead_priority":
       return { type, priority: "High" };
     case "set_lead_status":
@@ -128,6 +145,289 @@ function defaultAction(type: AutomationAction["type"]): AutomationAction {
         href: "/leads",
       };
   }
+}
+
+function defaultAction(type: AutomationAction["type"]): AutomationAction {
+  if (type === "if_else") {
+    return {
+      type: "if_else",
+      field: "has_phone",
+      op: "is_set",
+      value: "",
+      thenActions: [defaultLeafAction("send_whatsapp_template")],
+      elseActions: [defaultLeafAction("notify_team")],
+    };
+  }
+  return defaultLeafAction(type);
+}
+
+function LeafActionFields({
+  action,
+  onChange,
+}: {
+  action: AutomationLeafAction;
+  onChange: (next: AutomationLeafAction) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      {action.type === "wait" ? (
+        <div className="grid grid-cols-2 gap-2">
+          <Input
+            type="number"
+            min={1}
+            value={action.amount}
+            onChange={(e) =>
+              onChange({
+                type: "wait",
+                amount: Math.max(1, Number(e.target.value) || 1),
+                unit: action.unit,
+              })
+            }
+          />
+          <Select
+            value={action.unit}
+            onValueChange={(v: AutomationWaitUnit) =>
+              onChange({ type: "wait", amount: action.amount, unit: v })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="minutes">Minutes</SelectItem>
+              <SelectItem value="hours">Hours</SelectItem>
+              <SelectItem value="days">Days</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
+      {action.type === "set_lead_priority" ? (
+        <Select
+          value={action.priority}
+          onValueChange={(v: PriorityLevel) => onChange({ type: "set_lead_priority", priority: v })}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(["High", "Medium", "Low"] as PriorityLevel[]).map((p) => (
+              <SelectItem key={p} value={p}>
+                {p}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : null}
+      {action.type === "set_lead_status" ? (
+        <Select
+          value={action.status}
+          onValueChange={(v: LeadStatus) => onChange({ type: "set_lead_status", status: v })}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(
+              [
+                "New",
+                "Contacted",
+                "Qualified",
+                "Proposal",
+                "Negotiation",
+                "Won",
+                "Lost",
+              ] as LeadStatus[]
+            ).map((s) => (
+              <SelectItem key={s} value={s}>
+                {s}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : null}
+      {action.type === "set_follow_up_hours" ? (
+        <Input
+          type="number"
+          min={1}
+          value={action.hours}
+          onChange={(e) =>
+            onChange({ type: "set_follow_up_hours", hours: Number(e.target.value) || 1 })
+          }
+        />
+      ) : null}
+      {action.type === "add_lead_note" ? (
+        <Input
+          value={action.note}
+          onChange={(e) => onChange({ type: "add_lead_note", note: e.target.value })}
+        />
+      ) : null}
+      {action.type === "tag_conversation" ? (
+        <Input
+          value={action.tag}
+          onChange={(e) => onChange({ type: "tag_conversation", tag: e.target.value })}
+        />
+      ) : null}
+      {action.type === "set_assignee_label" ? (
+        <Input
+          value={action.label}
+          onChange={(e) => onChange({ type: "set_assignee_label", label: e.target.value })}
+        />
+      ) : null}
+      {action.type === "add_system_message" ? (
+        <Input
+          value={action.body}
+          onChange={(e) => onChange({ type: "add_system_message", body: e.target.value })}
+        />
+      ) : null}
+      {action.type === "set_sales_person" ? (
+        <Input
+          placeholder="Sales person name"
+          value={action.salesPerson}
+          onChange={(e) => onChange({ type: "set_sales_person", salesPerson: e.target.value })}
+        />
+      ) : null}
+      {action.type === "send_whatsapp_template" ? (
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Input
+            placeholder="Template name (Meta)"
+            value={action.templateName}
+            onChange={(e) => onChange({ ...action, templateName: e.target.value })}
+          />
+          <Input
+            placeholder="Language (en)"
+            value={action.language}
+            onChange={(e) => onChange({ ...action, language: e.target.value })}
+          />
+          <Input
+            className="sm:col-span-2"
+            placeholder="Body params CSV — {{name}},{{company}}"
+            value={(action.bodyParams || []).join(",")}
+            onChange={(e) =>
+              onChange({
+                ...action,
+                bodyParams: e.target.value
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              })
+            }
+          />
+        </div>
+      ) : null}
+      {action.type === "send_email" ? (
+        <div className="space-y-2">
+          <Input
+            placeholder="Subject ({{name}} ok)"
+            value={action.subject}
+            onChange={(e) => onChange({ ...action, subject: e.target.value })}
+          />
+          <Textarea
+            rows={3}
+            placeholder="Body"
+            value={action.body}
+            onChange={(e) => onChange({ ...action, body: e.target.value })}
+          />
+        </div>
+      ) : null}
+      {action.type === "notify_team" ? (
+        <div className="space-y-2">
+          <Input
+            placeholder="Title"
+            value={action.title}
+            onChange={(e) => onChange({ ...action, title: e.target.value })}
+          />
+          <Input
+            placeholder="Body"
+            value={action.body}
+            onChange={(e) => onChange({ ...action, body: e.target.value })}
+          />
+          <Input
+            placeholder="Href (optional)"
+            value={action.href || ""}
+            onChange={(e) => onChange({ ...action, href: e.target.value || undefined })}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function BranchEditor({
+  label,
+  tone,
+  actions,
+  onChange,
+}: {
+  label: string;
+  tone: "yes" | "no";
+  actions: AutomationLeafAction[];
+  onChange: (next: AutomationLeafAction[]) => void;
+}) {
+  return (
+    <div
+      className={`space-y-2 rounded-lg border p-2.5 ${
+        tone === "yes" ? "border-emerald-500/35 bg-emerald-500/5" : "border-rose-500/35 bg-rose-500/5"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <Label className="text-xs font-semibold uppercase tracking-wide">{label}</Label>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          onClick={() => onChange([...actions, defaultLeafAction("add_lead_note")])}
+        >
+          Add step
+        </Button>
+      </div>
+      {actions.map((leaf, bi) => (
+        <div key={bi} className="space-y-2 rounded-md border border-border bg-background p-2">
+          <div className="flex items-center gap-2">
+            <Select
+              value={leaf.type}
+              onValueChange={(v: AutomationLeafAction["type"]) => {
+                const next = [...actions];
+                next[bi] = defaultLeafAction(v);
+                onChange(next);
+              }}
+            >
+              <SelectTrigger className="h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LEAF_ACTION_TYPE_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 shrink-0 px-2 text-xs"
+              onClick={() => onChange(actions.filter((_, i) => i !== bi))}
+            >
+              Remove
+            </Button>
+          </div>
+          <LeafActionFields
+            action={leaf}
+            onChange={(next) => {
+              const copy = [...actions];
+              copy[bi] = next;
+              onChange(copy);
+            }}
+          />
+        </div>
+      ))}
+      {!actions.length ? (
+        <p className="text-xs text-muted-foreground">No steps — branch does nothing.</p>
+      ) : null}
+    </div>
+  );
 }
 
 function runSteps(output: Record<string, unknown> | null | undefined): string[] {
@@ -297,8 +597,13 @@ function Page() {
       await invalidate();
       void queryClient.invalidateQueries({ queryKey: ["notifications"] });
       void queryClient.invalidateQueries({ queryKey: ["automation-approvals"] });
+      const waits = result.waits;
+      const waitPart =
+        waits && typeof waits === "object" && "processed" in waits
+          ? ` · Waits: ${waits.processed} resumed (${waits.ok} ok)`
+          : "";
       toast.success(
-        `Due follow-ups: ${result.processed} lead(s) · ${result.pending} awaiting approval · ${result.ran} auto-run · ${result.ok} ok`,
+        `Due: ${result.processed} lead(s) · ${result.pending} approval · ${result.ran} ran · ${result.ok} ok${waitPart}`,
       );
     },
     onError: (error) =>
@@ -311,7 +616,7 @@ function Page() {
     <>
       <PageHeader
         title="Automation"
-        description="Trigger → condition → actions for leads, WhatsApp, email, and team alerts."
+        description="WATI-style builder: Trigger → Wait → If/Else → WhatsApp / email / CRM actions."
         meta={
           <div className="flex flex-wrap gap-2">
             <Pill tone="success" dot>
@@ -330,7 +635,7 @@ function Page() {
               onClick={() => dueMutation.mutate()}
             >
               <Timer className={`size-3.5 ${dueMutation.isPending ? "animate-spin" : ""}`} />
-              Process due follow-ups
+              Process due + waits
             </Button>
             <Button
               size="sm"
@@ -729,16 +1034,34 @@ function Page() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label>Actions</Label>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    setFormActions((prev) => [...prev, defaultAction("add_lead_note")])
-                  }
-                >
-                  Add action
-                </Button>
+                <div className="flex flex-wrap gap-1.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setFormActions((prev) => [...prev, defaultAction("wait")])}
+                  >
+                    + Wait
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setFormActions((prev) => [...prev, defaultAction("if_else")])}
+                  >
+                    + If / Else
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      setFormActions((prev) => [...prev, defaultAction("add_lead_note")])
+                    }
+                  >
+                    Add action
+                  </Button>
+                </div>
               </div>
               <div className="space-y-3">
                 {formActions.map((action, index) => (
@@ -808,274 +1131,106 @@ function Page() {
                         Remove
                       </Button>
                     </div>
-                    {action.type === "set_lead_priority" ? (
-                      <Select
-                        value={action.priority}
-                        onValueChange={(v: PriorityLevel) =>
-                          setFormActions((prev) =>
-                            prev.map((a, i) =>
-                              i === index ? { type: "set_lead_priority", priority: v } : a,
-                            ),
-                          )
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(["High", "Medium", "Low"] as PriorityLevel[]).map((p) => (
-                            <SelectItem key={p} value={p}>
-                              {p}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : null}
-                    {action.type === "set_lead_status" ? (
-                      <Select
-                        value={action.status}
-                        onValueChange={(v: LeadStatus) =>
-                          setFormActions((prev) =>
-                            prev.map((a, i) =>
-                              i === index ? { type: "set_lead_status", status: v } : a,
-                            ),
-                          )
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(
-                            [
-                              "New",
-                              "Contacted",
-                              "Qualified",
-                              "Proposal",
-                              "Negotiation",
-                              "Won",
-                              "Lost",
-                            ] as LeadStatus[]
-                          ).map((s) => (
-                            <SelectItem key={s} value={s}>
-                              {s}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : null}
-                    {action.type === "set_follow_up_hours" ? (
-                      <Input
-                        type="number"
-                        min={1}
-                        value={action.hours}
-                        onChange={(e) =>
-                          setFormActions((prev) =>
-                            prev.map((a, i) =>
-                              i === index
-                                ? {
-                                    type: "set_follow_up_hours",
-                                    hours: Number(e.target.value) || 1,
-                                  }
-                                : a,
-                            ),
-                          )
-                        }
-                      />
-                    ) : null}
-                    {action.type === "add_lead_note" ? (
-                      <Input
-                        value={action.note}
-                        onChange={(e) =>
-                          setFormActions((prev) =>
-                            prev.map((a, i) =>
-                              i === index ? { type: "add_lead_note", note: e.target.value } : a,
-                            ),
-                          )
-                        }
-                      />
-                    ) : null}
-                    {action.type === "tag_conversation" ? (
-                      <Input
-                        value={action.tag}
-                        onChange={(e) =>
-                          setFormActions((prev) =>
-                            prev.map((a, i) =>
-                              i === index
-                                ? { type: "tag_conversation", tag: e.target.value }
-                                : a,
-                            ),
-                          )
-                        }
-                      />
-                    ) : null}
-                    {action.type === "set_assignee_label" ? (
-                      <Input
-                        value={action.label}
-                        onChange={(e) =>
-                          setFormActions((prev) =>
-                            prev.map((a, i) =>
-                              i === index
-                                ? { type: "set_assignee_label", label: e.target.value }
-                                : a,
-                            ),
-                          )
-                        }
-                      />
-                    ) : null}
-                    {action.type === "add_system_message" ? (
-                      <Input
-                        value={action.body}
-                        onChange={(e) =>
-                          setFormActions((prev) =>
-                            prev.map((a, i) =>
-                              i === index
-                                ? { type: "add_system_message", body: e.target.value }
-                                : a,
-                            ),
-                          )
-                        }
-                      />
-                    ) : null}
-                    {action.type === "set_sales_person" ? (
-                      <Input
-                        placeholder="Sales person name"
-                        value={action.salesPerson}
-                        onChange={(e) =>
-                          setFormActions((prev) =>
-                            prev.map((a, i) =>
-                              i === index
-                                ? { type: "set_sales_person", salesPerson: e.target.value }
-                                : a,
-                            ),
-                          )
-                        }
-                      />
-                    ) : null}
-                    {action.type === "send_whatsapp_template" ? (
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <Input
-                          placeholder="Template name (Meta)"
-                          value={action.templateName}
-                          onChange={(e) =>
-                            setFormActions((prev) =>
-                              prev.map((a, i) =>
-                                i === index && a.type === "send_whatsapp_template"
-                                  ? { ...a, templateName: e.target.value }
-                                  : a,
-                              ),
-                            )
-                          }
-                        />
-                        <Input
-                          placeholder="Language (en)"
-                          value={action.language}
-                          onChange={(e) =>
-                            setFormActions((prev) =>
-                              prev.map((a, i) =>
-                                i === index && a.type === "send_whatsapp_template"
-                                  ? { ...a, language: e.target.value }
-                                  : a,
-                              ),
-                            )
-                          }
-                        />
-                        <Input
-                          className="sm:col-span-2"
-                          placeholder="Body params CSV — {{name}},{{company}}"
-                          value={(action.bodyParams || []).join(",")}
-                          onChange={(e) =>
-                            setFormActions((prev) =>
-                              prev.map((a, i) =>
-                                i === index && a.type === "send_whatsapp_template"
-                                  ? {
-                                      ...a,
-                                      bodyParams: e.target.value
-                                        .split(",")
-                                        .map((s) => s.trim())
-                                        .filter(Boolean),
-                                    }
-                                  : a,
-                              ),
-                            )
-                          }
-                        />
+                    {action.type === "if_else" ? (
+                      <div className="space-y-3">
+                        <div className="grid gap-2 sm:grid-cols-3">
+                          <Select
+                            value={action.field}
+                            onValueChange={(v: AutomationConditionField) =>
+                              setFormActions((prev) =>
+                                prev.map((a, i) =>
+                                  i === index && a.type === "if_else" ? { ...a, field: v } : a,
+                                ),
+                              )
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Field" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {CONDITION_FIELD_OPTIONS.map((o) => (
+                                <SelectItem key={o.value} value={o.value}>
+                                  {o.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Select
+                            value={action.op}
+                            onValueChange={(v: AutomationConditionOp) =>
+                              setFormActions((prev) =>
+                                prev.map((a, i) =>
+                                  i === index && a.type === "if_else" ? { ...a, op: v } : a,
+                                ),
+                              )
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Operator" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {CONDITION_OP_OPTIONS.map((o) => (
+                                <SelectItem key={o.value} value={o.value}>
+                                  {o.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {action.op === "is_set" || action.op === "is_empty" ? (
+                            <Input disabled placeholder="—" value="" />
+                          ) : (
+                            <Input
+                              placeholder="Compare value"
+                              value={action.value || ""}
+                              onChange={(e) =>
+                                setFormActions((prev) =>
+                                  prev.map((a, i) =>
+                                    i === index && a.type === "if_else"
+                                      ? { ...a, value: e.target.value }
+                                      : a,
+                                  ),
+                                )
+                              }
+                            />
+                          )}
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <BranchEditor
+                            label="Yes branch"
+                            tone="yes"
+                            actions={action.thenActions || []}
+                            onChange={(thenActions) =>
+                              setFormActions((prev) =>
+                                prev.map((a, i) =>
+                                  i === index && a.type === "if_else" ? { ...a, thenActions } : a,
+                                ),
+                              )
+                            }
+                          />
+                          <BranchEditor
+                            label="No branch"
+                            tone="no"
+                            actions={action.elseActions || []}
+                            onChange={(elseActions) =>
+                              setFormActions((prev) =>
+                                prev.map((a, i) =>
+                                  i === index && a.type === "if_else" ? { ...a, elseActions } : a,
+                                ),
+                              )
+                            }
+                          />
+                        </div>
                       </div>
-                    ) : null}
-                    {action.type === "send_email" ? (
-                      <div className="space-y-2">
-                        <Input
-                          placeholder="Subject ({{name}} ok)"
-                          value={action.subject}
-                          onChange={(e) =>
-                            setFormActions((prev) =>
-                              prev.map((a, i) =>
-                                i === index && a.type === "send_email"
-                                  ? { ...a, subject: e.target.value }
-                                  : a,
-                              ),
-                            )
-                          }
-                        />
-                        <Textarea
-                          rows={3}
-                          placeholder="Body"
-                          value={action.body}
-                          onChange={(e) =>
-                            setFormActions((prev) =>
-                              prev.map((a, i) =>
-                                i === index && a.type === "send_email"
-                                  ? { ...a, body: e.target.value }
-                                  : a,
-                              ),
-                            )
-                          }
-                        />
-                      </div>
-                    ) : null}
-                    {action.type === "notify_team" ? (
-                      <div className="space-y-2">
-                        <Input
-                          placeholder="Title"
-                          value={action.title}
-                          onChange={(e) =>
-                            setFormActions((prev) =>
-                              prev.map((a, i) =>
-                                i === index && a.type === "notify_team"
-                                  ? { ...a, title: e.target.value }
-                                  : a,
-                              ),
-                            )
-                          }
-                        />
-                        <Input
-                          placeholder="Body ({{name}} / {{company}})"
-                          value={action.body}
-                          onChange={(e) =>
-                            setFormActions((prev) =>
-                              prev.map((a, i) =>
-                                i === index && a.type === "notify_team"
-                                  ? { ...a, body: e.target.value }
-                                  : a,
-                              ),
-                            )
-                          }
-                        />
-                        <Input
-                          placeholder="Link href e.g. /leads or /human-support"
-                          value={action.href || ""}
-                          onChange={(e) =>
-                            setFormActions((prev) =>
-                              prev.map((a, i) =>
-                                i === index && a.type === "notify_team"
-                                  ? { ...a, href: e.target.value }
-                                  : a,
-                              ),
-                            )
-                          }
-                        />
-                      </div>
-                    ) : null}
+                    ) : (
+                      <LeafActionFields
+                        action={action}
+                        onChange={(next) =>
+                          setFormActions((prev) =>
+                            prev.map((a, i) => (i === index ? next : a)),
+                          )
+                        }
+                      />
+                    )}
                   </div>
                 ))}
               </div>

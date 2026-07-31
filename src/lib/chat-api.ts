@@ -90,6 +90,7 @@ export async function sendAgentMessage(
   profileId: string,
   orgId = ENERTECH_ORG_ID,
   assigneeLabel?: string,
+  metadata?: Record<string, unknown>,
 ) {
   const supabase = getBrowserSupabase();
   const { data, error } = await supabase
@@ -100,6 +101,7 @@ export async function sendAgentMessage(
       sender: "agent",
       sender_profile_id: profileId,
       body,
+      ...(metadata ? { metadata } : {}),
     })
     .select("*")
     .single();
@@ -113,10 +115,69 @@ export async function sendAgentMessage(
       assignee_id: profileId,
       assignee_label: label,
       unread_count: 0,
+      last_message_at: new Date().toISOString(),
+      preview: body.slice(0, 160),
     })
     .eq("id", conversationId);
 
   return data as DbMessage;
+}
+
+const ATTACH_BUCKET = "knowledge";
+
+/** Agent uploads image/PDF into a conversation (Inbox paperclip). */
+export async function uploadAgentAttachment(options: {
+  conversationId: string;
+  orgId: string;
+  profileId: string;
+  assigneeLabel?: string;
+  file: File;
+}): Promise<DbMessage> {
+  const { conversationId, orgId, profileId, assigneeLabel, file } = options;
+  const lower = file.name.toLowerCase();
+  const mime = (file.type || "").toLowerCase();
+  const allowed =
+    mime.startsWith("image/") ||
+    mime === "application/pdf" ||
+    /\.(png|jpe?g|webp|gif|pdf)$/i.test(lower);
+  if (!allowed) throw new Error("Only images (PNG/JPG/WEBP/GIF) or PDF files are supported.");
+  if (file.size > 8 * 1024 * 1024) throw new Error("File too large (max 8 MB).");
+
+  try {
+    const { ensureKnowledgeStorage } = await import("@/server/knowledge");
+    await ensureKnowledgeStorage();
+  } catch (err) {
+    console.warn("ensureKnowledgeStorage", err);
+  }
+
+  const supabase = getBrowserSupabase();
+  const safeName = file.name.replace(/[^\w.\-()+ ]+/g, "_").slice(0, 120);
+  const storagePath = `chat/${orgId}/${conversationId}/agent-${Date.now()}-${safeName}`;
+
+  const { error: uploadError } = await supabase.storage.from(ATTACH_BUCKET).upload(storagePath, file, {
+    contentType: file.type || "application/octet-stream",
+    upsert: false,
+  });
+  if (uploadError) {
+    throw new Error(
+      `Upload failed: ${uploadError.message}. Ensure the knowledge storage bucket exists.`,
+    );
+  }
+
+  const { data: pub } = supabase.storage.from(ATTACH_BUCKET).getPublicUrl(storagePath);
+  const url = pub.publicUrl;
+  const isImage = mime.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(lower);
+  const body = isImage
+    ? `Shared an image: ${safeName}\n${url}`
+    : `Shared a file: ${safeName}\n${url}`;
+
+  return sendAgentMessage(conversationId, body, profileId, orgId, assigneeLabel, {
+    attachment: true,
+    file_name: safeName,
+    mime_type: file.type || null,
+    storage_path: storagePath,
+    url,
+  });
 }
 
 export async function markConversationRead(conversationId: string) {

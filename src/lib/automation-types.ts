@@ -17,7 +17,22 @@ export type AutomationTriggerConfig = {
   lead_status?: LeadStatus | string;
 };
 
-export type AutomationAction =
+/** Fields usable inside If / Else conditions (WATI-style branching). */
+export type AutomationConditionField =
+  | "lead_status"
+  | "priority"
+  | "source"
+  | "channel"
+  | "has_phone"
+  | "has_email"
+  | "sales_person";
+
+export type AutomationConditionOp = "eq" | "neq" | "contains" | "is_set" | "is_empty";
+
+export type AutomationWaitUnit = "minutes" | "hours" | "days";
+
+/** Leaf actions only — used inside If/Else branches (no nested if_else). */
+export type AutomationLeafAction =
   | { type: "set_lead_priority"; priority: PriorityLevel }
   | { type: "set_lead_status"; status: LeadStatus }
   | { type: "set_follow_up_hours"; hours: number }
@@ -30,8 +45,19 @@ export type AutomationAction =
       type: "send_whatsapp_template";
       templateName: string;
       language: string;
-      /** Optional body vars; supports {{name}} {{company}} etc. */
       bodyParams?: string[];
     }
   | { type: "send_email"; subject: string; body: string }
-  | { type: "notify_team"; title: string; body: string; href?: string };
+  | { type: "notify_team"; title: string; body: string; href?: string }
+  | { type: "wait"; amount: number; unit: AutomationWaitUnit };
+
+export type AutomationAction =
+  | AutomationLeafAction
+  | {
+      type: "if_else";
+      field: AutomationConditionField;
+      op: AutomationConditionOp;
+      value?: string;
+      thenActions: AutomationLeafAction[];
+      elseActions: AutomationLeafAction[];
+    };

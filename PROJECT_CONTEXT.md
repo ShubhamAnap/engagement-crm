@@ -182,6 +182,7 @@ Implement in this order — each phase unlocks the next.
 | Customer sidebar | Linked CRM profile | **DONE** |
 | Send reply | Outbound via channel API | **DONE** (Website/WA/Email/Meta) |
 | Filters / search / assign | Wired to state + API | **DONE** (basic) |
+| Agent attachments | Image/PDF in thread | **DONE** (Inbox paperclip) |
 
 **Files:** `src/routes/inbox.tsx`, `src/lib/chat-api.ts`
 
@@ -203,9 +204,9 @@ Implement in this order — each phase unlocks the next.
 ---
 
 ### Phase 7 — Automation
-> Status: **DONE** (v2 A+B) | Route: `/automation`
+> Status: **DONE** (v2 A+B+C) | Route: `/automation`
 
-Trigger → optional conditions → actions. Time-based follow-ups + outbound messaging.
+Trigger → optional conditions → Wait / If-Else → actions. Time-based follow-ups + outbound messaging.
 
 | Feature | Status |
 |---------|--------|
@@ -217,9 +218,9 @@ Trigger → optional conditions → actions. Time-based follow-ups + outbound me
 | Due follow-ups cron + Process button | **DONE** |
 | Test run + step run log | **DONE** |
 | Visual node canvas | **DONE** (`WorkflowCanvas`) |
-| Wait / if-else branches | Later (Phase C) |
+| Wait / if-else branches | **DONE** (Phase C — WATI-style) |
 
-**Files:** `src/routes/automation.tsx`, `src/components/automation/WorkflowCanvas.tsx`, `src/lib/automations-api.ts`, `src/server/automation-engine.ts`, `src/routes/api/cron/automations.ts`, `supabase/migrations/008_automations.sql`, `012_automation_follow_up_trigger.sql`, `012b_automation_v2.sql`
+**Files:** `src/routes/automation.tsx`, `src/components/automation/WorkflowCanvas.tsx`, `src/lib/automations-api.ts`, `src/lib/automation-types.ts`, `src/server/automation-engine.ts`, `src/routes/api/cron/automations.ts`, `supabase/migrations/008_automations.sql`, `012_automation_follow_up_trigger.sql`, `012b_automation_v2.sql`, `016_automation_wait_branch.sql`
 
 ---
 
@@ -259,7 +260,7 @@ Embed on EnerTech website — live AI chat, lead capture (name/email/phone requi
 | Leads | `/leads` | — | **Master sheet**: company, name, email, phone, source, requirement, sales person, status, note, tags, location |
 | Pipeline | `/pipeline` | `mock.ts` | Live Kanban from `leads` + drag/select stage updates |
 | Analytics | `/analytics` | `mock.ts` | Live Insights: range filter + charts from Supabase |
-| Automation | `/automation` | — | Live A+B: conditions, follow-up cron, WA/email/notify, test run, playbooks |
+| Automation | `/automation` | — | Live A+B+C: Wait, If/Else, conditions, follow-up cron, WA/email/notify, canvas |
 | Channels | `/channels` | — | Live: Website + WA + Email + Meta + IndiaMART + TradeIndia + Brainmine |
 | Broadcasting | `/broadcasting` | — | WhatsApp templates + Meta sync + campaigns |
 | Human Support | `/human-support` | `mock.ts` | Live handoff queue: claim / resolve / return to AI |
@@ -301,10 +302,12 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-07-31
+- **Automation Phase C (WATI-style):** Wait (minutes/hours/days) schedules remaining steps in `automation_scheduled_steps`; cron + “Process due + waits” resumes. If/Else branches on lead fields (status, priority, source, phone/email, sales person) with Yes/No action lists. Broader canvas shows Wait + fork nodes. Migration `016_automation_wait_branch.sql`.
 - **IndiaMART historical backfill:** Date-range pull splits into ≤7-day chunks, enforces 5-min cooldown between API hits, persists progress on channel `config.backfill`. Channels UI: From/To + Start/Cancel + live status. Auto-tick on setup poll + `/api/cron/automations`. Fixed `loadIndiaMartConfig` to retain `backfill` / `last_api_hit_at`.
 - **TradeIndia historical backfill:** Day-by-day (from_date=to_date) to stay within 24h API limit; ~1 min polite gap; Channels UI + cron tick. Same progress pattern as IndiaMART.
 - **Leads bulk actions:** Row select → assign sales person, bulk status, Export CSV (selected or current filter).
 - **Org branding:** Settings → Company logo upload + optional brand accent hex. Migration `015_org_branding.sql` (columns + `branding` storage bucket). Logo in sidebar; accent overrides CSS primary.
+- **Inbox attachments + CSV exports:** Agent paperclip uploads image/PDF to conversation; Customers/Products Export CSV; Dashboard Export downloads KPI CSV.
 
 ### 2026-07-30
 - Ran app locally at http://localhost:8080/ (npm install needed SSL workaround on user's network).
@@ -387,6 +390,6 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 
 1. **WhatsApp Meta setup:** Channels → Configure WhatsApp (Phone Number ID, Access Token, Verify Token, WABA) → **Test connection**. For inbound: public HTTPS tunnel + Meta webhook (not localhost).
 2. Run `015_org_branding.sql` if logo/avatar storage still fails.
-3. Pending migrations if not run: `012`/`012b`, `013`, `014`/`014b`/`014c`, `015`.
+3. Pending migrations if not run: `012`/`012b`, `013`, `014`/`014b`/`014c`, `015`, **`016_automation_wait_branch.sql`** (Wait delays).
 4. **Before Render/production deploy:** confirm with user.
-5. Still later: RBAC/audit logs, Automation wait/if-else, Brainmine field map.
+5. Still later: RBAC/audit logs, Brainmine field map.

@@ -262,7 +262,7 @@ Embed on EnerTech website — live AI chat, lead capture (name/email/phone requi
 | Analytics | `/analytics` | `mock.ts` | Live Insights: range filter + charts from Supabase |
 | Automation | `/automation` | — | Live A+B+C: Wait, If/Else, conditions, follow-up cron, WA/email/notify, canvas |
 | Channels | `/channels` | — | Live: Website + WA + Email + Meta + IndiaMART + TradeIndia + Brainmine |
-| Broadcasting | `/broadcasting` | — | WhatsApp templates + Meta sync + campaigns |
+| Broadcasting | `/broadcasting` | — | WhatsApp templates + **Gmail OAuth campaigns** (Text/HTML) |
 | Human Support | `/human-support` | `mock.ts` | Live handoff queue: claim / resolve / return to AI |
 | Reports | `/reports` | — | Live catalog: 7 report types + CSV export |
 | Settings | `/settings` | — | Live: profile, company (Admin), password |
@@ -302,6 +302,7 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-07-31
+- **Gmail OAuth (n8n-style):** Channels → Gmail: save Client ID/Secret, Connect with Google, disconnect. Callback `/api/oauth/gmail/callback`. Send Email dialog (Text/HTML). Broadcasting → Gmail channel: one-off send + email campaigns. Migration `018_gmail_oauth_broadcast.sql`. Env: `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`.
 - **Inbox Send template modal:** WACRM-style dialog from composer **Template** button — searchable APPROVED list (name, category, language, preview), then fill vars + send. Component `SendWhatsAppTemplateDialog`.
 - **Inbox template compose:** When WA 24h window is closed (or IndiaMART first contact), agents can select an APPROVED template in the chatbox (FileText button next to attach), fill variables, and send via Cloud API — same place as file attach. Server `sendInboxWhatsAppTemplate`.
 - **IndiaMART/TradeIndia → WhatsApp contact:** Inbox defaults marketplace lead replies to WhatsApp (phone on lead). Cloud API when 24h session open; first contact opens WhatsApp app / Broadcasting template. Matching WA inbound stamps `wa_last_customer_at` on marketplace threads.
@@ -395,6 +396,6 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 
 1. **Deploy on Render:** Blueprint/`render.yaml` → set env from `.env` → set `VITE_APP_URL` to the Render HTTPS URL → redeploy.
 2. **WhatsApp Meta:** Channels → Configure → Test connection → Meta webhook = `{VITE_APP_URL}/api/webhooks/whatsapp`.
-3. Run pending SQL if needed: `015`, `016`, **`017_whatsapp_session_window.sql`** (WA 24h window), `009_broadcasting.sql` for templates.
+3. Run pending SQL if needed: `015`, `016`, **`017_whatsapp_session_window.sql`**, **`018_gmail_oauth_broadcast.sql`**, `009_broadcasting.sql` for templates.
 4. Cron: `CRON_URL` + `CRON_SECRET` on the Render cron job (every 5 min).
 5. Still later: RBAC/audit logs, Brainmine field map.

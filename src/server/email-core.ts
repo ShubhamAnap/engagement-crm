@@ -70,13 +70,33 @@ export async function sendEmailMessage(options: {
   to: string;
   subject: string;
   text: string;
+  html?: string;
   inReplyTo?: string | null;
   references?: string | null;
   cfg?: EmailChannelConfig;
 }) {
+  // Prefer connected Gmail OAuth (n8n-style) when available
+  try {
+    const { loadGmailConnection, sendGmailMessage } = await import("@/server/gmail");
+    const gmail = await loadGmailConnection();
+    if (gmail?.email) {
+      return sendGmailMessage({
+        to: options.to,
+        subject: options.subject,
+        body: options.html || options.text,
+        format: options.html ? "html" : "text",
+      });
+    }
+  } catch (err) {
+    // Fall through to SMTP if Gmail not connected / misconfigured
+    console.warn("Gmail send unavailable, trying SMTP", err);
+  }
+
   const config = options.cfg || (await loadEmailConfig());
   if (!emailConfigReady(config)) {
-    throw new Error("Email is not configured (from + SMTP host/user/pass required)");
+    throw new Error(
+      "Email is not configured. Connect Gmail under Channels (OAuth) or save SMTP credentials.",
+    );
   }
 
   const transporter = nodemailer.createTransport({
@@ -96,6 +116,7 @@ export async function sendEmailMessage(options: {
     to: options.to,
     subject: options.subject,
     text: options.text,
+    ...(options.html ? { html: options.html } : {}),
     headers: {
       ...(options.inReplyTo ? { "In-Reply-To": options.inReplyTo } : {}),
       ...(options.references ? { References: options.references } : {}),
@@ -447,12 +468,24 @@ export async function sendAgentEmailReply(conversationId: string, body: string) 
 export async function getEmailSetup() {
   const cfg = await loadEmailConfig();
   const appUrl = process.env.VITE_APP_URL || process.env.APP_URL || "";
+  let gmailConnected = false;
+  let gmailEmail: string | null = null;
+  try {
+    const { loadGmailConnection } = await import("@/server/gmail");
+    const g = await loadGmailConnection();
+    gmailConnected = Boolean(g?.email);
+    gmailEmail = g?.email || null;
+  } catch {
+    /* ignore */
+  }
   return {
-    configured: emailConfigReady(cfg),
-    fromEmail: cfg.from_email || null,
+    configured: emailConfigReady(cfg) || gmailConnected,
+    fromEmail: gmailEmail || cfg.from_email || null,
     smtpHost: cfg.smtp_host || null,
     hasSmtpPass: Boolean(cfg.smtp_pass),
     inboundSecretSet: Boolean(cfg.inbound_secret),
+    gmailConnected,
+    gmailEmail,
     webhookUrl: appUrl ? `${appUrl.replace(/\/$/, "")}/api/webhooks/email` : "/api/webhooks/email",
   };
 }

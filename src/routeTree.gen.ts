@@ -34,6 +34,7 @@ import { Route as ApiWebhooksFacebookRouteImport } from './routes/api/webhooks/f
 import { Route as ApiWebhooksIndiamartRouteImport } from './routes/api/webhooks/indiamart'
 import { Route as ApiWebhooksInstagramRouteImport } from './routes/api/webhooks/instagram'
 import { Route as ApiWebhooksWhatsappRouteImport } from './routes/api/webhooks/whatsapp'
+import { Route as ApiOauthGmailCallbackRouteImport } from './routes/api/oauth/gmail/callback'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -160,6 +161,11 @@ const ApiWebhooksWhatsappRoute = ApiWebhooksWhatsappRouteImport.update({
   path: '/api/webhooks/whatsapp',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiOauthGmailCallbackRoute = ApiOauthGmailCallbackRouteImport.update({
+  id: '/api/oauth/gmail/callback',
+  path: '/api/oauth/gmail/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -187,6 +193,7 @@ export interface FileRoutesByFullPath {
   '/api/webhooks/indiamart': typeof ApiWebhooksIndiamartRoute
   '/api/webhooks/instagram': typeof ApiWebhooksInstagramRoute
   '/api/webhooks/whatsapp': typeof ApiWebhooksWhatsappRoute
+  '/api/oauth/gmail/callback': typeof ApiOauthGmailCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -214,6 +221,7 @@ export interface FileRoutesByTo {
   '/api/webhooks/indiamart': typeof ApiWebhooksIndiamartRoute
   '/api/webhooks/instagram': typeof ApiWebhooksInstagramRoute
   '/api/webhooks/whatsapp': typeof ApiWebhooksWhatsappRoute
+  '/api/oauth/gmail/callback': typeof ApiOauthGmailCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -242,6 +250,7 @@ export interface FileRoutesById {
   '/api/webhooks/indiamart': typeof ApiWebhooksIndiamartRoute
   '/api/webhooks/instagram': typeof ApiWebhooksInstagramRoute
   '/api/webhooks/whatsapp': typeof ApiWebhooksWhatsappRoute
+  '/api/oauth/gmail/callback': typeof ApiOauthGmailCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -271,6 +280,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/indiamart'
     | '/api/webhooks/instagram'
     | '/api/webhooks/whatsapp'
+    | '/api/oauth/gmail/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -298,6 +308,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/indiamart'
     | '/api/webhooks/instagram'
     | '/api/webhooks/whatsapp'
+    | '/api/oauth/gmail/callback'
   id:
     | '__root__'
     | '/'
@@ -325,6 +336,7 @@ export interface FileRouteTypes {
     | '/api/webhooks/indiamart'
     | '/api/webhooks/instagram'
     | '/api/webhooks/whatsapp'
+    | '/api/oauth/gmail/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -353,6 +365,7 @@ export interface RootRouteChildren {
   ApiWebhooksIndiamartRoute: typeof ApiWebhooksIndiamartRoute
   ApiWebhooksInstagramRoute: typeof ApiWebhooksInstagramRoute
   ApiWebhooksWhatsappRoute: typeof ApiWebhooksWhatsappRoute
+  ApiOauthGmailCallbackRoute: typeof ApiOauthGmailCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -532,6 +545,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiWebhooksWhatsappRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/oauth/gmail/callback': {
+      id: '/api/oauth/gmail/callback'
+      path: '/api/oauth/gmail/callback'
+      fullPath: '/api/oauth/gmail/callback'
+      preLoaderRoute: typeof ApiOauthGmailCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -561,6 +581,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiWebhooksIndiamartRoute: ApiWebhooksIndiamartRoute,
   ApiWebhooksInstagramRoute: ApiWebhooksInstagramRoute,
   ApiWebhooksWhatsappRoute: ApiWebhooksWhatsappRoute,
+  ApiOauthGmailCallbackRoute: ApiOauthGmailCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

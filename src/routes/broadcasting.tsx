@@ -28,6 +28,7 @@ import { ENERTECH_ORG_ID } from "@/lib/chat-api";
 import {
   countTemplateVars,
   createAndSendBroadcast,
+  createAndSendEmailBroadcast,
   listBroadcastRecipients,
   listBroadcasts,
   listWaTemplates,
@@ -38,6 +39,8 @@ import {
   type DbWaTemplate,
   type WaTemplateStatus,
 } from "@/lib/broadcasting-api";
+import { getGmailSetupInfo, sendGmailCompose } from "@/server/gmail";
+import { SendEmailDialog } from "@/components/email/SendEmailDialog";
 
 export const Route = createFileRoute("/broadcasting")({
   head: () => ({
@@ -45,7 +48,7 @@ export const Route = createFileRoute("/broadcasting")({
       { title: "Broadcasting — EnerTech Engage" },
       {
         name: "description",
-        content: "WhatsApp template broadcasts: sync Meta templates and send campaigns.",
+        content: "WhatsApp template and Gmail email campaigns.",
       },
       { property: "og:title", content: "Broadcasting — EnerTech Engage" },
     ],
@@ -71,6 +74,8 @@ function Page() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [broadcastOpen, setBroadcastOpen] = useState(false);
+  const [emailBroadcastOpen, setEmailBroadcastOpen] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
   const [selectedBroadcast, setSelectedBroadcast] = useState<DbBroadcast | null>(null);
 
   // Create template form
@@ -91,6 +96,15 @@ function Page() {
   const [bcManual, setBcManual] = useState("");
   const [bcVars, setBcVars] = useState<string[]>([]);
 
+  // Email broadcast form
+  const [emName, setEmName] = useState("");
+  const [emSubject, setEmSubject] = useState("");
+  const [emBody, setEmBody] = useState("Hello {{name}},\n\nThank you for your interest in EnerTech UPS.\n\nRegards,\nEnerTech");
+  const [emFormat, setEmFormat] = useState<"text" | "html">("text");
+  const [emAudience, setEmAudience] = useState<AudienceKind>("leads_with_email");
+  const [emManual, setEmManual] = useState("");
+  const [composeSending, setComposeSending] = useState(false);
+
   const templatesQuery = useQuery({
     queryKey: ["wa-templates", orgId],
     queryFn: () => listWaTemplates(orgId),
@@ -100,8 +114,21 @@ function Page() {
     queryFn: () => listBroadcasts(orgId),
   });
 
+  const gmailSetupQuery = useQuery({
+    queryKey: ["gmail-setup"],
+    queryFn: () => getGmailSetupInfo(),
+  });
+
   const templates = templatesQuery.data ?? [];
   const broadcasts = broadcastsQuery.data ?? [];
+  const emailBroadcasts = useMemo(
+    () => broadcasts.filter((b) => b.channel_type === "email"),
+    [broadcasts],
+  );
+  const waBroadcasts = useMemo(
+    () => broadcasts.filter((b) => b.channel_type !== "email"),
+    [broadcasts],
+  );
   const approved = useMemo(
     () => templates.filter((t) => t.status === "APPROVED"),
     [templates],
@@ -179,7 +206,46 @@ function Page() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Broadcast failed"),
   });
 
+  const sendEmailMutation = useMutation({
+    mutationFn: async () => {
+      if (!emName.trim()) throw new Error("Campaign name is required");
+      if (!emSubject.trim()) throw new Error("Subject is required");
+      if (!emBody.trim()) throw new Error("Body is required");
+      if (!gmailSetupQuery.data?.connected) {
+        throw new Error("Connect Gmail under Channels first");
+      }
+      return createAndSendEmailBroadcast({
+        orgId,
+        name: emName,
+        subject: emSubject,
+        body: emBody,
+        format: emFormat,
+        audienceKind: emAudience,
+        manualEmails: emManual.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean),
+        createdBy: profile?.id,
+      });
+    },
+    onSuccess: async (r) => {
+      await invalidate();
+      setEmailBroadcastOpen(false);
+      toast.success(`Email campaign finished · sent ${r.sent}, failed ${r.failed}`);
+      setTab("campaigns");
+      setChannel("email");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Email campaign failed"),
+  });
+
   function openBroadcast() {
+    if (channel === "email") {
+      setEmName("");
+      setEmSubject("");
+      setEmBody("Hello {{name}},\n\nThank you for your interest in EnerTech UPS.\n\nRegards,\nEnerTech");
+      setEmFormat("text");
+      setEmAudience("leads_with_email");
+      setEmManual("");
+      setEmailBroadcastOpen(true);
+      return;
+    }
     setBcName("");
     setBcTemplateId(approved[0]?.id || "");
     setBcAudience("leads_with_phone");
@@ -199,13 +265,21 @@ function Page() {
     <>
       <PageHeader
         title="Broadcasting"
-        description="Send WhatsApp template campaigns. Create templates, submit to Meta for approval, or sync approved ones."
+        description="WhatsApp templates and Gmail email campaigns (n8n-style connected account)."
         meta={
           <div className="flex flex-wrap gap-2">
-            <Pill tone="neutral">Channel: WhatsApp</Pill>
-            <Pill tone="success" dot>
-              {approved.length} approved
-            </Pill>
+            <Pill tone="neutral">Channel: {channel === "email" ? "Gmail" : "WhatsApp"}</Pill>
+            {channel === "email" ? (
+              <Pill tone={gmailSetupQuery.data?.connected ? "success" : "warning"} dot>
+                {gmailSetupQuery.data?.connected
+                  ? `Gmail · ${gmailSetupQuery.data.email}`
+                  : "Gmail not connected"}
+              </Pill>
+            ) : (
+              <Pill tone="success" dot>
+                {approved.length} approved
+              </Pill>
+            )}
           </div>
         }
         actions={
@@ -216,41 +290,77 @@ function Page() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                <SelectItem value="email">Gmail</SelectItem>
               </SelectContent>
             </Select>
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1.5"
-              disabled={syncMutation.isPending}
-              onClick={() => syncMutation.mutate()}
-            >
-              <RefreshCw className={`size-3.5 ${syncMutation.isPending ? "animate-spin" : ""}`} />
-              Sync from Meta
-            </Button>
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setCreateOpen(true)}>
-              <Plus className="size-3.5" /> New template
-            </Button>
-            <Button size="sm" className="gap-1.5" onClick={openBroadcast} disabled={!approved.length}>
-              <Send className="size-3.5" /> New broadcast
-            </Button>
+            {channel === "email" ? (
+              <>
+                <Button size="sm" variant="outline" onClick={() => setComposeOpen(true)}>
+                  Send one email
+                </Button>
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={openBroadcast}
+                  disabled={!gmailSetupQuery.data?.connected}
+                >
+                  <Send className="size-3.5" /> New email campaign
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  disabled={syncMutation.isPending}
+                  onClick={() => syncMutation.mutate()}
+                >
+                  <RefreshCw className={`size-3.5 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+                  Sync from Meta
+                </Button>
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setCreateOpen(true)}>
+                  <Plus className="size-3.5" /> New template
+                </Button>
+                <Button size="sm" className="gap-1.5" onClick={openBroadcast} disabled={!approved.length}>
+                  <Send className="size-3.5" /> New broadcast
+                </Button>
+              </>
+            )}
           </div>
         }
       />
 
       <div className="space-y-4 p-6">
         <div className="grid gap-4 sm:grid-cols-3">
-          <StatCard label="Templates" value={String(templates.length)} hint="synced / submitted" icon={Megaphone} />
-          <StatCard label="Approved" value={String(approved.length)} hint="ready to send" />
-          <StatCard label="Campaigns" value={String(broadcasts.length)} hint="recent broadcasts" />
+          {channel === "email" ? (
+            <>
+              <StatCard
+                label="Gmail"
+                value={gmailSetupQuery.data?.connected ? "Connected" : "Off"}
+                hint={gmailSetupQuery.data?.email || "Channels → Gmail"}
+                icon={Megaphone}
+              />
+              <StatCard label="Email campaigns" value={String(emailBroadcasts.length)} hint="Gmail sends" />
+              <StatCard label="All campaigns" value={String(broadcasts.length)} hint="WA + email" />
+            </>
+          ) : (
+            <>
+              <StatCard label="Templates" value={String(templates.length)} hint="synced / submitted" icon={Megaphone} />
+              <StatCard label="Approved" value={String(approved.length)} hint="ready to send" />
+              <StatCard label="Campaigns" value={String(waBroadcasts.length)} hint="WhatsApp broadcasts" />
+            </>
+          )}
         </div>
 
         <div className="flex gap-2 border-b border-border">
           {(
-            [
-              ["campaigns", "Campaigns"],
-              ["templates", "Message templates"],
-            ] as const
+            channel === "email"
+              ? ([["campaigns", "Email campaigns"]] as const)
+              : ([
+                  ["campaigns", "Campaigns"],
+                  ["templates", "Message templates"],
+                ] as const)
           ).map(([key, label]) => (
             <button
               key={key}
@@ -267,7 +377,7 @@ function Page() {
           ))}
         </div>
 
-        {tab === "templates" ? (
+        {tab === "templates" && channel !== "email" ? (
           <Panel title="WhatsApp message templates" bodyClassName="p-0">
             {templatesQuery.isLoading ? (
               <p className="p-4 text-sm text-muted-foreground">Loading templates…</p>
@@ -316,19 +426,23 @@ function Page() {
           </Panel>
         ) : (
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-            <Panel title="Broadcast campaigns" bodyClassName="p-0">
+            <Panel title={channel === "email" ? "Gmail campaigns" : "Broadcast campaigns"} bodyClassName="p-0">
               {broadcastsQuery.isLoading ? (
                 <p className="p-4 text-sm text-muted-foreground">Loading…</p>
-              ) : broadcasts.length === 0 ? (
+              ) : (channel === "email" ? emailBroadcasts : waBroadcasts).length === 0 ? (
                 <div className="p-4">
                   <EmptyState
                     title="No campaigns yet"
-                    description="Create an approved WhatsApp template (or Sync from Meta), then start a New broadcast."
+                    description={
+                      channel === "email"
+                        ? "Connect Gmail under Channels, then start a New email campaign (Text or HTML)."
+                        : "Create an approved WhatsApp template (or Sync from Meta), then start a New broadcast."
+                    }
                   />
                 </div>
               ) : (
                 <ul className="divide-y divide-border">
-                  {broadcasts.map((b) => (
+                  {(channel === "email" ? emailBroadcasts : waBroadcasts).map((b) => (
                     <li key={b.id}>
                       <button
                         type="button"
@@ -340,7 +454,9 @@ function Page() {
                         <div className="min-w-0">
                           <p className="truncate text-sm font-medium">{b.name}</p>
                           <p className="text-xs text-muted-foreground">
-                            {b.template_name} · {b.channel_type} · {b.total_count} recipients
+                            {b.channel_type === "email"
+                              ? `${b.subject || "No subject"} · ${b.body_format || "text"} · ${b.total_count} recipients`
+                              : `${b.template_name} · ${b.channel_type} · ${b.total_count} recipients`}
                           </p>
                         </div>
                         <div className="shrink-0 text-right">
@@ -360,7 +476,9 @@ function Page() {
               title={selectedBroadcast ? selectedBroadcast.name : "Campaign detail"}
               description={
                 selectedBroadcast
-                  ? `Template ${selectedBroadcast.template_name} (${selectedBroadcast.template_language})`
+                  ? selectedBroadcast.channel_type === "email"
+                    ? `${selectedBroadcast.subject || "Email"} · ${selectedBroadcast.body_format || "text"}`
+                    : `Template ${selectedBroadcast.template_name} (${selectedBroadcast.template_language})`
                   : "Select a campaign"
               }
             >
@@ -376,8 +494,12 @@ function Page() {
                       className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2"
                     >
                       <div className="min-w-0">
-                        <p className="truncate font-medium">{r.name || r.phone}</p>
-                        <p className="text-xs text-muted-foreground">{r.phone}</p>
+                        <p className="truncate font-medium">
+                          {r.name || (r as { email?: string }).email || r.phone}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {(r as { email?: string }).email || r.phone}
+                        </p>
                         {r.error ? (
                           <p className="truncate text-[11px] text-destructive">{r.error}</p>
                         ) : null}
@@ -584,6 +706,98 @@ function Page() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={emailBroadcastOpen} onOpenChange={setEmailBroadcastOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>New Gmail campaign</DialogTitle>
+            <DialogDescription>
+              Send from your connected Gmail. Choose Text or HTML body (like n8n). Use {"{{name}}"} for personalization.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label>Campaign name</Label>
+              <Input value={emName} onChange={(e) => setEmName(e.target.value)} placeholder="March email follow-up" />
+            </div>
+            <div className="space-y-2">
+              <Label>Subject</Label>
+              <Input value={emSubject} onChange={(e) => setEmSubject(e.target.value)} placeholder="Follow-up from EnerTech" />
+            </div>
+            <div className="space-y-2">
+              <Label>Body format</Label>
+              <Select value={emFormat} onValueChange={(v: "text" | "html") => setEmFormat(v)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="text">Text</SelectItem>
+                  <SelectItem value="html">HTML</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>{emFormat === "html" ? "HTML body" : "Text body"}</Label>
+              <Textarea rows={8} value={emBody} onChange={(e) => setEmBody(e.target.value)} className="font-mono text-xs" />
+            </div>
+            <div className="space-y-2">
+              <Label>Audience</Label>
+              <Select value={emAudience} onValueChange={(v: AudienceKind) => setEmAudience(v)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="leads_with_email">All leads with email</SelectItem>
+                  <SelectItem value="customers_with_email">All customers with email</SelectItem>
+                  <SelectItem value="indiamart_leads">IndiaMART leads (with email)</SelectItem>
+                  <SelectItem value="manual_emails">Manual email list</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {emAudience === "manual_emails" ? (
+              <div className="space-y-2">
+                <Label>Emails (one per line)</Label>
+                <Textarea
+                  rows={4}
+                  placeholder={"buyer@example.com\nsales@company.com"}
+                  value={emManual}
+                  onChange={(e) => setEmManual(e.target.value)}
+                />
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEmailBroadcastOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={sendEmailMutation.isPending || !gmailSetupQuery.data?.connected}
+              onClick={() => sendEmailMutation.mutate()}
+            >
+              {sendEmailMutation.isPending ? "Sending…" : "Send email campaign"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <SendEmailDialog
+        open={composeOpen}
+        onOpenChange={setComposeOpen}
+        fromLabel={gmailSetupQuery.data?.email}
+        sending={composeSending}
+        onSend={async (payload) => {
+          setComposeSending(true);
+          try {
+            await sendGmailCompose({ data: payload });
+            toast.success("Email sent via Gmail");
+            setComposeOpen(false);
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Send failed");
+          } finally {
+            setComposeSending(false);
+          }
+        }}
+      />
     </>
   );
 }

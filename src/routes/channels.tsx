@@ -43,6 +43,12 @@ import {
 } from "@/lib/channels-api";
 import { getWhatsAppSetupInfo, saveWhatsAppChannelConfig, testWhatsAppConnection } from "@/server/whatsapp";
 import { getEmailSetupInfo, saveEmailChannelConfig } from "@/server/email";
+import {
+  disconnectGmail,
+  getGmailConnectUrl,
+  getGmailSetupInfo,
+  saveGmailOAuthAppConfig,
+} from "@/server/gmail";
 import { getMetaSetupInfo, saveMetaChannelConfig } from "@/server/meta-messenger";
 import {
   cancelIndiaMartBackfillFn,
@@ -72,6 +78,11 @@ import type { BrainmineAuthStyle } from "@/server/brainmine";
 const statusOptions: ChannelStatus[] = ["Connected", "Degraded", "Disconnected", "Action Required"];
 
 export const Route = createFileRoute("/channels")({
+  validateSearch: (search: Record<string, unknown>): { gmail?: string; email?: string; message?: string } => ({
+    gmail: typeof search.gmail === "string" ? search.gmail : undefined,
+    email: typeof search.email === "string" ? search.email : undefined,
+    message: typeof search.message === "string" ? search.message : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Channels — EnerTech Engage" },
@@ -84,6 +95,8 @@ export const Route = createFileRoute("/channels")({
 
 function Page() {
   const queryClient = useQueryClient();
+  const navigate = Route.useNavigate();
+  const search = Route.useSearch();
   const { profile } = useAuth();
   const orgId = profile?.org.id ?? ENERTECH_ORG_ID;
   const appUrl =
@@ -111,6 +124,9 @@ function Page() {
   const [smtpSecure, setSmtpSecure] = useState(false);
   const [smtpUser, setSmtpUser] = useState("");
   const [smtpPass, setSmtpPass] = useState("");
+  const [gmailClientId, setGmailClientId] = useState("");
+  const [gmailClientSecret, setGmailClientSecret] = useState("");
+  const [gmailCredOpen, setGmailCredOpen] = useState(false);
   const [emailInboundSecret, setEmailInboundSecret] = useState("");
   const [emailWebhookCopied, setEmailWebhookCopied] = useState(false);
   const [metaPageId, setMetaPageId] = useState("");
@@ -149,6 +165,58 @@ function Page() {
   const emailSetupQuery = useQuery({
     queryKey: ["email-setup"],
     queryFn: () => getEmailSetupInfo(),
+  });
+
+  const gmailSetupQuery = useQuery({
+    queryKey: ["gmail-setup"],
+    queryFn: () => getGmailSetupInfo(),
+  });
+
+  useEffect(() => {
+    if (!search.gmail) return;
+    if (search.gmail === "connected") {
+      toast.success(`Gmail connected${search.email ? `: ${search.email}` : ""}`);
+      void queryClient.invalidateQueries({ queryKey: ["gmail-setup"] });
+      void queryClient.invalidateQueries({ queryKey: ["email-setup"] });
+      void queryClient.invalidateQueries({ queryKey: ["channels", orgId] });
+    } else if (search.gmail === "error") {
+      toast.error(search.message || "Gmail connect failed");
+    }
+    void navigate({ to: "/channels", search: {}, replace: true });
+  }, [search.gmail, search.email, search.message, navigate, queryClient, orgId]);
+
+  const saveGmailCredMutation = useMutation({
+    mutationFn: () =>
+      saveGmailOAuthAppConfig({
+        data: { clientId: gmailClientId.trim(), clientSecret: gmailClientSecret.trim() },
+      }),
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["gmail-setup"] });
+      setGmailCredOpen(false);
+      setGmailClientSecret("");
+      toast.success("Gmail OAuth credentials saved", {
+        description: `Redirect URI: ${result.redirectUri}`,
+      });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not save Gmail credentials"),
+  });
+
+  const connectGmailMutation = useMutation({
+    mutationFn: () => getGmailConnectUrl(),
+    onSuccess: (result) => {
+      window.location.href = result.url;
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not start Gmail connect"),
+  });
+
+  const disconnectGmailMutation = useMutation({
+    mutationFn: () => disconnectGmail(),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["gmail-setup"] });
+      await queryClient.invalidateQueries({ queryKey: ["email-setup"] });
+      toast.message("Gmail disconnected");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Disconnect failed"),
   });
 
   const fbSetupQuery = useQuery({
@@ -258,8 +326,8 @@ function Page() {
       if (channel.type === "whatsapp" && enabled && !waSetupQuery.data?.configured) {
         throw new Error("Configure Meta WhatsApp credentials first (Configure on the WhatsApp card).");
       }
-      if (channel.type === "email" && enabled && !emailSetupQuery.data?.configured) {
-        throw new Error("Configure SMTP email credentials first (Configure on the Email card).");
+      if (channel.type === "email" && enabled && !emailSetupQuery.data?.configured && !gmailSetupQuery.data?.connected) {
+        throw new Error("Connect Gmail (OAuth) or configure SMTP first.");
       }
       if (channel.type === "facebook" && enabled && !fbSetupQuery.data?.configured) {
         throw new Error("Configure Facebook Messenger credentials first.");
@@ -901,8 +969,79 @@ function Page() {
         </Panel>
 
         <Panel
+          title="Gmail (OAuth — like n8n)"
+          description="Connect a Google account with Client ID + Secret, then Sign in with Google. Used for Send Gmail popup and email broadcasting."
+        >
+          <ol className="mb-3 list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+            <li>
+              Google Cloud → create OAuth Client (Web) → enable <strong>Gmail API</strong>.
+            </li>
+            <li>
+              Add authorized redirect URI exactly:{" "}
+              <code className="rounded bg-secondary px-1 text-[11px]">
+                {gmailSetupQuery.data?.redirectUri || `${appUrl}/api/oauth/gmail/callback`}
+              </code>
+            </li>
+            <li>Save Client ID + Client Secret here (same idea as n8n Gmail credentials).</li>
+            <li>Click <strong>Connect with Google</strong> and approve Gmail send access.</li>
+          </ol>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <Pill
+              tone={
+                gmailSetupQuery.data?.connected
+                  ? "success"
+                  : gmailSetupQuery.data?.credentialsConfigured
+                    ? "warning"
+                    : "neutral"
+              }
+              dot
+            >
+              {gmailSetupQuery.data?.connected
+                ? `Connected · ${gmailSetupQuery.data.email}`
+                : gmailSetupQuery.data?.credentialsConfigured
+                  ? "Credentials saved — connect Google"
+                  : "Credentials not saved"}
+            </Pill>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => setGmailCredOpen(true)}>
+              {gmailSetupQuery.data?.credentialsConfigured ? "Edit OAuth credentials" : "Set OAuth credentials"}
+            </Button>
+            <Button
+              size="sm"
+              disabled={!gmailSetupQuery.data?.credentialsConfigured || connectGmailMutation.isPending}
+              onClick={() => connectGmailMutation.mutate()}
+            >
+              {connectGmailMutation.isPending ? "Redirecting…" : "Connect with Google"}
+            </Button>
+            {gmailSetupQuery.data?.connected ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={disconnectGmailMutation.isPending}
+                onClick={() => disconnectGmailMutation.mutate()}
+              >
+                Disconnect Gmail
+              </Button>
+            ) : null}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={async () => {
+                const uri = gmailSetupQuery.data?.redirectUri || "";
+                if (!uri) return;
+                await navigator.clipboard.writeText(uri);
+                toast.success("Redirect URI copied");
+              }}
+            >
+              <Copy className="size-3.5" /> Copy redirect URI
+            </Button>
+          </div>
+        </Panel>
+
+        <Panel
           title="Email (SMTP + inbound webhook)"
-          description="Connect SMTP for outbound replies. Forward inbound mail to the webhook so threads appear in Inbox."
+          description="Optional SMTP fallback for outbound. Forward inbound mail to the webhook so threads appear in Inbox. Prefer Gmail OAuth above for marketing sends."
         >
           <ol className="mb-3 list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
             <li>
@@ -1974,6 +2113,58 @@ function Page() {
                     editing?.type === "brainmine"
                   ? "Save & connect"
                   : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={gmailCredOpen} onOpenChange={setGmailCredOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Gmail OAuth credentials</DialogTitle>
+            <DialogDescription>
+              Same idea as n8n Gmail credentials: paste Google OAuth Client ID and Client Secret.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="gmail-cid">Client ID</Label>
+              <Input
+                id="gmail-cid"
+                value={gmailClientId}
+                onChange={(e) => setGmailClientId(e.target.value)}
+                placeholder="xxxx.apps.googleusercontent.com"
+                autoComplete="off"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="gmail-csec">Client Secret</Label>
+              <Input
+                id="gmail-csec"
+                type="password"
+                value={gmailClientSecret}
+                onChange={(e) => setGmailClientSecret(e.target.value)}
+                placeholder="GOCSPX-…"
+                autoComplete="off"
+              />
+            </div>
+            <p className="text-[11px] text-muted-foreground break-all">
+              Redirect URI: {gmailSetupQuery.data?.redirectUri}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setGmailCredOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                saveGmailCredMutation.isPending ||
+                gmailClientId.trim().length < 8 ||
+                gmailClientSecret.trim().length < 8
+              }
+              onClick={() => saveGmailCredMutation.mutate()}
+            >
+              {saveGmailCredMutation.isPending ? "Saving…" : "Save credentials"}
             </Button>
           </DialogFooter>
         </DialogContent>

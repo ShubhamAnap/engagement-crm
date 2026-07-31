@@ -52,6 +52,9 @@ export type DbBroadcast = {
   template_id: string | null;
   template_name: string | null;
   template_language: string | null;
+  subject?: string | null;
+  body_text?: string | null;
+  body_format?: string | null;
   variable_values: string[];
   audience: Record<string, unknown>;
   total_count: number;
@@ -63,9 +66,126 @@ export type DbBroadcast = {
   updated_at: string;
 };
 
-export type AudienceKind = "customers_with_phone" | "leads_with_phone" | "indiamart_leads" | "manual";
+export type AudienceKind =
+  | "customers_with_phone"
+  | "leads_with_phone"
+  | "indiamart_leads"
+  | "manual"
+  | "customers_with_email"
+  | "leads_with_email"
+  | "manual_emails";
 
 export { countTemplateVars, syncWhatsAppTemplatesFromMeta, submitWhatsAppTemplateToMeta, runWhatsAppBroadcast, sendInboxWhatsAppTemplate };
+
+export async function createAndSendEmailBroadcast(options: {
+  orgId?: string;
+  name: string;
+  subject: string;
+  body: string;
+  format: "text" | "html";
+  audienceKind: AudienceKind;
+  manualEmails?: string[];
+  createdBy?: string | null;
+}) {
+  const orgId = options.orgId ?? ENERTECH_ORG_ID;
+  const recipients = await resolveAudienceEmails(
+    orgId,
+    options.audienceKind,
+    options.manualEmails || [],
+  );
+  if (!recipients.length) throw new Error("No recipients with email found for this audience");
+
+  const supabase = getBrowserSupabase();
+  const { data: broadcast, error } = await supabase
+    .from("broadcasts")
+    .insert({
+      org_id: orgId,
+      channel_type: "email",
+      name: options.name.trim(),
+      status: "Queued",
+      subject: options.subject.trim(),
+      body_text: options.body,
+      body_format: options.format,
+      variable_values: [],
+      audience: { kind: options.audienceKind },
+      total_count: recipients.length,
+      created_by: options.createdBy || null,
+    })
+    .select("*")
+    .single();
+  if (error) throw error;
+
+  const { error: recErr } = await supabase.from("broadcast_recipients").insert(
+    recipients.map((r) => ({
+      org_id: orgId,
+      broadcast_id: broadcast.id,
+      phone: null,
+      email: r.email,
+      name: r.name,
+      customer_id: r.customer_id || null,
+      lead_id: r.lead_id || null,
+      status: "pending",
+    })),
+  );
+  if (recErr) throw recErr;
+
+  const { runGmailEmailBroadcast } = await import("@/server/gmail");
+  const result = await runGmailEmailBroadcast({ data: { broadcastId: broadcast.id as string } });
+  return { broadcastId: broadcast.id as string, ...result };
+}
+
+async function resolveAudienceEmails(
+  orgId: string,
+  kind: AudienceKind,
+  manualEmails: string[],
+): Promise<Array<{ email: string; name: string | null; customer_id?: string; lead_id?: string }>> {
+  const supabase = getBrowserSupabase();
+  const out: Array<{ email: string; name: string | null; customer_id?: string; lead_id?: string }> = [];
+  const seen = new Set<string>();
+
+  const push = (
+    email: string | null | undefined,
+    name: string | null,
+    ids?: { customer_id?: string; lead_id?: string },
+  ) => {
+    const addr = (email || "").trim().toLowerCase();
+    if (!addr.includes("@") || seen.has(addr)) return;
+    seen.add(addr);
+    out.push({ email: addr, name, ...ids });
+  };
+
+  if (kind === "manual_emails" || kind === "manual") {
+    for (const line of manualEmails) {
+      for (const part of line.split(/[,;\s]+/)) push(part, null);
+    }
+    return out;
+  }
+
+  if (kind === "customers_with_email") {
+    const { data, error } = await supabase
+      .from("customers")
+      .select("id, name, email")
+      .eq("org_id", orgId)
+      .not("email", "is", null)
+      .limit(500);
+    if (error) throw error;
+    for (const c of data ?? []) push(c.email as string, c.name as string, { customer_id: c.id as string });
+    return out;
+  }
+
+  const { data, error } = await supabase
+    .from("leads")
+    .select("id, name, email, source")
+    .eq("org_id", orgId)
+    .not("email", "is", null)
+    .limit(500);
+  if (error) throw error;
+  for (const l of data ?? []) {
+    if (kind === "indiamart_leads" && l.source !== "indiamart") continue;
+    push(l.email as string, l.name as string, { lead_id: l.id as string });
+  }
+  return out;
+}
 
 export async function listWaTemplates(orgId: string = ENERTECH_ORG_ID): Promise<DbWaTemplate[]> {
   const supabase = getBrowserSupabase();
@@ -99,7 +219,7 @@ export async function listBroadcastRecipients(broadcastId: string) {
   const supabase = getBrowserSupabase();
   const { data, error } = await supabase
     .from("broadcast_recipients")
-    .select("id, phone, name, status, error, sent_at")
+    .select("id, phone, email, name, status, error, sent_at")
     .eq("broadcast_id", broadcastId)
     .order("created_at", { ascending: true })
     .limit(500);

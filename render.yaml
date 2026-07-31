@@ -19,7 +19,7 @@ services:
     healthCheckPath: /login
     envVars:
       - key: NODE_VERSION
-        value: "20.18.0"
+        value: "22.14.0"
       - key: NODE_ENV
         value: production
       - key: npm_config_optional
@@ -85,7 +85,7 @@ services:
     startCommand: "node -e \"const u=process.env.CRON_URL;const s=process.env.CRON_SECRET;if(!u||!s){console.error('Set CRON_URL and CRON_SECRET');process.exit(1)}fetch(u,{method:'POST',headers:{Authorization:'Bearer '+s}}).then(async r=>{const t=await r.text();if(!r.ok){console.error(t);process.exit(1)}console.log(t)}).catch(e=>{console.error(e);process.exit(1)})\""
     envVars:
       - key: NODE_VERSION
-        value: "20.18.0"
+        value: "22.14.0"
       # e.g. https://enertech-engage.onrender.com/api/cron/automations
       - key: CRON_URL
         sync: false

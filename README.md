@@ -40,7 +40,7 @@ Blueprint: [`render.yaml`](./render.yaml) (Web Service + 5‑min automations cro
    - **Runtime:** **Node** (not Bun — `bun.lock` can auto-select Bun and skip Vite)
    - **Build:** `bash scripts/render-build.sh` (Vite 7; clears `node_modules`, installs, builds)
    - **Start:** `npm run start:check` (or `npm start`)
-   - **Node:** 20 (`NODE_VERSION=20.18.0` or `.node-version`)
+   - **Node:** 22 (`NODE_VERSION=22.14.0` or `.node-version`) — required for Supabase WebSocket / Realtime
    - Build logs must show `vite build` / Nitro `.output` — not only package install
 4. Set environment variables (copy from local `.env` — never commit it):
 

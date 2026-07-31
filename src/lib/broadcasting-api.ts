@@ -64,7 +64,7 @@ export type DbBroadcast = {
 
 export type AudienceKind = "customers_with_phone" | "leads_with_phone" | "indiamart_leads" | "manual";
 
-export { countTemplateVars, syncWhatsAppTemplatesFromMeta, submitWhatsAppTemplateToMeta, runWhatsAppBroadcast };
+export { countTemplateVars, syncWhatsAppTemplatesFromMeta, submitWhatsAppTemplateToMeta, runWhatsAppBroadcast, sendInboxWhatsAppTemplate };
 
 export async function listWaTemplates(orgId: string = ENERTECH_ORG_ID): Promise<DbWaTemplate[]> {
   const supabase = getBrowserSupabase();

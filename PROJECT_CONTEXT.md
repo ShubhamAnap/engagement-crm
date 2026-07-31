@@ -251,7 +251,7 @@ Embed on EnerTech website — live AI chat, lead capture (name/email/phone requi
 |--------|-------|-------------|--------|
 | Dashboard | `/` | `mock.ts` | Live KPIs + charts from Supabase |
 | AI Command Center | `/command-center` | — | Live sessions: pause/takeover/timeline |
-| Inbox | `/inbox` | `mock.ts` | Live + WA 24h window; IndiaMART/TradeIndia default contact via WhatsApp |
+| Inbox | `/inbox` | `mock.ts` | Live + WA 24h window; IM/TI via WhatsApp; **select/send approved template in composer** |
 | AI Chat Support | `/ai-chat` | — | Live Answer Inspector (confidence, sources, reasoning) |
 | AI Agents | `/agents` | — | Live: model/prompt/memory/status; keyword routing |
 | Knowledge Base | `/knowledge` | `mock.ts` | Live collections + upload/index (pgvector RAG) |
@@ -302,6 +302,7 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-07-31
+- **Inbox template compose:** When WA 24h window is closed (or IndiaMART first contact), agents can select an APPROVED template in the chatbox (FileText button next to attach), fill variables, and send via Cloud API — same place as file attach. Server `sendInboxWhatsAppTemplate`.
 - **IndiaMART/TradeIndia → WhatsApp contact:** Inbox defaults marketplace lead replies to WhatsApp (phone on lead). Cloud API when 24h session open; first contact opens WhatsApp app / Broadcasting template. Matching WA inbound stamps `wa_last_customer_at` on marketplace threads.
 - **WhatsApp 24h session window:** Inbox shows hours remaining on WhatsApp threads; free-form reply/attach blocked when Meta window closed (guide to Broadcasting templates). Migration `017_whatsapp_session_window.sql` (`wa_last_customer_at`). Inbound WA messages open/reset the window; server guards `sendWhatsAppAgentReply`.
 - **Render deploy prep:** Added `render.yaml` (Web Service + 5‑min automations cron), `.node-version` (20.18), README deploy section. User deploying to Render for WhatsApp public webhook.

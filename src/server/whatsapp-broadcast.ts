@@ -207,7 +207,7 @@ export async function sendWhatsAppTemplateMessage(options: {
   if (!config.phone_number_id || !config.access_token) {
     throw new Error("WhatsApp is not configured (phone number id / access token)");
   }
-  const to = options.toPhone.replace(/\D/g, "");
+  const to = (await import("@/lib/whatsapp-window")).normalizeWhatsAppDigits(options.toPhone) || options.toPhone.replace(/\D/g, "");
   if (!to) throw new Error("Invalid recipient phone");
 
   const components: Array<Record<string, unknown>> = [];
@@ -351,4 +351,120 @@ export const runWhatsAppBroadcast = createServerFn({ method: "POST" })
       .eq("id", data.broadcastId);
 
     return { sent, failed, total: (recipients || []).length };
+  });
+
+/**
+ * Inbox: send an APPROVED WhatsApp template to the conversation recipient
+ * when the 24h free-form window is closed (or for IndiaMART first contact).
+ */
+export const sendInboxWhatsAppTemplate = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      conversationId: z.string().uuid(),
+      templateId: z.string().uuid(),
+      bodyParams: z.array(z.string().max(500)).max(20).optional(),
+      profileId: z.string().uuid().optional(),
+      assigneeLabel: z.string().max(120).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const supabase = createServiceSupabase();
+    const { isMarketplaceLeadChannel, normalizeWhatsAppDigits } = await import(
+      "@/lib/whatsapp-window"
+    );
+
+    const { data: convo, error: cErr } = await supabase
+      .from("conversations")
+      .select(
+        "id, channel, visitor_phone, visitor_name, metadata, widget_session_id, status, assignee_label",
+      )
+      .eq("id", data.conversationId)
+      .eq("org_id", ORG_ID)
+      .maybeSingle();
+    if (cErr) throw new Error(cErr.message);
+    if (!convo) throw new Error("Conversation not found");
+
+    const channel = String(convo.channel || "");
+    if (channel !== "whatsapp" && !isMarketplaceLeadChannel(channel)) {
+      throw new Error("Templates can only be sent on WhatsApp / IndiaMART / TradeIndia threads");
+    }
+
+    const { data: tpl, error: tErr } = await supabase
+      .from("wa_message_templates")
+      .select("*")
+      .eq("id", data.templateId)
+      .eq("org_id", ORG_ID)
+      .maybeSingle();
+    if (tErr) throw new Error(tErr.message);
+    if (!tpl) throw new Error("Template not found");
+    if (String(tpl.status).toUpperCase() !== "APPROVED") {
+      throw new Error("Only APPROVED templates can be sent. Sync templates from Meta in Broadcasting.");
+    }
+
+    const meta = (convo.metadata || {}) as { wa_id?: string };
+    const phone =
+      normalizeWhatsAppDigits(meta.wa_id) ||
+      normalizeWhatsAppDigits(convo.visitor_phone as string) ||
+      normalizeWhatsAppDigits(String(convo.widget_session_id || "").replace(/^wa:/, ""));
+    if (!phone) throw new Error("No phone number on this conversation for WhatsApp");
+
+    const varCount = countTemplateVars(String(tpl.body_text || ""));
+    const params = (data.bodyParams || []).slice(0, varCount);
+    if (varCount > 0 && params.length < varCount) {
+      throw new Error(`This template needs ${varCount} variable(s). Fill them before sending.`);
+    }
+
+    const waMessageId = await sendWhatsAppTemplateMessage({
+      toPhone: phone,
+      templateName: tpl.name as string,
+      language: (tpl.language as string) || "en",
+      bodyParams: params,
+    });
+
+    let previewBody = String(tpl.body_text || tpl.name || "WhatsApp template");
+    params.forEach((val, i) => {
+      previewBody = previewBody.replace(new RegExp(`\\{\\{${i + 1}\\}\\}`, "g"), val);
+    });
+
+    const now = new Date().toISOString();
+    const { data: msg, error: mErr } = await supabase
+      .from("messages")
+      .insert({
+        org_id: ORG_ID,
+        conversation_id: data.conversationId,
+        sender: "agent",
+        body: `[Template: ${tpl.name}] ${previewBody}`.slice(0, 8000),
+        profile_id: data.profileId || null,
+        metadata: {
+          whatsapp_template: true,
+          template_id: tpl.id,
+          template_name: tpl.name,
+          template_language: tpl.language,
+          wa_message_id: waMessageId,
+          body_params: params,
+        },
+      })
+      .select("id")
+      .single();
+    if (mErr) throw new Error(mErr.message);
+
+    const status = String(convo.status || "");
+    const patch: Record<string, unknown> = {
+      last_message_at: now,
+      preview: previewBody.slice(0, 160),
+      updated_at: now,
+      assignee_label: data.assigneeLabel || convo.assignee_label || "Human agent",
+    };
+    if (status === "bot" || status === "ai" || !status) {
+      patch.status = "human";
+    }
+    await supabase.from("conversations").update(patch).eq("id", data.conversationId);
+
+    return {
+      ok: true,
+      messageId: msg.id as string,
+      waMessageId,
+      phone,
+      templateName: tpl.name as string,
+    };
   });

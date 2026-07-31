@@ -5,6 +5,7 @@ import {
   submitWhatsAppTemplateToMeta,
   syncWhatsAppTemplatesFromMeta,
   countTemplateVars,
+  sendInboxWhatsAppTemplate,
 } from "@/server/whatsapp-broadcast";
 
 export type WaTemplateStatus =

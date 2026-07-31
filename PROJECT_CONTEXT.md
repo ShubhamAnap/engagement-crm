@@ -251,7 +251,7 @@ Embed on EnerTech website — live AI chat, lead capture (name/email/phone requi
 |--------|-------|-------------|--------|
 | Dashboard | `/` | `mock.ts` | Live KPIs + charts from Supabase |
 | AI Command Center | `/command-center` | — | Live sessions: pause/takeover/timeline |
-| Inbox | `/inbox` | `mock.ts` | Live conversations/messages with linked customer/lead context and lead workflow actions |
+| Inbox | `/inbox` | `mock.ts` | Live + WhatsApp 24h window indicator (hours left / closed → template) |
 | AI Chat Support | `/ai-chat` | — | Live Answer Inspector (confidence, sources, reasoning) |
 | AI Agents | `/agents` | — | Live: model/prompt/memory/status; keyword routing |
 | Knowledge Base | `/knowledge` | `mock.ts` | Live collections + upload/index (pgvector RAG) |
@@ -263,7 +263,6 @@ Embed on EnerTech website — live AI chat, lead capture (name/email/phone requi
 | Automation | `/automation` | — | Live A+B+C: Wait, If/Else, conditions, follow-up cron, WA/email/notify, canvas |
 | Channels | `/channels` | — | Live: Website + WA + Email + Meta + IndiaMART + TradeIndia + Brainmine |
 | Broadcasting | `/broadcasting` | — | WhatsApp templates + Meta sync + campaigns |
-| Inbox | `/inbox` | `mock.ts` | Live + **WhatsApp 24h window indicator** (hours left / closed → template) |
 | Human Support | `/human-support` | `mock.ts` | Live handoff queue: claim / resolve / return to AI |
 | Reports | `/reports` | — | Live catalog: 7 report types + CSV export |
 | Settings | `/settings` | — | Live: profile, company (Admin), password |

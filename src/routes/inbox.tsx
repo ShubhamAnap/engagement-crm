@@ -335,8 +335,8 @@ function Page() {
       {!selected ? (
         <div className="p-6"><EmptyState title="Select a conversation" description="Choose a thread from the left." /></div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+        <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4">
             {messagesQuery.isLoading ? (
               <ListSkeleton rows={4} />
             ) : (messagesQuery.data ?? []).length === 0 ? (
@@ -400,7 +400,7 @@ function Page() {
               })
             )}
           </div>
-          <div className="shrink-0 border-t border-border p-3">
+          <div className="z-10 shrink-0 border-t border-border bg-card p-3">
             <div className="mb-2 flex items-center gap-1.5 text-xs text-primary"><Sparkles className="size-3.5" /> Reply as {profile?.fullName || "agent"} — saved to this conversation</div>
             <div className="flex items-center gap-1.5">
               <input
@@ -515,52 +515,53 @@ function Page() {
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <PageHeader
-        title="Omnichannel Inbox"
-        description="Live conversations from website chat and other channels."
-        actions={
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => void onRefreshInbox()} disabled={refreshing}>
-            <RefreshCw className={cn("size-3.5", refreshing && "animate-spin")} /> Refresh
-          </Button>
-        }
-      />
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="shrink-0">
+        <PageHeader
+          title="Omnichannel Inbox"
+          description="Live conversations from website chat and other channels."
+          actions={
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => void onRefreshInbox()} disabled={refreshing}>
+              <RefreshCw className={cn("size-3.5", refreshing && "animate-spin")} /> Refresh
+            </Button>
+          }
+        />
+      </div>
 
       {/* Desktop / tablet: resizable 3-column workspace */}
-      <div className="hidden min-h-0 flex-1 p-3 md:p-4 lg:block">
+      <div className="hidden min-h-0 flex-1 flex-col overflow-hidden p-3 md:p-4 lg:flex">
         {layout ? (
           <ResizablePanelGroup
             id="inbox-workspace"
             orientation="horizontal"
-            className="h-[calc(100dvh-8.5rem)] min-h-[420px] overflow-hidden rounded-xl border border-border bg-card"
+            className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-card"
             defaultLayout={layout}
             onLayoutChanged={(next) => {
               setLayout(next);
               localStorage.setItem(LAYOUT_KEY, JSON.stringify(next));
             }}
           >
-            <ResizablePanel id="list" defaultSize="24%" minSize="16%" maxSize="42%" className="min-w-0">
+            <ResizablePanel id="list" defaultSize="24%" minSize="16%" maxSize="42%" className="min-h-0 min-w-0">
               <div className="h-full min-h-0 overflow-hidden border-r border-border">{conversationList}</div>
             </ResizablePanel>
             <ResizableHandle withHandle />
-            <ResizablePanel id="chat" defaultSize="48%" minSize="28%" className="min-w-0">
+            <ResizablePanel id="chat" defaultSize="48%" minSize="28%" className="min-h-0 min-w-0">
               <div className="h-full min-h-0 overflow-hidden">{conversationThread}</div>
             </ResizablePanel>
             <ResizableHandle withHandle />
-            <ResizablePanel id="profile" defaultSize="28%" minSize="18%" maxSize="40%" collapsible className="min-w-0">
+            <ResizablePanel id="profile" defaultSize="28%" minSize="18%" maxSize="40%" collapsible className="min-h-0 min-w-0">
               <div className="h-full min-h-0 overflow-hidden border-l border-border">{profileSidebar}</div>
             </ResizablePanel>
           </ResizablePanelGroup>
         ) : (
-          <div className="h-[calc(100dvh-8.5rem)] min-h-[420px] rounded-xl border border-border"><ListSkeleton rows={8} /></div>
+          <div className="min-h-0 flex-1 rounded-xl border border-border"><ListSkeleton rows={8} /></div>
         )}
       </div>
 
       {/* Mobile: stacked panels */}
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 lg:hidden">
-        <div className="max-h-[40vh] min-h-[220px] overflow-hidden rounded-xl border border-border">{conversationList}</div>
-        <div className="min-h-[360px] overflow-hidden rounded-xl border border-border">{conversationThread}</div>
-        <div className="rounded-xl border border-border p-1">{profileSidebar}</div>
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3 lg:hidden">
+        <div className="max-h-[32vh] min-h-[180px] shrink-0 overflow-hidden rounded-xl border border-border">{conversationList}</div>
+        <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border">{conversationThread}</div>
       </div>
     </div>
   );

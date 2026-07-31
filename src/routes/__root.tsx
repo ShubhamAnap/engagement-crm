@@ -231,8 +231,16 @@ function AuthenticatedShell() {
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <TopBar onOpenMobileNav={() => setMobileOpen(true)} />
           <AutomationApprovalBanner />
-          <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
-            <Outlet />
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <div
+              className={
+                pathname === "/inbox"
+                  ? "flex min-h-0 flex-1 flex-col overflow-hidden"
+                  : "min-h-0 flex-1 overflow-y-auto"
+              }
+            >
+              <Outlet />
+            </div>
           </main>
         </div>
       </div>

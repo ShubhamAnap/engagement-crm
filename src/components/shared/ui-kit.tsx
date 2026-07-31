@@ -74,7 +74,7 @@ export function Panel({
       )}
     >
       {title ? (
-        <header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 py-3">
+        <header className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0">
             <h2 className="truncate text-sm font-semibold text-foreground">{title}</h2>
             {description ? (
@@ -84,7 +84,7 @@ export function Panel({
           {action ? <div className="shrink-0">{action}</div> : null}
         </header>
       ) : null}
-      <div className={cn("p-4", bodyClassName)}>{children}</div>
+      <div className={cn("min-h-0 p-4", bodyClassName)}>{children}</div>
     </section>
   );
 }

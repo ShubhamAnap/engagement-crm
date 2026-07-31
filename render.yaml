@@ -13,7 +13,7 @@ services:
     region: singapore
     branch: main
     autoDeploy: true
-    buildCommand: npm ci --include=dev && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm run start:check
     healthCheckPath: /login
     envVars:

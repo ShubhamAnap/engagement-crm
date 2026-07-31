@@ -38,7 +38,7 @@ Blueprint: [`render.yaml`](./render.yaml) (Web Service + 5‑min automations cro
 2. Connect GitHub repo **ShubhamAnap/enertechsupport**, branch `main`.
 3. If using Web Service manually:
    - **Runtime:** **Node** (not Bun — `bun.lock` can auto-select Bun and skip Vite)
-   - **Build:** `npm ci --include=dev && npm run build`
+   - **Build:** `npm install --include=dev && npm run build`
    - **Start:** `npm run start:check` (or `npm start`)
    - **Node:** 20 (`NODE_VERSION=20.18.0` or `.node-version`)
    - Build logs must show `vite build` / Nitro `.output` — not only package install

@@ -12,7 +12,7 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "start": "node .output/server/index.mjs",
-    "start:check": "node --input-type=commonjs -e \"const fs=require('fs');if(!fs.existsSync('.output/server/index.mjs')){console.error('Missing .output/server/index.mjs. On Render set Build Command to: npm ci --include=dev && npm run build (Runtime: Node, not Bun)');process.exit(1)}\" && node .output/server/index.mjs",
+    "start:check": "node --input-type=commonjs -e \"const fs=require('fs');if(!fs.existsSync('.output/server/index.mjs')){console.error('Missing .output/server/index.mjs. On Render set Build Command to: npm install --include=dev && npm run build (Runtime: Node, not Bun)');process.exit(1)}\" && node .output/server/index.mjs",
     "seed:admin": "node --env-file=.env scripts/seed-admin.mjs",
     "lint": "eslint .",
     "format": "prettier --write ."

@@ -13,7 +13,8 @@ services:
     region: singapore
     branch: main
     autoDeploy: true
-    buildCommand: npm install --include=dev && npm run build
+    # Wipe node_modules then force Linux Rolldown/Lightningcss natives (lockfile often from Windows)
+    buildCommand: rm -rf node_modules && npm install --include=dev && npm install --force @rolldown/binding-linux-x64-gnu@1.2.1 lightningcss-linux-x64-gnu@1.33.0 && npm run build
     startCommand: npm run start:check
     healthCheckPath: /login
     envVars:
@@ -21,6 +22,8 @@ services:
         value: "20.18.0"
       - key: NODE_ENV
         value: production
+      - key: npm_config_optional
+        value: "true"
 
       # Public app URL — set AFTER first deploy to https://<service>.onrender.com
       - key: VITE_APP_URL

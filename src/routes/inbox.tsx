@@ -693,23 +693,22 @@ function Page() {
               </Button>
               {waOutbound && waPhone ? (
                 <Button
-                  variant={needsTemplate ? "default" : "secondary"}
-                  size="sm"
-                  className="h-9 shrink-0 gap-1.5 px-2.5"
+                  variant={needsTemplate ? "default" : "ghost"}
+                  size="icon"
+                  className="size-9 shrink-0"
                   aria-label="Send WhatsApp template"
                   title="Send WhatsApp template"
                   disabled={sending || uploading || sendingTemplate || sendingProduct}
                   onClick={() => setTemplateModalOpen(true)}
                 >
-                  <LayoutGrid className="size-3.5" />
-                  Template
+                  <LayoutGrid className="size-4" />
                 </Button>
               ) : null}
               {waOutbound && waPhone ? (
                 <Button
-                  variant="secondary"
-                  size="sm"
-                  className="h-9 shrink-0 gap-1.5 px-2.5"
+                  variant="ghost"
+                  size="icon"
+                  className="size-9 shrink-0"
                   aria-label="Recommend product"
                   title={
                     waCanCloudApi
@@ -719,12 +718,11 @@ function Page() {
                   disabled={sending || uploading || sendingTemplate || sendingProduct || !waCanCloudApi}
                   onClick={() => setProductModalOpen(true)}
                 >
-                  <Package className="size-3.5" />
-                  Recommend
+                  <Package className="size-4" />
                 </Button>
               ) : null}
               <Input
-                className="h-9"
+                className="h-9 min-w-0 flex-1"
                 placeholder={
                   needsTemplate
                     ? "Free-form blocked — click Template…"

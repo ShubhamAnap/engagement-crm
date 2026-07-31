@@ -38,8 +38,8 @@ Blueprint: [`render.yaml`](./render.yaml) (Web Service + 5‑min automations cro
 2. Connect GitHub repo **ShubhamAnap/enertechsupport**, branch `main`.
 3. If using Web Service manually:
    - **Runtime:** **Node** (not Bun — `bun.lock` can auto-select Bun and skip Vite)
-   - **Build:** `rm -rf node_modules && npm install --include=dev && npm install --force @rolldown/binding-linux-x64-gnu@1.2.1 lightningcss-linux-x64-gnu@1.33.0 && npm run build`
-     (Vite 8 needs the Linux Rolldown native binding; Windows lockfiles often omit it.)
+   - **Build:** `bash scripts/render-build.sh`
+     (Deletes Windows `package-lock.json` on Linux, installs Rolldown native, runs `vite build`.)
    - **Start:** `npm run start:check` (or `npm start`)
    - **Node:** 20 (`NODE_VERSION=20.18.0` or `.node-version`)
    - Build logs must show `vite build` / Nitro `.output` — not only package install

@@ -13,8 +13,8 @@ services:
     region: singapore
     branch: main
     autoDeploy: true
-    # Wipe node_modules then force Linux Rolldown/Lightningcss natives (lockfile often from Windows)
-    buildCommand: rm -rf node_modules && npm install --include=dev && npm install --force @rolldown/binding-linux-x64-gnu@1.2.1 lightningcss-linux-x64-gnu@1.33.0 && npm run build
+    # Regenerates lock on Linux + places Rolldown native next to Vite's nested rolldown
+    buildCommand: bash scripts/render-build.sh
     startCommand: npm run start:check
     healthCheckPath: /login
     envVars:

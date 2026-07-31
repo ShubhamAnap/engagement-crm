@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, ExternalLink, Pencil, RefreshCw } from "lucide-react";
+import { Copy, ExternalLink, Mail, Pencil, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -850,6 +850,63 @@ function Page() {
           <StatCard label="Enabled" value={String(enabled)} hint="turned on in app" />
           <StatCard label="Open threads" value={String(openThreads)} hint="ai / human / escalated" />
         </div>
+
+        <Panel
+          title="Gmail OAuth (n8n-style)"
+          description="Connect Google like an n8n Gmail credential — Client ID, Client Secret, then Sign in with Google."
+          action={
+            <Pill tone={gmailSetupQuery.data?.connected ? "success" : "warning"} dot>
+              {gmailSetupQuery.data?.connected ? "Connected" : "Not connected"}
+            </Pill>
+          }
+        >
+          <div className="mb-3 flex items-start gap-3 rounded-lg border border-border bg-secondary/40 p-3">
+            <Mail className="mt-0.5 size-5 shrink-0 text-primary" />
+            <div className="min-w-0 text-sm text-muted-foreground">
+              <p>
+                Redirect URI:{" "}
+                <code className="break-all rounded bg-background px-1 text-[11px] text-foreground">
+                  {gmailSetupQuery.data?.redirectUri || `${appUrl}/api/oauth/gmail/callback`}
+                </code>
+              </p>
+              <p className="mt-1">
+                Status:{" "}
+                <span className="font-medium text-foreground">
+                  {gmailSetupQuery.data?.connected
+                    ? gmailSetupQuery.data.email
+                    : gmailSetupQuery.data?.credentialsConfigured
+                      ? "Credentials saved — click Connect with Google"
+                      : "Set OAuth credentials first"}
+                </span>
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => setGmailCredOpen(true)}>
+              {gmailSetupQuery.data?.credentialsConfigured ? "Edit OAuth credentials" : "Set OAuth credentials"}
+            </Button>
+            <Button
+              size="sm"
+              disabled={!gmailSetupQuery.data?.credentialsConfigured || connectGmailMutation.isPending}
+              onClick={() => connectGmailMutation.mutate()}
+            >
+              {connectGmailMutation.isPending ? "Redirecting…" : "Connect with Google"}
+            </Button>
+            {gmailSetupQuery.data?.connected ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={disconnectGmailMutation.isPending}
+                onClick={() => disconnectGmailMutation.mutate()}
+              >
+                Disconnect
+              </Button>
+            ) : null}
+            <Button size="sm" variant="ghost" asChild>
+              <Link to="/broadcasting">Open Broadcasting → Gmail</Link>
+            </Button>
+          </div>
+        </Panel>
 
         <Panel title="Website chat — embed code" description="Paste this before </body> on any website">
           <p className="mb-3 text-sm text-muted-foreground">

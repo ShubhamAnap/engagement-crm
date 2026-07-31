@@ -611,26 +611,88 @@ function Page() {
               </div>
             ) : null}
             {needsTemplate ? (
-              <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
-                <p className="font-medium text-foreground">
-                  {marketplaceLead
-                    ? "First WhatsApp contact — select an approved template below"
-                    : "Meta 24-hour window closed — select an approved template below"}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Free-form text is blocked. Pick a Meta-approved template in the composer (like attaching a
-                  file), fill variables if needed, then Send template. After the customer replies on
-                  WhatsApp, free-form works for 24 hours.
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2">
+              <div className="mb-3 space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
+                <div>
+                  <p className="font-medium text-foreground">
+                    {marketplaceLead
+                      ? "First WhatsApp contact — pick a template to start"
+                      : "WhatsApp window closed — pick a template to message"}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Free-form text is blocked by Meta. Choose an APPROVED template, fill variables, then
+                    send. After the customer replies on WhatsApp, free-form works for 24 hours.
+                  </p>
+                </div>
+                <div className="space-y-2 rounded-md border border-border bg-background p-2.5">
+                  <Label className="text-xs font-medium">Select approved template</Label>
+                  <Select
+                    value={selectedTemplateId || undefined}
+                    onValueChange={(v) => {
+                      setSelectedTemplateId(v);
+                      setShowTemplatePicker(true);
+                    }}
+                    disabled={sendingTemplate || templatesQuery.isLoading}
+                  >
+                    <SelectTrigger className="h-9">
+                      <SelectValue
+                        placeholder={
+                          templatesQuery.isLoading
+                            ? "Loading templates…"
+                            : approvedTemplates.length === 0
+                              ? "No APPROVED templates — open Manage templates"
+                              : "Choose template…"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {approvedTemplates.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name} · {t.language} · {t.category}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedTemplate ? (
+                    <p className="line-clamp-3 text-[11px] text-muted-foreground whitespace-pre-wrap">
+                      {selectedTemplate.body_text || "No body preview"}
+                    </p>
+                  ) : null}
+                  {templateVarCount > 0 ? (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {Array.from({ length: templateVarCount }, (_, i) => (
+                        <div key={i} className="space-y-1">
+                          <Label className="text-[11px] text-muted-foreground">{`{{${i + 1}}}`}</Label>
+                          <Input
+                            className="h-8"
+                            value={templateVars[i] || ""}
+                            onChange={(e) => {
+                              const next = [...templateVars];
+                              next[i] = e.target.value;
+                              setTemplateVars(next);
+                            }}
+                            placeholder={`Value for {{${i + 1}}}`}
+                            disabled={sendingTemplate}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                   <Button
                     size="sm"
-                    variant="outline"
-                    onClick={() => setShowTemplatePicker(true)}
+                    className="w-full"
+                    disabled={
+                      sendingTemplate ||
+                      !selectedTemplateId ||
+                      (templateVarCount > 0 &&
+                        templateVars.slice(0, templateVarCount).some((v) => !v.trim()))
+                    }
+                    onClick={() => void onSendTemplate()}
                   >
-                    <FileText className="size-3.5" />
-                    Select template
+                    <Send className="size-3.5" />
+                    {sendingTemplate ? "Sending…" : "Send template to customer on WhatsApp"}
                   </Button>
+                </div>
+                <div className="flex flex-wrap gap-2">
                   <Button
                     size="sm"
                     variant="ghost"
@@ -647,7 +709,7 @@ function Page() {
                       }
                     >
                       <ExternalLink className="size-3.5" />
-                      Open WhatsApp
+                      Open WhatsApp app
                     </Button>
                   ) : null}
                 </div>
@@ -660,19 +722,17 @@ function Page() {
                 reply freely on WhatsApp
               </div>
             ) : null}
-            {(showTemplatePicker || needsTemplate) && waOutbound && waPhone ? (
+            {showTemplatePicker && !needsTemplate && waOutbound && waPhone ? (
               <div className="mb-3 space-y-2 rounded-lg border border-border bg-secondary/30 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <Label className="text-xs font-medium text-foreground">WhatsApp template</Label>
-                  {!needsTemplate ? (
-                    <button
-                      type="button"
-                      className="text-[11px] text-muted-foreground hover:text-foreground"
-                      onClick={() => setShowTemplatePicker(false)}
-                    >
-                      Hide
-                    </button>
-                  ) : null}
+                  <button
+                    type="button"
+                    className="text-[11px] text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowTemplatePicker(false)}
+                  >
+                    Hide
+                  </button>
                 </div>
                 <Select
                   value={selectedTemplateId || undefined}

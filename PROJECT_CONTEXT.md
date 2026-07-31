@@ -251,7 +251,7 @@ Embed on EnerTech website — live AI chat, lead capture (name/email/phone requi
 |--------|-------|-------------|--------|
 | Dashboard | `/` | `mock.ts` | Live KPIs + charts from Supabase |
 | AI Command Center | `/command-center` | — | Live sessions: pause/takeover/timeline |
-| Inbox | `/inbox` | `mock.ts` | Live + WhatsApp 24h window indicator (hours left / closed → template) |
+| Inbox | `/inbox` | `mock.ts` | Live + WA 24h window; IndiaMART/TradeIndia default contact via WhatsApp |
 | AI Chat Support | `/ai-chat` | — | Live Answer Inspector (confidence, sources, reasoning) |
 | AI Agents | `/agents` | — | Live: model/prompt/memory/status; keyword routing |
 | Knowledge Base | `/knowledge` | `mock.ts` | Live collections + upload/index (pgvector RAG) |
@@ -302,6 +302,7 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-07-31
+- **IndiaMART/TradeIndia → WhatsApp contact:** Inbox defaults marketplace lead replies to WhatsApp (phone on lead). Cloud API when 24h session open; first contact opens WhatsApp app / Broadcasting template. Matching WA inbound stamps `wa_last_customer_at` on marketplace threads.
 - **WhatsApp 24h session window:** Inbox shows hours remaining on WhatsApp threads; free-form reply/attach blocked when Meta window closed (guide to Broadcasting templates). Migration `017_whatsapp_session_window.sql` (`wa_last_customer_at`). Inbound WA messages open/reset the window; server guards `sendWhatsAppAgentReply`.
 - **Render deploy prep:** Added `render.yaml` (Web Service + 5‑min automations cron), `.node-version` (20.18), README deploy section. User deploying to Render for WhatsApp public webhook.
 - **Automation Phase C (WATI-style):** Wait (minutes/hours/days) schedules remaining steps in `automation_scheduled_steps`; cron + “Process due + waits” resumes. If/Else branches on lead fields (status, priority, source, phone/email, sales person) with Yes/No action lists. Broader canvas shows Wait + fork nodes. Migration `016_automation_wait_branch.sql`.

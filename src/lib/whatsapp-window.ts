@@ -95,3 +95,35 @@ export function resolveWhatsAppWindowStart(options: {
 }): string | null {
   return options.waLastCustomerAt || options.lastCustomerMessageAt || null;
 }
+
+/** IndiaMART / TradeIndia lead threads — contact customer on WhatsApp by default. */
+export function isMarketplaceLeadChannel(channel: string | null | undefined): boolean {
+  return channel === "indiamart" || channel === "tradeindia";
+}
+
+/** Digits only; Indian 10-digit mobiles get country code 91. */
+export function normalizeWhatsAppDigits(phone: string | null | undefined): string | null {
+  if (!phone) return null;
+  let digits = phone.replace(/\D/g, "");
+  if (!digits) return null;
+  if (digits.startsWith("0") && digits.length === 11) digits = digits.slice(1);
+  if (digits.length === 10) digits = `91${digits}`;
+  if (digits.length < 10) return null;
+  return digits;
+}
+
+export function conversationRepliesViaWhatsApp(c: {
+  channel?: string | null;
+  visitor_phone?: string | null;
+}): boolean {
+  if (c.channel === "whatsapp") return true;
+  if (isMarketplaceLeadChannel(c.channel) && normalizeWhatsAppDigits(c.visitor_phone)) return true;
+  return false;
+}
+
+export function whatsappMeUrl(phone: string, text?: string): string {
+  const digits = normalizeWhatsAppDigits(phone) || phone.replace(/\D/g, "");
+  const base = `https://wa.me/${digits}`;
+  if (text?.trim()) return `${base}?text=${encodeURIComponent(text.trim().slice(0, 1500))}`;
+  return base;
+}

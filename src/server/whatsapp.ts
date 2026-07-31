@@ -59,7 +59,8 @@ export async function sendWhatsAppText(toPhone: string, body: string, cfg?: What
   if (!config.phone_number_id || !config.access_token) {
     throw new Error("WhatsApp is not configured (missing phone_number_id or access_token)");
   }
-  const to = toPhone.replace(/\D/g, "");
+  const { normalizeWhatsAppDigits } = await import("@/lib/whatsapp-window");
+  const to = normalizeWhatsAppDigits(toPhone) || toPhone.replace(/\D/g, "");
   if (!to) throw new Error("Invalid WhatsApp recipient phone");
 
   const res = await fetch(`${GRAPH_BASE}/${config.phone_number_id}/messages`, {
@@ -237,6 +238,37 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
         }
 
         results.push({ conversationId: convo.id as string, messageId: customerMsg.id as string });
+
+        // Open Meta window on matching IndiaMART/TradeIndia threads (same phone)
+        try {
+          const { normalizeWhatsAppDigits } = await import("@/lib/whatsapp-window");
+          const digits = normalizeWhatsAppDigits(from);
+          if (digits) {
+            const last10 = digits.slice(-10);
+            const { data: marketRows } = await supabase
+              .from("conversations")
+              .select("id, visitor_phone")
+              .eq("org_id", ORG_ID)
+              .in("channel", ["indiamart", "tradeindia"])
+              .not("visitor_phone", "is", null)
+              .order("updated_at", { ascending: false })
+              .limit(150);
+            const matchIds = (marketRows || [])
+              .filter((row) => {
+                const p = normalizeWhatsAppDigits(row.visitor_phone as string);
+                return Boolean(p && (p === digits || p.endsWith(last10) || digits.endsWith(p.slice(-10))));
+              })
+              .map((row) => row.id as string);
+            if (matchIds.length > 0) {
+              await supabase
+                .from("conversations")
+                .update({ wa_last_customer_at: nowIso, updated_at: nowIso })
+                .in("id", matchIds);
+            }
+          }
+        } catch (err) {
+          console.error("marketplace WA window stamp failed", err);
+        }
 
         const status = convo.status as string;
         const escalate = /human|agent|support executive/i.test(text);
@@ -486,11 +518,20 @@ export const sendWhatsAppAgentReply = createServerFn({ method: "POST" })
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!convo) throw new Error("Conversation not found");
-    if (convo.channel !== "whatsapp") throw new Error("Not a WhatsApp conversation");
 
-    // Meta 24h window — free-form text only while open
+    const { getWhatsAppWindow, isMarketplaceLeadChannel, normalizeWhatsAppDigits } =
+      await import("@/lib/whatsapp-window");
+    const channel = String(convo.channel || "");
+    const marketplace = isMarketplaceLeadChannel(channel);
+    if (channel !== "whatsapp" && !marketplace) {
+      throw new Error("This conversation is not set up for WhatsApp outbound");
+    }
+
+    // Meta 24h window — free-form text only while open.
+    // Marketplace threads: only real WA inbound (`wa_last_customer_at`) counts —
+    // do not use the IndiaMART/TradeIndia enquiry message as a WhatsApp session start.
     let windowStart = (convo.wa_last_customer_at as string) || null;
-    if (!windowStart) {
+    if (!windowStart && channel === "whatsapp") {
       const { data: lastCustomer } = await supabase
         .from("messages")
         .select("created_at")
@@ -501,21 +542,22 @@ export const sendWhatsAppAgentReply = createServerFn({ method: "POST" })
         .maybeSingle();
       windowStart = (lastCustomer?.created_at as string) || null;
     }
-    const { getWhatsAppWindow } = await import("@/lib/whatsapp-window");
     const win = getWhatsAppWindow(windowStart);
     if (!win.open) {
       throw new Error(
-        "WhatsApp 24-hour window is closed. Send an approved template from Broadcasting, then wait for the customer to reply.",
+        marketplace
+          ? "WhatsApp session not open yet. For first contact use Broadcasting (template) or Open WhatsApp from Inbox. After the customer replies on WhatsApp, free-form works for 24h."
+          : "WhatsApp 24-hour window is closed. Send an approved template from Broadcasting, then wait for the customer to reply.",
       );
     }
 
     const meta = (convo.metadata || {}) as { wa_id?: string };
     const phone =
-      meta.wa_id ||
-      (convo.visitor_phone as string) ||
-      String(convo.widget_session_id || "").replace(/^wa:/, "");
+      normalizeWhatsAppDigits(meta.wa_id) ||
+      normalizeWhatsAppDigits(convo.visitor_phone as string) ||
+      normalizeWhatsAppDigits(String(convo.widget_session_id || "").replace(/^wa:/, ""));
     if (!phone) throw new Error("WhatsApp recipient phone missing on conversation");
 
     await sendWhatsAppText(phone, data.body);
-    return { ok: true, window: win };
+    return { ok: true, window: win, via: marketplace ? channel : "whatsapp" };
   });

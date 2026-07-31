@@ -32,12 +32,16 @@ import type { ChannelType, DbMessage, LeadStatus, PriorityLevel } from "@/lib/db
 import { updateLeadStage } from "@/lib/leads-api";
 import { cn } from "@/lib/utils";
 import {
+  conversationRepliesViaWhatsApp,
   getWhatsAppWindow,
+  isMarketplaceLeadChannel,
+  normalizeWhatsAppDigits,
   resolveWhatsAppWindowStart,
+  whatsappMeUrl,
   type WhatsAppWindowState,
 } from "@/lib/whatsapp-window";
 
-const filters = ["All", "Unread", "Assigned", "Website", "WhatsApp", "Instagram", "Facebook", "Email"];
+const filters = ["All", "Unread", "Assigned", "Website", "WhatsApp", "IndiaMART", "TradeIndia", "Instagram", "Facebook", "Email"];
 const leadStatuses: LeadStatus[] = ["New", "Contacted", "Qualified", "Proposal", "Negotiation", "Won", "Lost"];
 const leadPriorities: PriorityLevel[] = ["High", "Medium", "Low"];
 const LAYOUT_KEY = "enertech-inbox-layout-v1";
@@ -174,16 +178,26 @@ function Page() {
     return null;
   }, [messagesQuery.data]);
 
+  const waOutbound = Boolean(selected && conversationRepliesViaWhatsApp(selected));
+  const waPhone = selected ? normalizeWhatsAppDigits(selected.visitor_phone) : null;
+  const marketplaceLead = Boolean(selected && isMarketplaceLeadChannel(selected.channel));
+
   const waWindow = useMemo(() => {
-    if (!selected || selected.channel !== "whatsapp") return null;
-    const started = resolveWhatsAppWindowStart({
-      waLastCustomerAt: selected.wa_last_customer_at,
-      lastCustomerMessageAt,
-    });
+    if (!selected || !conversationRepliesViaWhatsApp(selected)) return null;
+    // Marketplace enquiry messages are not WhatsApp inbounds — only wa_last_customer_at counts.
+    const started = selected.channel === "whatsapp"
+      ? resolveWhatsAppWindowStart({
+          waLastCustomerAt: selected.wa_last_customer_at,
+          lastCustomerMessageAt,
+        })
+      : selected.wa_last_customer_at || null;
     return getWhatsAppWindow(started, nowTick);
   }, [selected, lastCustomerMessageAt, nowTick]);
 
-  const waCanFreeForm = !waWindow || waWindow.open;
+  /** Cloud API free-form when Meta window is open; marketplace first-contact uses WhatsApp app / template. */
+  const waCanCloudApi = Boolean(waWindow?.open);
+  const waCanAppFallback = Boolean(marketplaceLead && waPhone && !waCanCloudApi);
+  const waCanFreeForm = !waOutbound || waCanCloudApi || waCanAppFallback;
 
   useEffect(() => {
     if (!selectedId) return;
@@ -208,7 +222,11 @@ function Page() {
 
   async function onSendReply() {
     if (!selected || !profile || !draft.trim()) return;
-    if (selected.channel === "whatsapp" && waWindow && !waWindow.open) {
+    if (waOutbound && !waPhone && marketplaceLead) {
+      toast.error("No phone on this IndiaMART/TradeIndia lead — cannot contact via WhatsApp.");
+      return;
+    }
+    if (waOutbound && !waCanCloudApi && !waCanAppFallback) {
       toast.error("WhatsApp 24h window closed — send a template from Broadcasting first.");
       return;
     }
@@ -222,9 +240,11 @@ function Page() {
         orgId,
         profile.fullName || profile.email || "Human agent",
       );
-      if (selected.channel === "whatsapp") {
+      if (waOutbound && waCanCloudApi) {
         const { sendWhatsAppAgentReply } = await import("@/server/whatsapp");
         await sendWhatsAppAgentReply({ data: { conversationId: selected.id, body } });
+      } else if (waCanAppFallback && waPhone) {
+        window.open(whatsappMeUrl(waPhone, body), "_blank", "noopener,noreferrer");
       }
       if (selected.channel === "email") {
         const { sendEmailAgentReply } = await import("@/server/email");
@@ -238,15 +258,17 @@ function Page() {
       await queryClient.invalidateQueries({ queryKey: ["messages", selected.id] });
       await queryClient.invalidateQueries({ queryKey: ["conversations", orgId] });
       toast.success(
-        selected.channel === "whatsapp"
+        waOutbound && waCanCloudApi
           ? "Reply sent on WhatsApp — AI paused for this conversation"
-          : selected.channel === "email"
-            ? "Reply sent by email — AI paused for this conversation"
-            : selected.channel === "facebook"
-              ? "Reply sent on Facebook — AI paused for this conversation"
-              : selected.channel === "instagram"
-                ? "Reply sent on Instagram — AI paused for this conversation"
-                : "Human reply sent — AI paused for this conversation",
+          : waCanAppFallback
+            ? "Saved in Inbox and opened WhatsApp chat with this lead"
+            : selected.channel === "email"
+              ? "Reply sent by email — AI paused for this conversation"
+              : selected.channel === "facebook"
+                ? "Reply sent on Facebook — AI paused for this conversation"
+                : selected.channel === "instagram"
+                  ? "Reply sent on Instagram — AI paused for this conversation"
+                  : "Human reply sent — AI paused for this conversation",
       );
     } catch (err) {
       console.error(err);
@@ -258,8 +280,12 @@ function Page() {
 
   async function onAttachFile(file: File) {
     if (!selected || !profile) return;
-    if (selected.channel === "whatsapp" && waWindow && !waWindow.open) {
-      toast.error("WhatsApp 24h window closed — attachments need an open session. Send a template first.");
+    if (waOutbound && !waCanCloudApi) {
+      toast.error(
+        marketplaceLead
+          ? "Attachments via Cloud API need an open WhatsApp session. Send a template first, or share files in the WhatsApp app."
+          : "WhatsApp 24h window closed — attachments need an open session. Send a template first.",
+      );
       return;
     }
     setUploading(true);
@@ -272,8 +298,7 @@ function Page() {
         file,
       });
       const body = msg.body as string;
-      // Push file link on external channels when possible
-      if (selected.channel === "whatsapp") {
+      if (waOutbound && waCanCloudApi) {
         const { sendWhatsAppAgentReply } = await import("@/server/whatsapp");
         await sendWhatsAppAgentReply({ data: { conversationId: selected.id, body } });
       }
@@ -346,10 +371,10 @@ function Page() {
             {conversations.map((c) => {
               const active = c.id === selectedId;
               const name = c.customer?.name || c.visitor_name || c.visitor_email || "Visitor";
-              const listWa =
-                c.channel === "whatsapp"
-                  ? getWhatsAppWindow(c.wa_last_customer_at || null, nowTick)
-                  : null;
+              const viaWa = conversationRepliesViaWhatsApp(c);
+              const listWa = viaWa
+                ? getWhatsAppWindow(c.wa_last_customer_at || null, nowTick)
+                : null;
               return (
                 <li key={c.id}>
                   <button type="button" onClick={() => setSelectedId(c.id)} className={cn("w-full px-3 py-3 text-left", active ? "bg-secondary/70" : "hover:bg-secondary/40")}>
@@ -361,6 +386,9 @@ function Page() {
                     <p className="mt-1 truncate text-xs text-muted-foreground">{c.preview || "No messages yet"}</p>
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                       <Pill>{c.status}</Pill>
+                      {isMarketplaceLeadChannel(c.channel) && normalizeWhatsAppDigits(c.visitor_phone) ? (
+                        <Pill tone="success">via WhatsApp</Pill>
+                      ) : null}
                       {listWa ? (
                         <Pill tone={waTone(listWa.tone)} className="gap-1">
                           <Clock className="size-3" />
@@ -396,16 +424,25 @@ function Page() {
             </h2>
             <p className="truncate text-xs text-muted-foreground">
               {selected
-                ? `${selected.channel} · ${selected.external_ref || selected.id.slice(0, 8)} · ${selected.assignee_label || selected.status}`
+                ? `${selected.channel}${
+                    marketplaceLead && waPhone ? " · contact via WhatsApp" : ""
+                  } · ${selected.external_ref || selected.id.slice(0, 8)} · ${selected.assignee_label || selected.status}`
                 : "Select a conversation"}
             </p>
           </div>
-          {waWindow ? (
-            <Pill tone={waTone(waWindow.tone)} className="gap-1.5 shrink-0">
-              <Clock className="size-3.5" />
-              WhatsApp · {waWindow.label}
-            </Pill>
-          ) : null}
+          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+            {marketplaceLead ? (
+              <Pill tone={waPhone ? "success" : "warning"} className="gap-1.5">
+                {waPhone ? `WhatsApp · +${waPhone}` : "No phone for WhatsApp"}
+              </Pill>
+            ) : null}
+            {waWindow ? (
+              <Pill tone={waTone(waWindow.tone)} className="gap-1.5">
+                <Clock className="size-3.5" />
+                {waWindow.label}
+              </Pill>
+            ) : null}
+          </div>
         </div>
       </header>
 
@@ -484,33 +521,63 @@ function Page() {
           </div>
 
           <div className="shrink-0 border-t border-border bg-card p-3 shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
-            {waWindow && !waWindow.open ? (
+            {marketplaceLead && !waPhone ? (
               <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
-                <p className="font-medium text-destructive">Meta 24-hour window closed</p>
+                <p className="font-medium text-destructive">No mobile number on this lead</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Free-form WhatsApp replies are blocked until the customer messages again. Send an
-                  approved template from Broadcasting to re-engage them.
+                  IndiaMART/TradeIndia contact medium is WhatsApp by default — add a phone on the lead to reply.
                 </p>
-                <Button
-                  size="sm"
-                  className="mt-2"
-                  variant="outline"
-                  onClick={() => void navigate({ to: "/broadcasting" })}
-                >
-                  Open Broadcasting
-                </Button>
               </div>
             ) : null}
-            {waWindow?.open ? (
+            {waOutbound && waWindow && !waWindow.open ? (
+              <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
+                <p className="font-medium text-foreground">
+                  {marketplaceLead
+                    ? "First WhatsApp contact — Cloud API needs a template"
+                    : "Meta 24-hour window closed"}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {marketplaceLead
+                    ? "Send an approved template from Broadcasting, or press Send to open WhatsApp with your draft. After the customer replies on WhatsApp, free-form Cloud API works for 24 hours."
+                    : "Free-form WhatsApp replies are blocked until the customer messages again. Send an approved template from Broadcasting to re-engage them."}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void navigate({ to: "/broadcasting" })}
+                  >
+                    Open Broadcasting
+                  </Button>
+                  {waPhone ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        window.open(whatsappMeUrl(waPhone, draft || undefined), "_blank", "noopener,noreferrer")
+                      }
+                    >
+                      <ExternalLink className="size-3.5" />
+                      Open WhatsApp
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+            {waCanCloudApi ? (
               <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Clock className="size-3.5 text-primary" />
-                Session open · <span className="font-medium text-foreground">{waWindow.label}</span> to
-                reply freely
+                Session open · <span className="font-medium text-foreground">{waWindow?.label}</span> to
+                reply freely on WhatsApp
               </div>
             ) : null}
             <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
-              <Sparkles className="size-3.5" /> Reply as {profile?.fullName || "agent"} — saved to
-              this conversation
+              <Sparkles className="size-3.5" />{" "}
+              {marketplaceLead && waPhone
+                ? waCanCloudApi
+                  ? `Reply via WhatsApp (+${waPhone}) — Cloud API`
+                  : `Reply via WhatsApp (+${waPhone}) — opens chat app if session closed`
+                : `Reply as ${profile?.fullName || "agent"} — saved to this conversation`}
             </div>
             <div className="flex items-center gap-1.5">
               <input

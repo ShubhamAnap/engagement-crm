@@ -802,6 +802,11 @@ function Page() {
             <Pill tone={waSetupQuery.data?.configured && whatsapp?.is_enabled ? "success" : "warning"} dot>
               {waSetupQuery.data?.configured && whatsapp?.is_enabled ? "WhatsApp live" : "WhatsApp setup"}
             </Pill>
+            <Pill tone={gmailSetupQuery.data?.connected ? "success" : "warning"} dot>
+              {gmailSetupQuery.data?.connected
+                ? `Gmail · ${gmailSetupQuery.data.email}`
+                : "Gmail OAuth setup"}
+            </Pill>
             <Pill tone={emailSetupQuery.data?.configured && emailChannel?.is_enabled ? "success" : "warning"} dot>
               {emailSetupQuery.data?.configured && emailChannel?.is_enabled ? "Email live" : "Email setup"}
             </Pill>
@@ -967,6 +972,17 @@ function Page() {
               : "Not configured yet — use Configure WhatsApp."}
           </p>
         </Panel>
+
+        <div
+          id="gmail-oauth"
+          className="rounded-xl border border-primary/30 bg-primary/5 p-4"
+        >
+          <p className="text-sm font-semibold text-foreground">Gmail OAuth (n8n-style) — setup here</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Save Google Client ID + Secret, then Connect with Google. Used for Send Gmail popup and email
+            broadcasting.
+          </p>
+        </div>
 
         <Panel
           title="Gmail (OAuth — like n8n)"

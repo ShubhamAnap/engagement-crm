@@ -15,7 +15,7 @@ import {
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Clock, ExternalLink, FileText, Paperclip, RefreshCw, Send, Sparkles } from "lucide-react";
+import { Clock, ExternalLink, LayoutGrid, Paperclip, RefreshCw, Send, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import {
@@ -29,7 +29,6 @@ import {
   uploadAgentAttachment,
 } from "@/lib/chat-api";
 import {
-  countTemplateVars,
   listWaTemplates,
   sendInboxWhatsAppTemplate,
   type DbWaTemplate,
@@ -46,7 +45,7 @@ import {
   whatsappMeUrl,
   type WhatsAppWindowState,
 } from "@/lib/whatsapp-window";
-import { Label } from "@/components/ui/label";
+import { SendWhatsAppTemplateDialog } from "@/components/inbox/SendWhatsAppTemplateDialog";
 
 const filters = ["All", "Unread", "Assigned", "Website", "WhatsApp", "IndiaMART", "TradeIndia", "Instagram", "Facebook", "Email"];
 const leadStatuses: LeadStatus[] = ["New", "Contacted", "Qualified", "Proposal", "Negotiation", "Won", "Lost"];
@@ -125,9 +124,7 @@ function Page() {
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [sendingTemplate, setSendingTemplate] = useState(false);
-  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
-  const [templateVars, setTemplateVars] = useState<string[]>([]);
+  const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const attachInputRef = useRef<HTMLInputElement>(null);
   const [leadStatus, setLeadStatus] = useState<LeadStatus>("New");
   const [leadPriority, setLeadPriority] = useState<PriorityLevel>("Medium");
@@ -213,37 +210,10 @@ function Page() {
 
   const templatesQuery = useQuery({
     queryKey: ["wa-templates", orgId],
-    enabled: Boolean(needsTemplate || showTemplatePicker),
+    enabled: Boolean(waOutbound || templateModalOpen),
     queryFn: () => listWaTemplates(orgId),
     staleTime: 60_000,
   });
-
-  const approvedTemplates = useMemo(
-    () => (templatesQuery.data ?? []).filter((t) => String(t.status).toUpperCase() === "APPROVED"),
-    [templatesQuery.data],
-  );
-
-  const selectedTemplate: DbWaTemplate | null = useMemo(
-    () => approvedTemplates.find((t) => t.id === selectedTemplateId) ?? null,
-    [approvedTemplates, selectedTemplateId],
-  );
-
-  const templateVarCount = selectedTemplate ? countTemplateVars(selectedTemplate.body_text) : 0;
-
-  useEffect(() => {
-    if (needsTemplate) setShowTemplatePicker(true);
-  }, [needsTemplate, selectedId]);
-
-  useEffect(() => {
-    if (!selectedTemplate) {
-      setTemplateVars([]);
-      return;
-    }
-    const n = countTemplateVars(selectedTemplate.body_text);
-    const name =
-      selected?.customer?.name || selected?.visitor_name || selected?.lead?.name || "";
-    setTemplateVars(Array.from({ length: n }, (_, i) => (i === 0 && name ? name : "")));
-  }, [selectedTemplate?.id, selected?.id]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -273,7 +243,8 @@ function Page() {
       return;
     }
     if (waOutbound && !waCanCloudApi && !waCanAppFallback) {
-      toast.error("WhatsApp 24h window closed — select an approved template below and send.");
+      toast.error("WhatsApp 24h window closed — click Template to send an approved message.");
+      setTemplateModalOpen(true);
       return;
     }
     setSending(true);
@@ -368,33 +339,23 @@ function Page() {
     }
   }
 
-  async function onSendTemplate() {
+  async function onSendTemplate(template: DbWaTemplate, bodyParams: string[]) {
     if (!selected || !profile || !waPhone) return;
-    if (!selectedTemplateId || !selectedTemplate) {
-      toast.error("Select an APPROVED WhatsApp template first");
-      setShowTemplatePicker(true);
-      return;
-    }
-    if (templateVarCount > 0 && templateVars.slice(0, templateVarCount).some((v) => !v.trim())) {
-      toast.error("Fill all template variables before sending");
-      return;
-    }
     setSendingTemplate(true);
     try {
       await sendInboxWhatsAppTemplate({
         data: {
           conversationId: selected.id,
-          templateId: selectedTemplateId,
-          bodyParams: templateVars.slice(0, templateVarCount),
+          templateId: template.id,
+          bodyParams,
           profileId: profile.id,
           assigneeLabel: profile.fullName || profile.email || "Human agent",
         },
       });
-      setSelectedTemplateId("");
-      setTemplateVars([]);
+      setTemplateModalOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["messages", selected.id] });
       await queryClient.invalidateQueries({ queryKey: ["conversations", orgId] });
-      toast.success(`Template “${selectedTemplate.name}” sent on WhatsApp`);
+      toast.success(`Template “${template.name}” sent on WhatsApp`);
     } catch (err) {
       console.error(err);
       toast.error(err instanceof Error ? err.message : "Failed to send template");
@@ -611,88 +572,21 @@ function Page() {
               </div>
             ) : null}
             {needsTemplate ? (
-              <div className="mb-3 space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
-                <div>
-                  <p className="font-medium text-foreground">
-                    {marketplaceLead
-                      ? "First WhatsApp contact — pick a template to start"
-                      : "WhatsApp window closed — pick a template to message"}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Free-form text is blocked by Meta. Choose an APPROVED template, fill variables, then
-                    send. After the customer replies on WhatsApp, free-form works for 24 hours.
-                  </p>
-                </div>
-                <div className="space-y-2 rounded-md border border-border bg-background p-2.5">
-                  <Label className="text-xs font-medium">Select approved template</Label>
-                  <Select
-                    value={selectedTemplateId || undefined}
-                    onValueChange={(v) => {
-                      setSelectedTemplateId(v);
-                      setShowTemplatePicker(true);
-                    }}
-                    disabled={sendingTemplate || templatesQuery.isLoading}
-                  >
-                    <SelectTrigger className="h-9">
-                      <SelectValue
-                        placeholder={
-                          templatesQuery.isLoading
-                            ? "Loading templates…"
-                            : approvedTemplates.length === 0
-                              ? "No APPROVED templates — open Manage templates"
-                              : "Choose template…"
-                        }
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {approvedTemplates.map((t) => (
-                        <SelectItem key={t.id} value={t.id}>
-                          {t.name} · {t.language} · {t.category}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {selectedTemplate ? (
-                    <p className="line-clamp-3 text-[11px] text-muted-foreground whitespace-pre-wrap">
-                      {selectedTemplate.body_text || "No body preview"}
-                    </p>
-                  ) : null}
-                  {templateVarCount > 0 ? (
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {Array.from({ length: templateVarCount }, (_, i) => (
-                        <div key={i} className="space-y-1">
-                          <Label className="text-[11px] text-muted-foreground">{`{{${i + 1}}}`}</Label>
-                          <Input
-                            className="h-8"
-                            value={templateVars[i] || ""}
-                            onChange={(e) => {
-                              const next = [...templateVars];
-                              next[i] = e.target.value;
-                              setTemplateVars(next);
-                            }}
-                            placeholder={`Value for {{${i + 1}}}`}
-                            disabled={sendingTemplate}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                  <Button
-                    size="sm"
-                    className="w-full"
-                    disabled={
-                      sendingTemplate ||
-                      !selectedTemplateId ||
-                      (templateVarCount > 0 &&
-                        templateVars.slice(0, templateVarCount).some((v) => !v.trim()))
-                    }
-                    onClick={() => void onSendTemplate()}
-                  >
-                    <Send className="size-3.5" />
-                    {sendingTemplate ? "Sending…" : "Send template to customer on WhatsApp"}
+              <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
+                <p className="font-medium text-foreground">
+                  {marketplaceLead
+                    ? "First WhatsApp contact — send a template to start"
+                    : "WhatsApp window closed — send a template to message"}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Free-form text is blocked by Meta. Open the template picker from the composer (same
+                  row as attach), choose an approved template, then send.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button size="sm" onClick={() => setTemplateModalOpen(true)}>
+                    <LayoutGrid className="size-3.5" />
+                    Send template
                   </Button>
-                </div>
-                <div className="flex flex-wrap gap-2">
                   <Button
                     size="sm"
                     variant="ghost"
@@ -722,92 +616,13 @@ function Page() {
                 reply freely on WhatsApp
               </div>
             ) : null}
-            {showTemplatePicker && !needsTemplate && waOutbound && waPhone ? (
-              <div className="mb-3 space-y-2 rounded-lg border border-border bg-secondary/30 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <Label className="text-xs font-medium text-foreground">WhatsApp template</Label>
-                  <button
-                    type="button"
-                    className="text-[11px] text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowTemplatePicker(false)}
-                  >
-                    Hide
-                  </button>
-                </div>
-                <Select
-                  value={selectedTemplateId || undefined}
-                  onValueChange={setSelectedTemplateId}
-                  disabled={sendingTemplate || templatesQuery.isLoading}
-                >
-                  <SelectTrigger className="h-9 bg-background">
-                    <SelectValue
-                      placeholder={
-                        templatesQuery.isLoading
-                          ? "Loading templates…"
-                          : approvedTemplates.length === 0
-                            ? "No APPROVED templates — sync in Broadcasting"
-                            : "Select approved template…"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {approvedTemplates.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.name} · {t.language} · {t.category}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {selectedTemplate ? (
-                  <p className="line-clamp-3 text-[11px] text-muted-foreground whitespace-pre-wrap">
-                    {selectedTemplate.body_text || "No body preview"}
-                  </p>
-                ) : null}
-                {templateVarCount > 0 ? (
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {Array.from({ length: templateVarCount }, (_, i) => (
-                      <div key={i} className="space-y-1">
-                        <Label className="text-[11px] text-muted-foreground">{`{{${i + 1}}}`}</Label>
-                        <Input
-                          className="h-8"
-                          value={templateVars[i] || ""}
-                          onChange={(e) => {
-                            const next = [...templateVars];
-                            next[i] = e.target.value;
-                            setTemplateVars(next);
-                          }}
-                          placeholder={`Value for {{${i + 1}}}`}
-                          disabled={sendingTemplate}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-                <Button
-                  size="sm"
-                  className="w-full sm:w-auto"
-                  disabled={
-                    sendingTemplate ||
-                    !selectedTemplateId ||
-                    (templateVarCount > 0 &&
-                      templateVars.slice(0, templateVarCount).some((v) => !v.trim()))
-                  }
-                  onClick={() => void onSendTemplate()}
-                >
-                  <Send className="size-3.5" />
-                  {sendingTemplate ? "Sending template…" : "Send template on WhatsApp"}
-                </Button>
-              </div>
-            ) : null}
             <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
               <Sparkles className="size-3.5" />{" "}
-              {marketplaceLead && waPhone
+              {waOutbound && waPhone
                 ? waCanCloudApi
-                  ? `Reply via WhatsApp (+${waPhone}) — Cloud API`
-                  : `Reply via WhatsApp (+${waPhone}) — use template below (or open chat app)`
-                : waOutbound && !waCanCloudApi
-                  ? "Window closed — select an approved template above to message the customer"
-                  : `Reply as ${profile?.fullName || "agent"} — saved to this conversation`}
+                  ? `Reply via WhatsApp (+${waPhone}) — or send a template anytime`
+                  : `Reply via WhatsApp (+${waPhone}) — use Send template to start`
+                : `Reply as ${profile?.fullName || "agent"} — saved to this conversation`}
             </div>
             <div className="flex items-center gap-1.5">
               <input
@@ -832,22 +647,23 @@ function Page() {
               </Button>
               {waOutbound && waPhone ? (
                 <Button
-                  variant={showTemplatePicker || needsTemplate ? "secondary" : "ghost"}
-                  size="icon"
-                  className="size-9 shrink-0"
-                  aria-label="Select WhatsApp template"
-                  title="Select WhatsApp template"
+                  variant={needsTemplate ? "default" : "secondary"}
+                  size="sm"
+                  className="h-9 shrink-0 gap-1.5 px-2.5"
+                  aria-label="Send WhatsApp template"
+                  title="Send WhatsApp template"
                   disabled={sending || uploading || sendingTemplate}
-                  onClick={() => setShowTemplatePicker((v) => !v)}
+                  onClick={() => setTemplateModalOpen(true)}
                 >
-                  <FileText className="size-4" />
+                  <LayoutGrid className="size-3.5" />
+                  Template
                 </Button>
               ) : null}
               <Input
                 className="h-9"
                 placeholder={
                   needsTemplate
-                    ? "Free-form blocked — use Select template…"
+                    ? "Free-form blocked — click Template…"
                     : uploading
                       ? "Uploading…"
                       : "Write a reply…"
@@ -1020,6 +836,23 @@ function Page() {
           {conversationThread}
         </div>
       </div>
+
+      <SendWhatsAppTemplateDialog
+        open={templateModalOpen}
+        onOpenChange={setTemplateModalOpen}
+        templates={templatesQuery.data ?? []}
+        loading={templatesQuery.isLoading}
+        contactName={
+          selected?.customer?.name || selected?.visitor_name || selected?.lead?.name || null
+        }
+        contactPhone={waPhone}
+        sending={sendingTemplate}
+        onSend={onSendTemplate}
+        onManageTemplates={() => {
+          setTemplateModalOpen(false);
+          void navigate({ to: "/broadcasting" });
+        }}
+      />
     </div>
   );
 }

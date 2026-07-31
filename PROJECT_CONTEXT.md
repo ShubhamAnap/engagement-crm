@@ -302,6 +302,7 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-07-31
+- **Inbox Send template modal:** WACRM-style dialog from composer **Template** button — searchable APPROVED list (name, category, language, preview), then fill vars + send. Component `SendWhatsAppTemplateDialog`.
 - **Inbox template compose:** When WA 24h window is closed (or IndiaMART first contact), agents can select an APPROVED template in the chatbox (FileText button next to attach), fill variables, and send via Cloud API — same place as file attach. Server `sendInboxWhatsAppTemplate`.
 - **IndiaMART/TradeIndia → WhatsApp contact:** Inbox defaults marketplace lead replies to WhatsApp (phone on lead). Cloud API when 24h session open; first contact opens WhatsApp app / Broadcasting template. Matching WA inbound stamps `wa_last_customer_at` on marketplace threads.
 - **WhatsApp 24h session window:** Inbox shows hours remaining on WhatsApp threads; free-form reply/attach blocked when Meta window closed (guide to Broadcasting templates). Migration `017_whatsapp_session_window.sql` (`wa_last_customer_at`). Inbound WA messages open/reset the window; server guards `sendWhatsAppAgentReply`.

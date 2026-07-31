@@ -12,6 +12,7 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "start": "node .output/server/index.mjs",
+    "start:check": "node --input-type=commonjs -e \"const fs=require('fs');if(!fs.existsSync('.output/server/index.mjs')){console.error('Missing .output/server/index.mjs. On Render set Build Command to: npm ci --include=dev && npm run build (Runtime: Node, not Bun)');process.exit(1)}\" && node .output/server/index.mjs",
     "seed:admin": "node --env-file=.env scripts/seed-admin.mjs",
     "lint": "eslint .",
     "format": "prettier --write ."
@@ -69,8 +70,11 @@
     "tailwindcss": "^4.2.1",
     "tw-animate-css": "^1.3.4",
     "vaul": "^1.1.2",
+    "vite": "^8.1.5",
     "vite-tsconfig-paths": "^6.0.2",
-    "zod": "^3.24.2"
+    "zod": "^3.24.2",
+    "@vitejs/plugin-react": "^5.2.0",
+    "nitro": "3.0.260603-beta"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
@@ -78,17 +82,14 @@
     "@types/nodemailer": "^8.0.1",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "@vitejs/plugin-react": "^5.2.0",
     "eslint": "^9.32.0",
     "eslint-config-prettier": "^10.1.1",
     "eslint-plugin-prettier": "^5.2.6",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^15.15.0",
-    "nitro": "3.0.260603-beta",
     "prettier": "^3.7.3",
     "typescript": "^5.8.3",
-    "typescript-eslint": "^8.56.1",
-    "vite": "^8.1.5"
+    "typescript-eslint": "^8.56.1"
   }
 }

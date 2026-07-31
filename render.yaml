@@ -13,8 +13,8 @@ services:
     region: singapore
     branch: main
     autoDeploy: true
-    buildCommand: npm ci && npm run build
-    startCommand: npm start
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm run start:check
     healthCheckPath: /login
     envVars:
       - key: NODE_VERSION

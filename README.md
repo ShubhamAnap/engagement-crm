@@ -37,9 +37,11 @@ Blueprint: [`render.yaml`](./render.yaml) (Web Service + 5‑min automations cro
 1. Open [Render Dashboard](https://dashboard.render.com) → **New** → **Blueprint** (or **Web Service**).
 2. Connect GitHub repo **ShubhamAnap/enertechsupport**, branch `main`.
 3. If using Web Service manually:
-   - **Build:** `npm ci && npm run build`
-   - **Start:** `npm start`
+   - **Runtime:** **Node** (not Bun — `bun.lock` can auto-select Bun and skip Vite)
+   - **Build:** `npm ci --include=dev && npm run build`
+   - **Start:** `npm run start:check` (or `npm start`)
    - **Node:** 20 (`NODE_VERSION=20.18.0` or `.node-version`)
+   - Build logs must show `vite build` / Nitro `.output` — not only package install
 4. Set environment variables (copy from local `.env` — never commit it):
 
 | Key | Notes |

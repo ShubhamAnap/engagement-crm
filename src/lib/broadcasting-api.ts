@@ -129,7 +129,7 @@ export async function createAndSendEmailBroadcast(options: {
   );
   if (recErr) throw recErr;
 
-  const { runGmailEmailBroadcast } = await import("@/server/gmail");
+  const { runGmailEmailBroadcast } = await import("@/server/gmail-api");
   const result = await runGmailEmailBroadcast({ data: { broadcastId: broadcast.id as string } });
   return { broadcastId: broadcast.id as string, ...result };
 }

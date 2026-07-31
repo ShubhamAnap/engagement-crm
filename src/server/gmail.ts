@@ -1,9 +1,8 @@
 /**
  * Gmail OAuth2 (n8n-style) + Gmail API send.
  * Client ID/Secret from env or Email channel config; tokens stored on channel config.
+ * Client routes must import createServerFn wrappers from `gmail-api.ts` only.
  */
-import { createServerFn } from "@tanstack/react-start";
-import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
@@ -386,22 +385,18 @@ export async function completeGmailOAuth(code: string, state: string) {
   return connection;
 }
 
-export const saveGmailOAuthAppConfig = createServerFn({ method: "POST" })
-  .validator(
-    z.object({
-      clientId: z.string().min(8).max(300),
-      clientSecret: z.string().min(8).max(300),
-    }),
-  )
-  .handler(async ({ data }) => {
-    await saveEmailConfigPatch({
-      client_id: data.clientId.trim(),
-      client_secret: data.clientSecret.trim(),
-    });
-    return { ok: true, redirectUri: gmailRedirectUri() };
+export async function persistGmailOAuthAppConfig(data: {
+  clientId: string;
+  clientSecret: string;
+}) {
+  await saveEmailConfigPatch({
+    client_id: data.clientId.trim(),
+    client_secret: data.clientSecret.trim(),
   });
+  return { ok: true as const, redirectUri: gmailRedirectUri() };
+}
 
-export const getGmailSetupInfo = createServerFn({ method: "GET" }).handler(async () => {
+export async function fetchGmailSetupInfo() {
   const creds = await loadGmailAppCredentials();
   const conn = await loadGmailConnection();
   return {
@@ -413,21 +408,21 @@ export const getGmailSetupInfo = createServerFn({ method: "GET" }).handler(async
     redirectUri: gmailRedirectUri(),
     hasClientIdInEnv: Boolean(process.env.GMAIL_CLIENT_ID),
   };
-});
+}
 
-export const getGmailConnectUrl = createServerFn({ method: "POST" }).handler(async () => {
+export async function createGmailConnectUrl() {
   const creds = await loadGmailAppCredentials();
   if (!gmailCredentialsReady(creds)) {
     throw new Error("Save Gmail OAuth Client ID and Client Secret first (like n8n credentials).");
   }
   const state = encodeState({ org: ORG_ID, t: String(Date.now()) });
   return { url: buildGmailAuthUrl(creds, state) };
-});
+}
 
-export const disconnectGmail = createServerFn({ method: "POST" }).handler(async () => {
+export async function clearGmailConnection() {
   await saveEmailConfigPatch({ gmail: null }, "Email (Gmail disconnected)");
-  return { ok: true };
-});
+  return { ok: true as const };
+}
 
 export async function runEmailBroadcast(broadcastId: string): Promise<{
   sent: number;
@@ -522,7 +517,3 @@ export async function runEmailBroadcast(broadcastId: string): Promise<{
 
   return { sent, failed, total: (recipients || []).length };
 }
-
-export const runGmailEmailBroadcast = createServerFn({ method: "POST" })
-  .validator(z.object({ broadcastId: z.string().uuid() }))
-  .handler(async ({ data }) => runEmailBroadcast(data.broadcastId));

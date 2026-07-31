@@ -39,7 +39,7 @@ import {
   type DbWaTemplate,
   type WaTemplateStatus,
 } from "@/lib/broadcasting-api";
-import { getGmailSetupInfo, sendGmailCompose } from "@/server/gmail";
+import { getGmailSetupInfo, sendGmailCompose } from "@/server/gmail-api";
 import { SendEmailDialog } from "@/components/email/SendEmailDialog";
 
 export const Route = createFileRoute("/broadcasting")({

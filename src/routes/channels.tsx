@@ -48,7 +48,7 @@ import {
   getGmailConnectUrl,
   getGmailSetupInfo,
   saveGmailOAuthAppConfig,
-} from "@/server/gmail";
+} from "@/server/gmail-api";
 import { getMetaSetupInfo, saveMetaChannelConfig } from "@/server/meta-messenger";
 import {
   cancelIndiaMartBackfillFn,

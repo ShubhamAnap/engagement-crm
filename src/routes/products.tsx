@@ -41,9 +41,12 @@ import {
   downloadProductsCsv,
   listProducts,
   productCatalogueHref,
+  productImageHref,
   removeProductCataloguePdf,
+  removeProductImage,
   updateProduct,
   uploadProductCataloguePdf,
+  uploadProductImage,
 } from "@/lib/products-api";
 import { ensureKnowledgeStorage } from "@/server/knowledge";
 
@@ -113,12 +116,14 @@ function Page() {
   const { profile } = useAuth();
   const orgId = profile?.org.id;
   const catalogInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<DbProduct | null>(null);
   const [productToDelete, setProductToDelete] = useState<DbProduct | null>(null);
   const [form, setForm] = useState<ProductFormState>(defaultForm);
   const [pendingCatalogPdf, setPendingCatalogPdf] = useState<File | null>(null);
+  const [pendingImage, setPendingImage] = useState<File | null>(null);
 
   const productsQuery = useQuery({
     queryKey: ["products", orgId],
@@ -150,15 +155,24 @@ function Page() {
       };
       const saved = editingProduct ? await updateProduct(editingProduct.id, payload) : await createProduct(payload);
 
+      let result = saved;
+      if (pendingImage) {
+        await ensureKnowledgeStorage();
+        result = await uploadProductImage({
+          orgId,
+          productId: saved.id,
+          file: pendingImage,
+        });
+      }
       if (pendingCatalogPdf) {
         await ensureKnowledgeStorage();
-        return uploadProductCataloguePdf({
+        result = await uploadProductCataloguePdf({
           orgId,
           productId: saved.id,
           file: pendingCatalogPdf,
         });
       }
-      return saved;
+      return result;
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["products", orgId] });
@@ -167,7 +181,9 @@ function Page() {
       setEditingProduct(null);
       setForm(defaultForm);
       setPendingCatalogPdf(null);
+      setPendingImage(null);
       if (catalogInputRef.current) catalogInputRef.current.value = "";
+      if (imageInputRef.current) imageInputRef.current.value = "";
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "Could not save product");
@@ -190,6 +206,22 @@ function Page() {
     onError: (error) => toast.error(error instanceof Error ? error.message : "Catalogue upload failed"),
   });
 
+  const imageMutation = useMutation({
+    mutationFn: async (file: File) => {
+      if (!orgId || !editingProduct) throw new Error("Open a product to upload its image");
+      await ensureKnowledgeStorage();
+      return uploadProductImage({ orgId, productId: editingProduct.id, file });
+    },
+    onSuccess: async (updated) => {
+      setEditingProduct(updated);
+      setPendingImage(null);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+      await queryClient.invalidateQueries({ queryKey: ["products", orgId] });
+      toast.success("Product image uploaded");
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Image upload failed"),
+  });
+
   const removeCatalogMutation = useMutation({
     mutationFn: async () => {
       if (!orgId || !editingProduct) throw new Error("No product selected");
@@ -205,6 +237,23 @@ function Page() {
       toast.success("Catalogue PDF removed");
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not remove catalogue"),
+  });
+
+  const removeImageMutation = useMutation({
+    mutationFn: async () => {
+      if (!orgId || !editingProduct) throw new Error("No product selected");
+      return removeProductImage({
+        orgId,
+        productId: editingProduct.id,
+        storagePath: editingProduct.image_path,
+      });
+    },
+    onSuccess: async (updated) => {
+      setEditingProduct(updated);
+      await queryClient.invalidateQueries({ queryKey: ["products", orgId] });
+      toast.success("Product image removed");
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not remove image"),
   });
 
   const deleteMutation = useMutation({
@@ -234,7 +283,9 @@ function Page() {
     setEditingProduct(null);
     setForm(defaultForm);
     setPendingCatalogPdf(null);
+    setPendingImage(null);
     if (catalogInputRef.current) catalogInputRef.current.value = "";
+    if (imageInputRef.current) imageInputRef.current.value = "";
     setDialogOpen(true);
   };
 
@@ -242,17 +293,20 @@ function Page() {
     setEditingProduct(product);
     setForm(formFromProduct(product));
     setPendingCatalogPdf(null);
+    setPendingImage(null);
     if (catalogInputRef.current) catalogInputRef.current.value = "";
+    if (imageInputRef.current) imageInputRef.current.value = "";
     setDialogOpen(true);
   };
 
   const currentCatalogUrl = editingProduct ? productCatalogueHref(editingProduct) : null;
+  const currentImageUrl = editingProduct ? productImageHref(editingProduct) : null;
 
   return (
     <>
       <PageHeader
         title="Product Catalog"
-        description="UPS systems, batteries and accessories — attach a catalogue PDF per product for EnerBot downloads."
+        description="UPS systems, batteries and accessories — attach an image for WhatsApp product cards and a PDF catalogue for EnerBot."
         actions={<Button size="sm" onClick={openCreate}><Plus className="size-4" /> Add product</Button>}
       />
       <div className="space-y-4 p-6">
@@ -289,7 +343,7 @@ function Page() {
                 <table className="w-full text-sm">
                   <thead className="border-b border-border bg-secondary/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
                     <tr>
-                      {["SKU", "Product", "Category", "Batteries", "Runtime", "Stock", "Price", "Catalogue", "AI weight", "Actions"].map((h) => (
+                      {["SKU", "Product", "Category", "Batteries", "Runtime", "Stock", "Price", "Image", "Catalogue", "AI weight", "Actions"].map((h) => (
                         <th key={h} className="px-4 py-2.5 font-medium whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -297,6 +351,7 @@ function Page() {
                   <tbody className="divide-y divide-border">
                     {filteredProducts.map((product) => {
                       const catalogUrl = productCatalogueHref(product);
+                      const imageUrl = productImageHref(product);
                       return (
                         <tr key={product.id} className="hover:bg-secondary/40">
                           <td className="num px-4 py-3 whitespace-nowrap">{product.sku}</td>
@@ -306,6 +361,17 @@ function Page() {
                           <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{product.runtime_spec || "—"}</td>
                           <td className="px-4 py-3"><Pill tone={stockTone(product.stock_status)}>{product.stock_status}</Pill></td>
                           <td className="num px-4 py-3 whitespace-nowrap">{product.price_label || "—"}</td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            {imageUrl ? (
+                              <img
+                                src={imageUrl}
+                                alt=""
+                                className="size-10 rounded-md border border-border object-cover"
+                              />
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             {catalogUrl ? (
                               <Button size="sm" variant="outline" className="gap-1.5" asChild>
@@ -353,7 +419,9 @@ function Page() {
             setEditingProduct(null);
             setForm(defaultForm);
             setPendingCatalogPdf(null);
+            setPendingImage(null);
             if (catalogInputRef.current) catalogInputRef.current.value = "";
+            if (imageInputRef.current) imageInputRef.current.value = "";
           }
         }}
       >
@@ -362,8 +430,8 @@ function Page() {
             <DialogTitle>{editingProduct ? "Edit product" : "Add product"}</DialogTitle>
             <DialogDescription>
               {editingProduct
-                ? "Update product details and attach a catalogue PDF for EnerBot."
-                : "Create a product. You can attach a catalogue PDF now or after saving."}
+                ? "Update details, WhatsApp card image, and catalogue PDF."
+                : "Create a product. You can attach an image and catalogue PDF now or after saving."}
             </DialogDescription>
           </DialogHeader>
 
@@ -378,6 +446,51 @@ function Page() {
             <div className="space-y-2"><Label htmlFor="product-battery">Battery spec</Label><Input id="product-battery" value={form.batterySpec} onChange={(e) => setForm((s) => ({ ...s, batterySpec: e.target.value }))} placeholder="8 x 42Ah" /></div>
             <div className="space-y-2 sm:col-span-2"><Label htmlFor="product-runtime">Runtime spec</Label><Input id="product-runtime" value={form.runtimeSpec} onChange={(e) => setForm((s) => ({ ...s, runtimeSpec: e.target.value }))} placeholder="42–48 minutes at 60% load" /></div>
             <div className="space-y-2 sm:col-span-2"><Label htmlFor="product-description">Description</Label><Textarea id="product-description" value={form.description} onChange={(e) => setForm((s) => ({ ...s, description: e.target.value }))} placeholder="Product overview, positioning, or technical summary" /></div>
+
+            <div className="space-y-2 sm:col-span-2 rounded-lg border border-border bg-secondary/20 p-3">
+              <Label htmlFor="product-image">WhatsApp card image</Label>
+              <p className="text-xs text-muted-foreground">
+                Public HTTPS image (PNG/JPEG/WebP, max 5 MB). Inbox → Recommend sends this with name, price, and features.
+              </p>
+              {currentImageUrl ? (
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  <img
+                    src={currentImageUrl}
+                    alt=""
+                    className="size-16 rounded-md border border-border object-cover"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-destructive hover:text-destructive"
+                    disabled={removeImageMutation.isPending}
+                    onClick={() => removeImageMutation.mutate()}
+                  >
+                    Remove image
+                  </Button>
+                </div>
+              ) : null}
+              <Input
+                id="product-image"
+                ref={imageInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
+                className="mt-2"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  setPendingImage(file);
+                  if (file && editingProduct) {
+                    imageMutation.mutate(file);
+                  }
+                }}
+              />
+              {pendingImage && !editingProduct ? (
+                <p className="text-xs text-muted-foreground">Will upload on create: {pendingImage.name}</p>
+              ) : null}
+              {imageMutation.isPending ? (
+                <p className="text-xs text-muted-foreground">Uploading image…</p>
+              ) : null}
+            </div>
 
             <div className="space-y-2 sm:col-span-2 rounded-lg border border-border bg-secondary/20 p-3">
               <Label htmlFor="product-catalog">Catalogue PDF</Label>
@@ -427,7 +540,10 @@ function Page() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={saveMutation.isPending}>Cancel</Button>
-            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || catalogMutation.isPending}>
+            <Button
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending || catalogMutation.isPending || imageMutation.isPending}
+            >
               {saveMutation.isPending ? "Saving…" : editingProduct ? "Update product" : "Create product"}
             </Button>
           </DialogFooter>

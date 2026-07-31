@@ -251,11 +251,11 @@ Embed on EnerTech website — live AI chat, lead capture (name/email/phone requi
 |--------|-------|-------------|--------|
 | Dashboard | `/` | `mock.ts` | Live KPIs + charts from Supabase |
 | AI Command Center | `/command-center` | — | Live sessions: pause/takeover/timeline |
-| Inbox | `/inbox` | `mock.ts` | Live + WA 24h window; IM/TI via WhatsApp; **select/send approved template in composer** |
+| Inbox | `/inbox` | `mock.ts` | Live + WA 24h; templates; **Recommend product** (image+caption) |
 | AI Chat Support | `/ai-chat` | — | Live Answer Inspector (confidence, sources, reasoning) |
 | AI Agents | `/agents` | — | Live: model/prompt/memory/status; keyword routing |
 | Knowledge Base | `/knowledge` | `mock.ts` | Live collections + upload/index (pgvector RAG) |
-| Products | `/products` | `mock.ts` | Real CRUD + catalogue PDF upload (Storage) |
+| Products | `/products` | `mock.ts` | Real CRUD + **card image** + catalogue PDF (Storage) |
 | Customers | `/customers` | `mock.ts` (reuses leads) | Real list/create/update/delete via Supabase |
 | Leads | `/leads` | — | **Master sheet**: company, name, email, phone, source, requirement, sales person, status, note, tags, location |
 | Pipeline | `/pipeline` | `mock.ts` | Live Kanban from `leads` + drag/select stage updates |
@@ -302,6 +302,7 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-07-31
+- **WhatsApp product recommendation cards (Path B):** Products store `image_path` / `image_url` (`019_product_image.sql`). Upload image on Products edit. Inbox composer **Recommend** → searchable product picker → sends WhatsApp image+caption (name, price, features, catalogue link) when 24h window open; text-only fallback without image. Server `sendWhatsAppImage` + `sendWhatsAppProductRecommendation`. Meta Catalog (Path A) deferred.
 - **Gmail OAuth (n8n-style):** Channels → Gmail: save Client ID/Secret, Connect with Google, disconnect. Callback `/api/oauth/gmail/callback`. Send Email dialog (Text/HTML). Broadcasting → Gmail channel: one-off send + email campaigns. Migration `018_gmail_oauth_broadcast.sql`. Env: `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`.
 - **Inbox Send template modal:** WACRM-style dialog from composer **Template** button — searchable APPROVED list (name, category, language, preview), then fill vars + send. Component `SendWhatsAppTemplateDialog`.
 - **Inbox template compose:** When WA 24h window is closed (or IndiaMART first contact), agents can select an APPROVED template in the chatbox (FileText button next to attach), fill variables, and send via Cloud API — same place as file attach. Server `sendInboxWhatsAppTemplate`.

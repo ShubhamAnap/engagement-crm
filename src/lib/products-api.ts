@@ -1,6 +1,9 @@
 ﻿import { getBrowserSupabase } from "@/lib/supabase";
 import type { DbProduct, StockStatus } from "@/lib/db-types";
 import { downloadCsv } from "@/lib/csv";
+import { formatProductRecommendationCaption, productImagePublicUrl } from "@/lib/product-card";
+
+export { formatProductRecommendationCaption, productImagePublicUrl };
 
 const KNOWLEDGE_BUCKET = "knowledge";
 
@@ -169,6 +172,80 @@ export async function removeProductCataloguePdf(options: {
 
 export function productCatalogueHref(product: DbProduct): string | null {
   return product.catalog_pdf_url || (product.catalog_pdf_path ? publicCatalogueUrl(product.catalog_pdf_path) : null);
+}
+
+export function productImageHref(product: DbProduct): string | null {
+  return product.image_url || (product.image_path ? publicCatalogueUrl(product.image_path) : null);
+}
+
+/** Upload/replace a product image for WhatsApp recommendation cards. */
+export async function uploadProductImage(options: {
+  orgId: string;
+  productId: string;
+  file: File;
+}): Promise<DbProduct> {
+  const { orgId, productId, file } = options;
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Product image must be PNG, JPEG, or WebP");
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    throw new Error("Product image max size is 5 MB");
+  }
+
+  const supabase = getBrowserSupabase();
+  const ext =
+    file.type === "image/png"
+      ? "png"
+      : file.type === "image/webp"
+        ? "webp"
+        : "jpg";
+  const storagePath = `${orgId}/products/${productId}/card.${ext}`;
+
+  const { error: uploadError } = await supabase.storage.from(KNOWLEDGE_BUCKET).upload(storagePath, file, {
+    contentType: file.type || "image/jpeg",
+    upsert: true,
+  });
+  if (uploadError) {
+    throw new Error(
+      `Image upload failed: ${uploadError.message}. Ensure the knowledge bucket exists and run 019_product_image.sql.`,
+    );
+  }
+
+  const imageUrl = publicCatalogueUrl(storagePath);
+  const { data, error } = await supabase
+    .from("products")
+    .update({
+      image_path: storagePath,
+      image_url: imageUrl,
+    })
+    .eq("id", productId)
+    .eq("org_id", orgId)
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data as DbProduct;
+}
+
+export async function removeProductImage(options: {
+  orgId: string;
+  productId: string;
+  storagePath?: string | null;
+}): Promise<DbProduct> {
+  const { orgId, productId, storagePath } = options;
+  const supabase = getBrowserSupabase();
+  if (storagePath) {
+    await supabase.storage.from(KNOWLEDGE_BUCKET).remove([storagePath]);
+  }
+  const { data, error } = await supabase
+    .from("products")
+    .update({ image_path: null, image_url: null })
+    .eq("id", productId)
+    .eq("org_id", orgId)
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data as DbProduct;
 }
 
 export function downloadProductsCsv(products: DbProduct[], filename?: string) {

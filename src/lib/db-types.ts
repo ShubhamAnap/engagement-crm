@@ -65,6 +65,8 @@ export type DbProduct = {
   is_active: boolean;
   catalog_pdf_path?: string | null;
   catalog_pdf_url?: string | null;
+  image_path?: string | null;
+  image_url?: string | null;
   created_at: string;
   updated_at: string;
 };

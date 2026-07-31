@@ -15,7 +15,7 @@ import {
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Clock, ExternalLink, LayoutGrid, Paperclip, RefreshCw, Send, Sparkles } from "lucide-react";
+import { Clock, ExternalLink, LayoutGrid, Package, Paperclip, RefreshCw, Send, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import {
@@ -33,7 +33,8 @@ import {
   sendInboxWhatsAppTemplate,
   type DbWaTemplate,
 } from "@/lib/broadcasting-api";
-import type { ChannelType, DbMessage, LeadStatus, PriorityLevel } from "@/lib/db-types";
+import { listProducts } from "@/lib/products-api";
+import type { ChannelType, DbMessage, DbProduct, LeadStatus, PriorityLevel } from "@/lib/db-types";
 import { updateLeadStage } from "@/lib/leads-api";
 import { cn } from "@/lib/utils";
 import {
@@ -45,6 +46,7 @@ import {
   whatsappMeUrl,
   type WhatsAppWindowState,
 } from "@/lib/whatsapp-window";
+import { RecommendProductDialog } from "@/components/inbox/RecommendProductDialog";
 import { SendWhatsAppTemplateDialog } from "@/components/inbox/SendWhatsAppTemplateDialog";
 
 const filters = ["All", "Unread", "Assigned", "Website", "WhatsApp", "IndiaMART", "TradeIndia", "Instagram", "Facebook", "Email"];
@@ -125,6 +127,8 @@ function Page() {
   const [uploading, setUploading] = useState(false);
   const [sendingTemplate, setSendingTemplate] = useState(false);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const [sendingProduct, setSendingProduct] = useState(false);
+  const [productModalOpen, setProductModalOpen] = useState(false);
   const attachInputRef = useRef<HTMLInputElement>(null);
   const [leadStatus, setLeadStatus] = useState<LeadStatus>("New");
   const [leadPriority, setLeadPriority] = useState<PriorityLevel>("Medium");
@@ -212,6 +216,13 @@ function Page() {
     queryKey: ["wa-templates", orgId],
     enabled: Boolean(waOutbound || templateModalOpen),
     queryFn: () => listWaTemplates(orgId),
+    staleTime: 60_000,
+  });
+
+  const productsQuery = useQuery({
+    queryKey: ["products", orgId],
+    enabled: Boolean(waOutbound && (productModalOpen || waCanCloudApi)),
+    queryFn: () => listProducts(orgId),
     staleTime: 60_000,
   });
 
@@ -361,6 +372,41 @@ function Page() {
       toast.error(err instanceof Error ? err.message : "Failed to send template");
     } finally {
       setSendingTemplate(false);
+    }
+  }
+
+  async function onRecommendProduct(product: DbProduct) {
+    if (!selected || !profile || !waPhone) return;
+    if (!waCanCloudApi) {
+      toast.error("WhatsApp 24h window closed — send a template first, then recommend products.");
+      setProductModalOpen(false);
+      setTemplateModalOpen(true);
+      return;
+    }
+    setSendingProduct(true);
+    try {
+      const { sendWhatsAppProductRecommendation } = await import("@/server/whatsapp");
+      const result = await sendWhatsAppProductRecommendation({
+        data: {
+          conversationId: selected.id,
+          productId: product.id,
+          profileId: profile.id,
+          assigneeLabel: profile.fullName || profile.email || "Human agent",
+        },
+      });
+      setProductModalOpen(false);
+      await queryClient.invalidateQueries({ queryKey: ["messages", selected.id] });
+      await queryClient.invalidateQueries({ queryKey: ["conversations", orgId] });
+      toast.success(
+        result.via === "image"
+          ? `Sent “${product.name}” photo card on WhatsApp`
+          : `Sent “${product.name}” as text (add a product image for photo cards)`,
+      );
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "Failed to send product recommendation");
+    } finally {
+      setSendingProduct(false);
     }
   }
 
@@ -640,7 +686,7 @@ function Page() {
                 size="icon"
                 className="size-9 shrink-0"
                 aria-label="Attach"
-                disabled={uploading || sending || sendingTemplate || !waCanFreeForm}
+                disabled={uploading || sending || sendingTemplate || sendingProduct || !waCanFreeForm}
                 onClick={() => attachInputRef.current?.click()}
               >
                 <Paperclip className={`size-4 ${uploading ? "animate-pulse" : ""}`} />
@@ -652,11 +698,29 @@ function Page() {
                   className="h-9 shrink-0 gap-1.5 px-2.5"
                   aria-label="Send WhatsApp template"
                   title="Send WhatsApp template"
-                  disabled={sending || uploading || sendingTemplate}
+                  disabled={sending || uploading || sendingTemplate || sendingProduct}
                   onClick={() => setTemplateModalOpen(true)}
                 >
                   <LayoutGrid className="size-3.5" />
                   Template
+                </Button>
+              ) : null}
+              {waOutbound && waPhone ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="h-9 shrink-0 gap-1.5 px-2.5"
+                  aria-label="Recommend product"
+                  title={
+                    waCanCloudApi
+                      ? "Recommend a product card on WhatsApp"
+                      : "Needs open 24h WhatsApp window"
+                  }
+                  disabled={sending || uploading || sendingTemplate || sendingProduct || !waCanCloudApi}
+                  onClick={() => setProductModalOpen(true)}
+                >
+                  <Package className="size-3.5" />
+                  Recommend
                 </Button>
               ) : null}
               <Input
@@ -677,14 +741,14 @@ function Page() {
                     void onSendReply();
                   }
                 }}
-                disabled={sending || uploading || sendingTemplate || !waCanFreeForm}
+                disabled={sending || uploading || sendingTemplate || sendingProduct || !waCanFreeForm}
               />
               <Button
                 size="icon"
                 className="size-9 shrink-0"
                 aria-label="Send"
                 onClick={() => void onSendReply()}
-                disabled={sending || uploading || sendingTemplate || !draft.trim() || !waCanFreeForm}
+                disabled={sending || uploading || sendingTemplate || sendingProduct || !draft.trim() || !waCanFreeForm}
               >
                 <Send className="size-4" />
               </Button>
@@ -851,6 +915,23 @@ function Page() {
         onManageTemplates={() => {
           setTemplateModalOpen(false);
           void navigate({ to: "/broadcasting" });
+        }}
+      />
+
+      <RecommendProductDialog
+        open={productModalOpen}
+        onOpenChange={setProductModalOpen}
+        products={productsQuery.data ?? []}
+        loading={productsQuery.isLoading}
+        contactName={
+          selected?.customer?.name || selected?.visitor_name || selected?.lead?.name || null
+        }
+        contactPhone={waPhone}
+        sending={sendingProduct}
+        onSend={onRecommendProduct}
+        onManageProducts={() => {
+          setProductModalOpen(false);
+          void navigate({ to: "/products" });
         }}
       />
     </div>

@@ -87,6 +87,50 @@ export async function sendWhatsAppText(toPhone: string, body: string, cfg?: What
   return json;
 }
 
+export async function sendWhatsAppImage(options: {
+  toPhone: string;
+  imageUrl: string;
+  caption?: string;
+  cfg?: WhatsAppChannelConfig;
+}) {
+  const config = options.cfg || (await loadWhatsAppConfig());
+  if (!config.phone_number_id || !config.access_token) {
+    throw new Error("WhatsApp is not configured (missing phone_number_id or access_token)");
+  }
+  const { normalizeWhatsAppDigits } = await import("@/lib/whatsapp-window");
+  const to = normalizeWhatsAppDigits(options.toPhone) || options.toPhone.replace(/\D/g, "");
+  if (!to) throw new Error("Invalid WhatsApp recipient phone");
+  if (!/^https:\/\//i.test(options.imageUrl)) {
+    throw new Error("Product image must be a public HTTPS URL for WhatsApp");
+  }
+
+  const res = await fetch(`${GRAPH_BASE}/${config.phone_number_id}/messages`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.access_token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to,
+      type: "image",
+      image: {
+        link: options.imageUrl,
+        ...(options.caption ? { caption: options.caption.slice(0, 1024) } : {}),
+      },
+    }),
+  });
+
+  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    const err =
+      (json.error as { message?: string } | undefined)?.message ||
+      `WhatsApp image API error (${res.status})`;
+    throw new Error(err);
+  }
+  return json;
+}
+
 async function getWhatsAppChannelId(supabase: ReturnType<typeof createServiceSupabase>) {
   const { data } = await supabase
     .from("channels")
@@ -560,4 +604,127 @@ export const sendWhatsAppAgentReply = createServerFn({ method: "POST" })
 
     await sendWhatsAppText(phone, data.body);
     return { ok: true, window: win, via: marketplace ? channel : "whatsapp" };
+  });
+
+/** Inbox: recommend a catalog product as WhatsApp image + caption (Path B). */
+export const sendWhatsAppProductRecommendation = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      conversationId: z.string().uuid(),
+      productId: z.string().uuid(),
+      profileId: z.string().uuid().optional(),
+      assigneeLabel: z.string().max(120).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const supabase = createServiceSupabase();
+    const { data: convo, error } = await supabase
+      .from("conversations")
+      .select("id, channel, visitor_phone, metadata, widget_session_id, wa_last_customer_at")
+      .eq("id", data.conversationId)
+      .eq("org_id", ORG_ID)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!convo) throw new Error("Conversation not found");
+
+    const { getWhatsAppWindow, isMarketplaceLeadChannel, normalizeWhatsAppDigits } =
+      await import("@/lib/whatsapp-window");
+    const channel = String(convo.channel || "");
+    const marketplace = isMarketplaceLeadChannel(channel);
+    if (channel !== "whatsapp" && !marketplace) {
+      throw new Error("Product recommendations send via WhatsApp — open a WhatsApp or marketplace thread with a phone");
+    }
+
+    let windowStart = (convo.wa_last_customer_at as string) || null;
+    if (!windowStart && channel === "whatsapp") {
+      const { data: lastCustomer } = await supabase
+        .from("messages")
+        .select("created_at")
+        .eq("conversation_id", data.conversationId)
+        .eq("sender", "customer")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      windowStart = (lastCustomer?.created_at as string) || null;
+    }
+    const win = getWhatsAppWindow(windowStart);
+    if (!win.open) {
+      throw new Error(
+        "WhatsApp 24-hour window is closed. Send an approved template first, then recommend products after the customer replies.",
+      );
+    }
+
+    const meta = (convo.metadata || {}) as { wa_id?: string };
+    const phone =
+      normalizeWhatsAppDigits(meta.wa_id) ||
+      normalizeWhatsAppDigits(convo.visitor_phone as string) ||
+      normalizeWhatsAppDigits(String(convo.widget_session_id || "").replace(/^wa:/, ""));
+    if (!phone) throw new Error("WhatsApp recipient phone missing on conversation");
+
+    const { data: product, error: productError } = await supabase
+      .from("products")
+      .select("*")
+      .eq("id", data.productId)
+      .eq("org_id", ORG_ID)
+      .maybeSingle();
+    if (productError) throw new Error(productError.message);
+    if (!product) throw new Error("Product not found");
+
+    const { formatProductRecommendationCaption } = await import("@/lib/product-card");
+    const caption = formatProductRecommendationCaption(product as import("@/lib/db-types").DbProduct);
+
+    let imageUrl =
+      (typeof product.image_url === "string" && product.image_url) ||
+      (typeof product.image_path === "string" && product.image_path
+        ? `${String(process.env.VITE_SUPABASE_URL || "").replace(/\/$/, "")}/storage/v1/object/public/knowledge/${product.image_path}`
+        : null);
+
+    if (imageUrl && !/^https:\/\//i.test(imageUrl)) {
+      throw new Error("Product image URL must be public HTTPS (run 019 and upload an image on Products)");
+    }
+
+    if (imageUrl) {
+      await sendWhatsAppImage({ toPhone: phone, imageUrl, caption });
+    } else {
+      await sendWhatsAppText(phone, caption);
+    }
+
+    const label = data.assigneeLabel?.trim() || "Human agent";
+    const bodyPreview = imageUrl
+      ? `📦 Recommended: ${product.name}\n${caption}`
+      : `📦 Recommended: ${product.name} (text — add a product image for photo cards)\n${caption}`;
+
+    await supabase.from("messages").insert({
+      org_id: ORG_ID,
+      conversation_id: data.conversationId,
+      sender: "agent",
+      sender_profile_id: data.profileId || null,
+      body: bodyPreview.slice(0, 8000),
+      metadata: {
+        product_recommendation: true,
+        product_id: product.id,
+        product_name: product.name,
+        image_url: imageUrl,
+        caption,
+      },
+    });
+
+    await supabase
+      .from("conversations")
+      .update({
+        status: "human",
+        ...(data.profileId
+          ? { assignee_id: data.profileId, assignee_label: label }
+          : { assignee_label: label }),
+        unread_count: 0,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", data.conversationId);
+
+    return {
+      ok: true,
+      via: imageUrl ? "image" : "text",
+      productName: product.name as string,
+      window: win,
+    };
   });

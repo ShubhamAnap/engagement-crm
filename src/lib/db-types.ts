@@ -154,6 +154,8 @@ export type DbConversation = {
   widget_session_id: string | null;
   metadata: Record<string, unknown>;
   last_message_at: string | null;
+  /** WhatsApp: last inbound customer message (Meta 24h window start). */
+  wa_last_customer_at?: string | null;
   created_at: string;
   updated_at: string;
 };

@@ -263,6 +263,7 @@ Embed on EnerTech website — live AI chat, lead capture (name/email/phone requi
 | Automation | `/automation` | — | Live A+B+C: Wait, If/Else, conditions, follow-up cron, WA/email/notify, canvas |
 | Channels | `/channels` | — | Live: Website + WA + Email + Meta + IndiaMART + TradeIndia + Brainmine |
 | Broadcasting | `/broadcasting` | — | WhatsApp templates + Meta sync + campaigns |
+| Inbox | `/inbox` | `mock.ts` | Live + **WhatsApp 24h window indicator** (hours left / closed → template) |
 | Human Support | `/human-support` | `mock.ts` | Live handoff queue: claim / resolve / return to AI |
 | Reports | `/reports` | — | Live catalog: 7 report types + CSV export |
 | Settings | `/settings` | — | Live: profile, company (Admin), password |
@@ -302,6 +303,7 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-07-31
+- **WhatsApp 24h session window:** Inbox shows hours remaining on WhatsApp threads; free-form reply/attach blocked when Meta window closed (guide to Broadcasting templates). Migration `017_whatsapp_session_window.sql` (`wa_last_customer_at`). Inbound WA messages open/reset the window; server guards `sendWhatsAppAgentReply`.
 - **Render deploy prep:** Added `render.yaml` (Web Service + 5‑min automations cron), `.node-version` (20.18), README deploy section. User deploying to Render for WhatsApp public webhook.
 - **Automation Phase C (WATI-style):** Wait (minutes/hours/days) schedules remaining steps in `automation_scheduled_steps`; cron + “Process due + waits” resumes. If/Else branches on lead fields (status, priority, source, phone/email, sales person) with Yes/No action lists. Broader canvas shows Wait + fork nodes. Migration `016_automation_wait_branch.sql`.
 - **IndiaMART historical backfill:** Date-range pull splits into ≤7-day chunks, enforces 5-min cooldown between API hits, persists progress on channel `config.backfill`. Channels UI: From/To + Start/Cancel + live status. Auto-tick on setup poll + `/api/cron/automations`. Fixed `loadIndiaMartConfig` to retain `backfill` / `last_api_hit_at`.
@@ -391,6 +393,6 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 
 1. **Deploy on Render:** Blueprint/`render.yaml` → set env from `.env` → set `VITE_APP_URL` to the Render HTTPS URL → redeploy.
 2. **WhatsApp Meta:** Channels → Configure → Test connection → Meta webhook = `{VITE_APP_URL}/api/webhooks/whatsapp`.
-3. Run pending SQL if needed: `015`, **`016_automation_wait_branch.sql`**.
+3. Run pending SQL if needed: `015`, `016`, **`017_whatsapp_session_window.sql`** (WA 24h window), `009_broadcasting.sql` for templates.
 4. Cron: `CRON_URL` + `CRON_SECRET` on the Render cron job (every 5 min).
 5. Still later: RBAC/audit logs, Brainmine field map.

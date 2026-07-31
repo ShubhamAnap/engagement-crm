@@ -15,7 +15,7 @@ import {
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ExternalLink, Paperclip, RefreshCw, Send, Sparkles } from "lucide-react";
+import { Clock, ExternalLink, Paperclip, RefreshCw, Send, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import {
@@ -31,11 +31,23 @@ import {
 import type { ChannelType, DbMessage, LeadStatus, PriorityLevel } from "@/lib/db-types";
 import { updateLeadStage } from "@/lib/leads-api";
 import { cn } from "@/lib/utils";
+import {
+  getWhatsAppWindow,
+  resolveWhatsAppWindowStart,
+  type WhatsAppWindowState,
+} from "@/lib/whatsapp-window";
 
 const filters = ["All", "Unread", "Assigned", "Website", "WhatsApp", "Instagram", "Facebook", "Email"];
 const leadStatuses: LeadStatus[] = ["New", "Contacted", "Qualified", "Proposal", "Negotiation", "Won", "Lost"];
 const leadPriorities: PriorityLevel[] = ["High", "Medium", "Low"];
 const LAYOUT_KEY = "enertech-inbox-layout-v1";
+
+function waTone(tone: WhatsAppWindowState["tone"]): "success" | "warning" | "danger" | "neutral" | "primary" {
+  if (tone === "ok") return "success";
+  if (tone === "warn") return "warning";
+  if (tone === "critical" || tone === "closed") return "danger";
+  return "neutral";
+}
 
 function messageAttachment(m: DbMessage): { url: string; fileName: string; isImage: boolean } | null {
   const meta = (m.metadata || {}) as Record<string, unknown>;
@@ -105,9 +117,15 @@ function Page() {
   const [leadStatus, setLeadStatus] = useState<LeadStatus>("New");
   const [leadPriority, setLeadPriority] = useState<PriorityLevel>("Medium");
   const [layout, setLayout] = useState<Record<string, number> | undefined>(undefined);
+  const [nowTick, setNowTick] = useState(() => Date.now());
 
   useEffect(() => {
     setLayout(loadLayout() ?? { list: 24, chat: 48, profile: 28 });
+  }, []);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTick(Date.now()), 30_000);
+    return () => window.clearInterval(id);
   }, []);
 
   const conversationsQuery = useQuery({
@@ -148,6 +166,25 @@ function Page() {
     refetchInterval: 4000,
   });
 
+  const lastCustomerMessageAt = useMemo(() => {
+    const msgs = messagesQuery.data ?? [];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].sender === "customer") return msgs[i].created_at;
+    }
+    return null;
+  }, [messagesQuery.data]);
+
+  const waWindow = useMemo(() => {
+    if (!selected || selected.channel !== "whatsapp") return null;
+    const started = resolveWhatsAppWindowStart({
+      waLastCustomerAt: selected.wa_last_customer_at,
+      lastCustomerMessageAt,
+    });
+    return getWhatsAppWindow(started, nowTick);
+  }, [selected, lastCustomerMessageAt, nowTick]);
+
+  const waCanFreeForm = !waWindow || waWindow.open;
+
   useEffect(() => {
     if (!selectedId) return;
     void markConversationRead(selectedId)
@@ -171,6 +208,10 @@ function Page() {
 
   async function onSendReply() {
     if (!selected || !profile || !draft.trim()) return;
+    if (selected.channel === "whatsapp" && waWindow && !waWindow.open) {
+      toast.error("WhatsApp 24h window closed — send a template from Broadcasting first.");
+      return;
+    }
     setSending(true);
     try {
       const body = draft.trim();
@@ -217,6 +258,10 @@ function Page() {
 
   async function onAttachFile(file: File) {
     if (!selected || !profile) return;
+    if (selected.channel === "whatsapp" && waWindow && !waWindow.open) {
+      toast.error("WhatsApp 24h window closed — attachments need an open session. Send a template first.");
+      return;
+    }
     setUploading(true);
     try {
       const msg = await uploadAgentAttachment({
@@ -301,6 +346,10 @@ function Page() {
             {conversations.map((c) => {
               const active = c.id === selectedId;
               const name = c.customer?.name || c.visitor_name || c.visitor_email || "Visitor";
+              const listWa =
+                c.channel === "whatsapp"
+                  ? getWhatsAppWindow(c.wa_last_customer_at || null, nowTick)
+                  : null;
               return (
                 <li key={c.id}>
                   <button type="button" onClick={() => setSelectedId(c.id)} className={cn("w-full px-3 py-3 text-left", active ? "bg-secondary/70" : "hover:bg-secondary/40")}>
@@ -310,8 +359,14 @@ function Page() {
                       <span className="num shrink-0 text-[11px] text-muted-foreground">{formatRelativeTime(c.last_message_at || c.created_at)}</span>
                     </div>
                     <p className="mt-1 truncate text-xs text-muted-foreground">{c.preview || "No messages yet"}</p>
-                    <div className="mt-1.5 flex items-center gap-1.5">
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                       <Pill>{c.status}</Pill>
+                      {listWa ? (
+                        <Pill tone={waTone(listWa.tone)} className="gap-1">
+                          <Clock className="size-3" />
+                          {listWa.open ? listWa.label : "WA closed"}
+                        </Pill>
+                      ) : null}
                       {(c.tags ?? []).slice(0, 2).map((t) => <Pill key={t}>{t}</Pill>)}
                       {c.unread_count > 0 && <Pill tone="primary" className="ml-auto">{c.unread_count}</Pill>}
                     </div>
@@ -328,20 +383,30 @@ function Page() {
   const conversationThread = (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-card">
       <header className="shrink-0 border-b border-border px-4 py-3">
-        <h2 className="truncate text-sm font-semibold text-foreground">
-          {selected
-            ? `${selected.customer?.name || selected.visitor_name || "Visitor"}${
-                selected.customer?.company || selected.visitor_company
-                  ? ` · ${selected.customer?.company || selected.visitor_company}`
-                  : ""
-              }`
-            : "Conversation"}
-        </h2>
-        <p className="truncate text-xs text-muted-foreground">
-          {selected
-            ? `${selected.channel} · ${selected.external_ref || selected.id.slice(0, 8)} · ${selected.assignee_label || selected.status}`
-            : "Select a conversation"}
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h2 className="truncate text-sm font-semibold text-foreground">
+              {selected
+                ? `${selected.customer?.name || selected.visitor_name || "Visitor"}${
+                    selected.customer?.company || selected.visitor_company
+                      ? ` · ${selected.customer?.company || selected.visitor_company}`
+                      : ""
+                  }`
+                : "Conversation"}
+            </h2>
+            <p className="truncate text-xs text-muted-foreground">
+              {selected
+                ? `${selected.channel} · ${selected.external_ref || selected.id.slice(0, 8)} · ${selected.assignee_label || selected.status}`
+                : "Select a conversation"}
+            </p>
+          </div>
+          {waWindow ? (
+            <Pill tone={waTone(waWindow.tone)} className="gap-1.5 shrink-0">
+              <Clock className="size-3.5" />
+              WhatsApp · {waWindow.label}
+            </Pill>
+          ) : null}
+        </div>
       </header>
 
       {!selected ? (
@@ -419,6 +484,30 @@ function Page() {
           </div>
 
           <div className="shrink-0 border-t border-border bg-card p-3 shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
+            {waWindow && !waWindow.open ? (
+              <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
+                <p className="font-medium text-destructive">Meta 24-hour window closed</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Free-form WhatsApp replies are blocked until the customer messages again. Send an
+                  approved template from Broadcasting to re-engage them.
+                </p>
+                <Button
+                  size="sm"
+                  className="mt-2"
+                  variant="outline"
+                  onClick={() => void navigate({ to: "/broadcasting" })}
+                >
+                  Open Broadcasting
+                </Button>
+              </div>
+            ) : null}
+            {waWindow?.open ? (
+              <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Clock className="size-3.5 text-primary" />
+                Session open · <span className="font-medium text-foreground">{waWindow.label}</span> to
+                reply freely
+              </div>
+            ) : null}
             <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
               <Sparkles className="size-3.5" /> Reply as {profile?.fullName || "agent"} — saved to
               this conversation
@@ -439,14 +528,20 @@ function Page() {
                 size="icon"
                 className="size-9 shrink-0"
                 aria-label="Attach"
-                disabled={uploading || sending}
+                disabled={uploading || sending || !waCanFreeForm}
                 onClick={() => attachInputRef.current?.click()}
               >
                 <Paperclip className={`size-4 ${uploading ? "animate-pulse" : ""}`} />
               </Button>
               <Input
                 className="h-9"
-                placeholder={uploading ? "Uploading…" : "Write a reply…"}
+                placeholder={
+                  !waCanFreeForm
+                    ? "Window closed — use Broadcasting template…"
+                    : uploading
+                      ? "Uploading…"
+                      : "Write a reply…"
+                }
                 aria-label="Reply"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
@@ -456,14 +551,14 @@ function Page() {
                     void onSendReply();
                   }
                 }}
-                disabled={sending || uploading}
+                disabled={sending || uploading || !waCanFreeForm}
               />
               <Button
                 size="icon"
                 className="size-9 shrink-0"
                 aria-label="Send"
                 onClick={() => void onSendReply()}
-                disabled={sending || uploading || !draft.trim()}
+                disabled={sending || uploading || !draft.trim() || !waCanFreeForm}
               >
                 <Send className="size-4" />
               </Button>

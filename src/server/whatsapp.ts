@@ -211,6 +211,31 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           .single();
         if (msgError) throw new Error(msgError.message);
 
+        const nowIso = new Date().toISOString();
+        const unread = Number(convo.unread_count || 0) + 1;
+        const { error: winErr } = await supabase
+          .from("conversations")
+          .update({
+            wa_last_customer_at: nowIso,
+            last_message_at: nowIso,
+            preview: text.slice(0, 160),
+            unread_count: unread,
+            updated_at: nowIso,
+          })
+          .eq("id", convo.id);
+        if (winErr) {
+          // Migration 017 not applied yet — still refresh preview/unread
+          await supabase
+            .from("conversations")
+            .update({
+              last_message_at: nowIso,
+              preview: text.slice(0, 160),
+              unread_count: unread,
+              updated_at: nowIso,
+            })
+            .eq("id", convo.id);
+        }
+
         results.push({ conversationId: convo.id as string, messageId: customerMsg.id as string });
 
         const status = convo.status as string;
@@ -455,13 +480,34 @@ export const sendWhatsAppAgentReply = createServerFn({ method: "POST" })
     const supabase = createServiceSupabase();
     const { data: convo, error } = await supabase
       .from("conversations")
-      .select("id, channel, visitor_phone, metadata, widget_session_id")
+      .select("id, channel, visitor_phone, metadata, widget_session_id, wa_last_customer_at")
       .eq("id", data.conversationId)
       .eq("org_id", ORG_ID)
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!convo) throw new Error("Conversation not found");
     if (convo.channel !== "whatsapp") throw new Error("Not a WhatsApp conversation");
+
+    // Meta 24h window — free-form text only while open
+    let windowStart = (convo.wa_last_customer_at as string) || null;
+    if (!windowStart) {
+      const { data: lastCustomer } = await supabase
+        .from("messages")
+        .select("created_at")
+        .eq("conversation_id", data.conversationId)
+        .eq("sender", "customer")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      windowStart = (lastCustomer?.created_at as string) || null;
+    }
+    const { getWhatsAppWindow } = await import("@/lib/whatsapp-window");
+    const win = getWhatsAppWindow(windowStart);
+    if (!win.open) {
+      throw new Error(
+        "WhatsApp 24-hour window is closed. Send an approved template from Broadcasting, then wait for the customer to reply.",
+      );
+    }
 
     const meta = (convo.metadata || {}) as { wa_id?: string };
     const phone =
@@ -471,5 +517,5 @@ export const sendWhatsAppAgentReply = createServerFn({ method: "POST" })
     if (!phone) throw new Error("WhatsApp recipient phone missing on conversation");
 
     await sendWhatsAppText(phone, data.body);
-    return { ok: true };
+    return { ok: true, window: win };
   });

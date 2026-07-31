@@ -302,6 +302,7 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-07-31
+- **Render deploy prep:** Added `render.yaml` (Web Service + 5‑min automations cron), `.node-version` (20.18), README deploy section. User deploying to Render for WhatsApp public webhook.
 - **Automation Phase C (WATI-style):** Wait (minutes/hours/days) schedules remaining steps in `automation_scheduled_steps`; cron + “Process due + waits” resumes. If/Else branches on lead fields (status, priority, source, phone/email, sales person) with Yes/No action lists. Broader canvas shows Wait + fork nodes. Migration `016_automation_wait_branch.sql`.
 - **IndiaMART historical backfill:** Date-range pull splits into ≤7-day chunks, enforces 5-min cooldown between API hits, persists progress on channel `config.backfill`. Channels UI: From/To + Start/Cancel + live status. Auto-tick on setup poll + `/api/cron/automations`. Fixed `loadIndiaMartConfig` to retain `backfill` / `last_api_hit_at`.
 - **TradeIndia historical backfill:** Day-by-day (from_date=to_date) to stay within 24h API limit; ~1 min polite gap; Channels UI + cron tick. Same progress pattern as IndiaMART.
@@ -388,8 +389,8 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 
 ## Next Immediate Step
 
-1. **WhatsApp Meta setup:** Channels → Configure WhatsApp (Phone Number ID, Access Token, Verify Token, WABA) → **Test connection**. For inbound: public HTTPS tunnel + Meta webhook (not localhost).
-2. Run `015_org_branding.sql` if logo/avatar storage still fails.
-3. Pending migrations if not run: `012`/`012b`, `013`, `014`/`014b`/`014c`, `015`, **`016_automation_wait_branch.sql`** (Wait delays).
-4. **Before Render/production deploy:** confirm with user.
+1. **Deploy on Render:** Blueprint/`render.yaml` → set env from `.env` → set `VITE_APP_URL` to the Render HTTPS URL → redeploy.
+2. **WhatsApp Meta:** Channels → Configure → Test connection → Meta webhook = `{VITE_APP_URL}/api/webhooks/whatsapp`.
+3. Run pending SQL if needed: `015`, **`016_automation_wait_branch.sql`**.
+4. Cron: `CRON_URL` + `CRON_SECRET` on the Render cron job (every 5 min).
 5. Still later: RBAC/audit logs, Brainmine field map.

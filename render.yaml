@@ -1,0 +1,90 @@
+# EnerTech Engage — Render Blueprint
+# Dashboard: New → Blueprint → connect ShubhamAnap/enertechsupport
+# Or: New → Web Service → same repo (use build/start below).
+#
+# Secrets: leave sync:false values empty in git; set them in the Render Dashboard
+# (Environment). Never commit .env.
+
+services:
+  - type: web
+    name: enertech-engage
+    runtime: node
+    plan: starter
+    region: singapore
+    branch: main
+    autoDeploy: true
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /login
+    envVars:
+      - key: NODE_VERSION
+        value: "20.18.0"
+      - key: NODE_ENV
+        value: production
+
+      # Public app URL — set AFTER first deploy to https://<service>.onrender.com
+      - key: VITE_APP_URL
+        sync: false
+
+      # Browser Supabase (required at build time)
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+      - key: VITE_WIDGET_PUBLIC_KEY
+        sync: false
+
+      # Server Supabase
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+
+      # Widget
+      - key: WIDGET_PUBLIC_KEY
+        sync: false
+
+      # AI
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_EMBEDDING_MODEL
+        value: text-embedding-3-small
+
+      # Cron auth (also used by the cron job below)
+      - key: CRON_SECRET
+        generateValue: true
+
+      # WhatsApp — optional here; can also save via Channels UI after deploy
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_BUSINESS_ACCOUNT_ID
+        sync: false
+      - key: WHATSAPP_DISPLAY_PHONE
+        sync: false
+
+  # Due follow-ups + Wait resumes + channel backfill ticks (every 5 min)
+  - type: cron
+    name: enertech-automations-cron
+    runtime: node
+    plan: starter
+    region: singapore
+    branch: main
+    schedule: "*/5 * * * *"
+    buildCommand: echo "cron uses curl only"
+    startCommand: "node -e \"const u=process.env.CRON_URL;const s=process.env.CRON_SECRET;if(!u||!s){console.error('Set CRON_URL and CRON_SECRET');process.exit(1)}fetch(u,{method:'POST',headers:{Authorization:'Bearer '+s}}).then(async r=>{const t=await r.text();if(!r.ok){console.error(t);process.exit(1)}console.log(t)}).catch(e=>{console.error(e);process.exit(1)})\""
+    envVars:
+      - key: NODE_VERSION
+        value: "20.18.0"
+      # e.g. https://enertech-engage.onrender.com/api/cron/automations
+      - key: CRON_URL
+        sync: false
+      - key: CRON_SECRET
+        sync: false

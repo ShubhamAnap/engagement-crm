@@ -326,82 +326,103 @@ function Page() {
   );
 
   const conversationThread = (
-    <CardPanel
-      title={selected ? `${selected.customer?.name || selected.visitor_name || "Visitor"}${selected.customer?.company || selected.visitor_company ? ` · ${selected.customer?.company || selected.visitor_company}` : ""}` : "Conversation"}
-      description={selected ? `${selected.channel} · ${selected.external_ref || selected.id.slice(0, 8)} · ${selected.assignee_label || selected.status}` : "Select a conversation"}
-      className="flex h-full min-h-0 flex-col overflow-hidden rounded-none border-0 shadow-none"
-      bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden p-0"
-    >
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-card">
+      <header className="shrink-0 border-b border-border px-4 py-3">
+        <h2 className="truncate text-sm font-semibold text-foreground">
+          {selected
+            ? `${selected.customer?.name || selected.visitor_name || "Visitor"}${
+                selected.customer?.company || selected.visitor_company
+                  ? ` · ${selected.customer?.company || selected.visitor_company}`
+                  : ""
+              }`
+            : "Conversation"}
+        </h2>
+        <p className="truncate text-xs text-muted-foreground">
+          {selected
+            ? `${selected.channel} · ${selected.external_ref || selected.id.slice(0, 8)} · ${selected.assignee_label || selected.status}`
+            : "Select a conversation"}
+        </p>
+      </header>
+
       {!selected ? (
-        <div className="p-6"><EmptyState title="Select a conversation" description="Choose a thread from the left." /></div>
+        <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+          <EmptyState title="Select a conversation" description="Choose a thread from the left." />
+        </div>
       ) : (
-        <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4">
-            {messagesQuery.isLoading ? (
-              <ListSkeleton rows={4} />
-            ) : (messagesQuery.data ?? []).length === 0 ? (
-              <p className="text-sm text-muted-foreground">No messages in this thread yet.</p>
-            ) : (
-              (messagesQuery.data ?? []).map((m) => {
-                const isCustomer = m.sender === "customer";
-                const attach = messageAttachment(m);
-                const caption = attach
-                  ? m.body.replace(attach.url, "").replace(/\n+/g, " ").trim()
-                  : m.body;
-                return (
-                  <div key={m.id} className={isCustomer ? "flex justify-start" : "flex justify-end"}>
-                    <div className="max-w-[min(78%,28rem)]">
-                      <div
-                        className={
-                          isCustomer
-                            ? "rounded-xl bg-secondary px-3 py-2 text-sm"
-                            : "rounded-xl bg-primary px-3 py-2 text-sm text-primary-foreground"
-                        }
-                      >
-                        {attach?.isImage ? (
-                          <a href={attach.url} target="_blank" rel="noreferrer" className="block">
-                            <img
-                              src={attach.url}
-                              alt={attach.fileName}
-                              className="mb-1 max-h-48 max-w-full rounded-lg object-contain"
-                            />
-                            {caption ? <p>{caption}</p> : null}
-                          </a>
-                        ) : attach ? (
-                          <p>
-                            {caption ? `${caption} — ` : null}
-                            <a
-                              href={attach.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className={
-                                isCustomer
-                                  ? "underline"
-                                  : "underline text-primary-foreground"
-                              }
-                            >
-                              {attach.fileName}
+        <>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
+            <div className="space-y-3">
+              {messagesQuery.isLoading ? (
+                <ListSkeleton rows={4} />
+              ) : (messagesQuery.data ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">No messages in this thread yet.</p>
+              ) : (
+                (messagesQuery.data ?? []).map((m) => {
+                  const isCustomer = m.sender === "customer";
+                  const attach = messageAttachment(m);
+                  const caption = attach
+                    ? m.body.replace(attach.url, "").replace(/\n+/g, " ").trim()
+                    : m.body;
+                  return (
+                    <div
+                      key={m.id}
+                      className={isCustomer ? "flex justify-start" : "flex justify-end"}
+                    >
+                      <div className="max-w-[min(78%,28rem)]">
+                        <div
+                          className={
+                            isCustomer
+                              ? "rounded-xl bg-secondary px-3 py-2 text-sm"
+                              : "rounded-xl bg-primary px-3 py-2 text-sm text-primary-foreground"
+                          }
+                        >
+                          {attach?.isImage ? (
+                            <a href={attach.url} target="_blank" rel="noreferrer" className="block">
+                              <img
+                                src={attach.url}
+                                alt={attach.fileName}
+                                className="mb-1 max-h-48 max-w-full rounded-lg object-contain"
+                              />
+                              {caption ? <p>{caption}</p> : null}
                             </a>
-                          </p>
-                        ) : (
-                          m.body
-                        )}
-                      </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                        <span className="num">{formatClock(m.created_at)}</span>
-                        <span className="capitalize">{m.sender}</span>
-                        {m.confidence != null ? (
-                          <Pill tone="success">conf {Number(m.confidence).toFixed(2)}</Pill>
-                        ) : null}
+                          ) : attach ? (
+                            <p>
+                              {caption ? `${caption} — ` : null}
+                              <a
+                                href={attach.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className={
+                                  isCustomer ? "underline" : "underline text-primary-foreground"
+                                }
+                              >
+                                {attach.fileName}
+                              </a>
+                            </p>
+                          ) : (
+                            m.body
+                          )}
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                          <span className="num">{formatClock(m.created_at)}</span>
+                          <span className="capitalize">{m.sender}</span>
+                          {m.confidence != null ? (
+                            <Pill tone="success">conf {Number(m.confidence).toFixed(2)}</Pill>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })
-            )}
+                  );
+                })
+              )}
+            </div>
           </div>
-          <div className="z-10 shrink-0 border-t border-border bg-card p-3">
-            <div className="mb-2 flex items-center gap-1.5 text-xs text-primary"><Sparkles className="size-3.5" /> Reply as {profile?.fullName || "agent"} — saved to this conversation</div>
+
+          <div className="shrink-0 border-t border-border bg-card p-3 shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
+            <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
+              <Sparkles className="size-3.5" /> Reply as {profile?.fullName || "agent"} — saved to
+              this conversation
+            </div>
             <div className="flex items-center gap-1.5">
               <input
                 ref={attachInputRef}
@@ -448,9 +469,9 @@ function Page() {
               </Button>
             </div>
           </div>
-        </div>
+        </>
       )}
-    </CardPanel>
+    </div>
   );
 
   const profileSidebar = (
@@ -521,47 +542,78 @@ function Page() {
           title="Omnichannel Inbox"
           description="Live conversations from website chat and other channels."
           actions={
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => void onRefreshInbox()} disabled={refreshing}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => void onRefreshInbox()}
+              disabled={refreshing}
+            >
               <RefreshCw className={cn("size-3.5", refreshing && "animate-spin")} /> Refresh
             </Button>
           }
         />
       </div>
 
-      {/* Desktop / tablet: resizable 3-column workspace */}
-      <div className="hidden min-h-0 flex-1 flex-col overflow-hidden p-3 md:p-4 lg:flex">
+      {/* Desktop / tablet: fill remaining viewport; panel group is absolute so it cannot grow with messages */}
+      <div className="relative hidden min-h-0 flex-1 overflow-hidden p-3 md:p-4 lg:block">
         {layout ? (
-          <ResizablePanelGroup
-            id="inbox-workspace"
-            orientation="horizontal"
-            className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-card"
-            defaultLayout={layout}
-            onLayoutChanged={(next) => {
-              setLayout(next);
-              localStorage.setItem(LAYOUT_KEY, JSON.stringify(next));
-            }}
-          >
-            <ResizablePanel id="list" defaultSize="24%" minSize="16%" maxSize="42%" className="min-h-0 min-w-0">
-              <div className="h-full min-h-0 overflow-hidden border-r border-border">{conversationList}</div>
-            </ResizablePanel>
-            <ResizableHandle withHandle />
-            <ResizablePanel id="chat" defaultSize="48%" minSize="28%" className="min-h-0 min-w-0">
-              <div className="h-full min-h-0 overflow-hidden">{conversationThread}</div>
-            </ResizablePanel>
-            <ResizableHandle withHandle />
-            <ResizablePanel id="profile" defaultSize="28%" minSize="18%" maxSize="40%" collapsible className="min-h-0 min-w-0">
-              <div className="h-full min-h-0 overflow-hidden border-l border-border">{profileSidebar}</div>
-            </ResizablePanel>
-          </ResizablePanelGroup>
+          <div className="absolute inset-3 overflow-hidden rounded-xl border border-border bg-card md:inset-4">
+            <ResizablePanelGroup
+              id="inbox-workspace"
+              orientation="horizontal"
+              className="h-full w-full"
+              defaultLayout={layout}
+              onLayoutChanged={(next) => {
+                setLayout(next);
+                localStorage.setItem(LAYOUT_KEY, JSON.stringify(next));
+              }}
+            >
+              <ResizablePanel
+                id="list"
+                defaultSize="24%"
+                minSize="16%"
+                maxSize="42%"
+                className="min-h-0 min-w-0"
+              >
+                <div className="h-full min-h-0 overflow-hidden border-r border-border">
+                  {conversationList}
+                </div>
+              </ResizablePanel>
+              <ResizableHandle withHandle />
+              <ResizablePanel id="chat" defaultSize="48%" minSize="28%" className="min-h-0 min-w-0">
+                <div className="h-full min-h-0 overflow-hidden">{conversationThread}</div>
+              </ResizablePanel>
+              <ResizableHandle withHandle />
+              <ResizablePanel
+                id="profile"
+                defaultSize="28%"
+                minSize="18%"
+                maxSize="40%"
+                collapsible
+                className="min-h-0 min-w-0"
+              >
+                <div className="h-full min-h-0 overflow-hidden border-l border-border">
+                  {profileSidebar}
+                </div>
+              </ResizablePanel>
+            </ResizablePanelGroup>
+          </div>
         ) : (
-          <div className="min-h-0 flex-1 rounded-xl border border-border"><ListSkeleton rows={8} /></div>
+          <div className="absolute inset-3 rounded-xl border border-border md:inset-4">
+            <ListSkeleton rows={8} />
+          </div>
         )}
       </div>
 
-      {/* Mobile: stacked panels */}
+      {/* Mobile: stacked — chat column still pins the composer */}
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3 lg:hidden">
-        <div className="max-h-[32vh] min-h-[180px] shrink-0 overflow-hidden rounded-xl border border-border">{conversationList}</div>
-        <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border">{conversationThread}</div>
+        <div className="max-h-[28vh] min-h-[160px] shrink-0 overflow-hidden rounded-xl border border-border">
+          {conversationList}
+        </div>
+        <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border">
+          {conversationThread}
+        </div>
       </div>
     </div>
   );

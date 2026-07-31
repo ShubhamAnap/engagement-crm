@@ -1,7 +1,7 @@
 # EnerTech Engage — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
-> **Last updated:** 2026-07-30
+> **Last updated:** 2026-07-31
 
 ---
 
@@ -112,7 +112,7 @@ Implement in this order — each phase unlocks the next.
 | User profile | Live save (name, phone, title) | **DONE** |
 | Email / password | Supabase Auth update | **DONE** |
 | Company profile | Admin can save org name/short | **DONE** (run `006_profile_fields.sql`) |
-| Branding | Static | Upload logo, colors → storage (later) |
+| Branding | Static | **DONE** (logo upload + optional accent; run `015_org_branding.sql`) |
 | AI model config | Static | Save OpenAI/API keys (encrypted) (later) |
 | Channel credentials | `/channels` | **DONE** (link from Settings) |
 | Roles & permissions | Static list | RBAC enforcement (later) |
@@ -133,7 +133,7 @@ Implement in this order — each phase unlocks the next.
 | WhatsApp | Meta Cloud API webhook + Inbox | **DONE** (configure credentials; needs public HTTPS URL) |
 | Email | SMTP outbound + inbound webhook | **DONE** (configure SMTP; point forwarder at webhook) |
 | Instagram / Facebook | Meta Graph Page Messaging | **DONE** |
-| IndiaMART | Lead Manager Pull + Push → Leads/Inbox | **DONE** (run `007_indiamart_channel.sql`) |
+| IndiaMART | Lead Manager Pull + Push → Leads/Inbox + historical backfill | **DONE** (run `007_indiamart_channel.sql`) |
 
 **Files:** `src/routes/channels.tsx`, `src/lib/channels-api.ts`, `src/server/whatsapp.ts`, `src/routes/api/webhooks/whatsapp.ts`, `src/server/email.ts`, `src/routes/api/webhooks/email.ts`, `src/server/meta-messenger.ts`, `src/routes/api/webhooks/facebook.ts`, `src/routes/api/webhooks/instagram.ts`, `src/server/indiamart.ts`, `src/routes/api/webhooks/indiamart.ts`, `src/lib/chat-api.ts`, `src/components/ChatWidget.tsx`, `src/routes/inbox.tsx`
 
@@ -147,7 +147,7 @@ Implement in this order — each phase unlocks the next.
 | Customer CRUD | DB table, search, filter | **DONE** |
 | Leads CRUD | Real Supabase + Inbox linking | **DONE** |
 | Pipeline Kanban | Drag-drop + stage updates on `leads.status` | **DONE** |
-| Bulk actions | Assign, export | Later |
+| Bulk actions | Assign, export | **DONE** (select rows → assign / status / CSV) |
 
 **Files:** `src/routes/customers.tsx`, `leads.tsx`, `pipeline.tsx`, `src/lib/leads-api.ts`
 
@@ -173,51 +173,53 @@ Implement in this order — each phase unlocks the next.
 ---
 
 ### Phase 5 — Inbox (Omnichannel)
-> Status: **NOT STARTED** | Route: `/inbox`
+> Status: **DONE** | Route: `/inbox`
 
-| Feature | Target |
-|---------|--------|
-| Conversation list | Real-time from channels |
-| Thread view | Messages from DB |
-| Customer sidebar | Linked CRM profile |
-| Send reply | Outbound via channel API |
-| Filters / search / assign | Wired to state + API |
+| Feature | Target | Status |
+|---------|--------|--------|
+| Conversation list | Real-time from channels | **DONE** |
+| Thread view | Messages from DB | **DONE** |
+| Customer sidebar | Linked CRM profile | **DONE** |
+| Send reply | Outbound via channel API | **DONE** (Website/WA/Email/Meta) |
+| Filters / search / assign | Wired to state + API | **DONE** (basic) |
 
-**Files:** `src/routes/inbox.tsx`
+**Files:** `src/routes/inbox.tsx`, `src/lib/chat-api.ts`
 
 ---
 
 ### Phase 6 — AI Layer
-> Status: **IN PROGRESS** | Routes: `/agents`, `/ai-chat`, `/command-center`, `/human-support`
+> Status: **DONE** (v1) | Routes: `/agents`, `/ai-chat`, `/command-center`, `/human-support`
 
 | Feature | Target | Status |
 |---------|--------|--------|
-| AI Agents | Config per agent (model, prompt, memory) | **DONE** (`/agents` live; chat routes by agent) |
+| AI Agents | Config per agent (model, prompt, memory) | **DONE** |
 | RAG answers | Retrieve from knowledge base | **DONE** |
-| Answer inspector | Real confidence, sources, reasoning | Later |
-| Command Center | Live session monitoring | Later |
-| Human takeover | Pause AI, assign human | **DONE** (Inbox + Human Support queue) |
+| Answer inspector | Confidence, sources, reasoning | **DONE** (`/ai-chat` + message metadata) |
+| Command Center | Live session monitoring | **DONE** (`/command-center`) |
+| Human takeover | Pause AI, assign human | **DONE** |
 
-**Files:** `src/routes/agents.tsx`, `src/lib/agents-api.ts`, `src/lib/agent-prompts.ts`, `src/server/agents.ts`, `ai-chat.tsx`, `command-center.tsx`, `human-support.tsx`, `src/lib/chat-api.ts`, `src/server/openai.ts`
-
-**Progress:** Website/WhatsApp/Email chat uses OpenAI + RAG + configured agents; escalations land in Human Support; agents can claim/resolve/return to AI.
+**Files:** `src/routes/agents.tsx`, `ai-chat.tsx`, `command-center.tsx`, `human-support.tsx`, `src/lib/command-center-api.ts`, `src/lib/ai-chat-api.ts`, `src/server/answer-inspector.ts`
 
 ---
 
 ### Phase 7 — Automation
-> Status: **DONE** (v1) | Route: `/automation`
+> Status: **DONE** (v2 A+B) | Route: `/automation`
 
-Trigger → actions engine (not a full drag-drop canvas yet).
+Trigger → optional conditions → actions. Time-based follow-ups + outbound messaging.
 
 | Feature | Status |
 |---------|--------|
 | Workflows CRUD + Live/Paused | **DONE** |
-| Triggers: lead created, IndiaMART, escalation, status change | **DONE** |
-| Actions: priority/status/follow-up/notes/tags/assignee/system msg | **DONE** |
-| Run history | **DONE** |
-| Visual node canvas | Later |
+| Triggers: lead created / IndiaMART / escalation / status change / follow-up due | **DONE** |
+| Conditions: source, priority, channel, lead status | **DONE** |
+| CRM actions + assign sales person | **DONE** |
+| Outbound: WhatsApp template, email, notify team | **DONE** |
+| Due follow-ups cron + Process button | **DONE** |
+| Test run + step run log | **DONE** |
+| Visual node canvas | **DONE** (`WorkflowCanvas`) |
+| Wait / if-else branches | Later (Phase C) |
 
-**Files:** `src/routes/automation.tsx`, `src/lib/automations-api.ts`, `src/lib/automation-types.ts`, `src/server/automation-engine.ts`, `supabase/migrations/008_automations.sql`
+**Files:** `src/routes/automation.tsx`, `src/components/automation/WorkflowCanvas.tsx`, `src/lib/automations-api.ts`, `src/server/automation-engine.ts`, `src/routes/api/cron/automations.ts`, `supabase/migrations/008_automations.sql`, `012_automation_follow_up_trigger.sql`, `012b_automation_v2.sql`
 
 ---
 
@@ -236,9 +238,9 @@ Trigger → actions engine (not a full drag-drop canvas yet).
 ---
 
 ### Phase 9 — Chat Widget (Customer-Facing)
-> Status: **IN PROGRESS** | Component: `ChatWidget.tsx`
+> Status: **DONE** (v1) | Component: `ChatWidget.tsx`
 
-Embed on EnerTech website — real AI chat is live; lead capture/human handoff are partial; file upload remains later.
+Embed on EnerTech website — live AI chat, lead capture (name/email/phone required), human handoff banner, image/PDF upload via paperclip.
 
 ---
 
@@ -247,22 +249,24 @@ Embed on EnerTech website — real AI chat is live; lead capture/human handoff a
 | Module | Route | Mock source | Status |
 |--------|-------|-------------|--------|
 | Dashboard | `/` | `mock.ts` | Live KPIs + charts from Supabase |
-| AI Command Center | `/command-center` | `mock.ts` + inline | UI only |
+| AI Command Center | `/command-center` | — | Live sessions: pause/takeover/timeline |
 | Inbox | `/inbox` | `mock.ts` | Live conversations/messages with linked customer/lead context and lead workflow actions |
-| AI Chat Support | `/ai-chat` | inline hardcoded | UI only |
+| AI Chat Support | `/ai-chat` | — | Live Answer Inspector (confidence, sources, reasoning) |
 | AI Agents | `/agents` | — | Live: model/prompt/memory/status; keyword routing |
 | Knowledge Base | `/knowledge` | `mock.ts` | Live collections + upload/index (pgvector RAG) |
 | Products | `/products` | `mock.ts` | Real CRUD + catalogue PDF upload (Storage) |
 | Customers | `/customers` | `mock.ts` (reuses leads) | Real list/create/update/delete via Supabase |
-| Leads | `/leads` | `mock.ts` | Real list/create/update/delete via Supabase |
+| Leads | `/leads` | — | **Master sheet**: company, name, email, phone, source, requirement, sales person, status, note, tags, location |
 | Pipeline | `/pipeline` | `mock.ts` | Live Kanban from `leads` + drag/select stage updates |
 | Analytics | `/analytics` | `mock.ts` | Live Insights: range filter + charts from Supabase |
-| Automation | `/automation` | — | Live workflows: triggers + actions + run log |
-| Channels | `/channels` | — | Live: Website + WhatsApp + Email + Facebook + Instagram |
+| Automation | `/automation` | — | Live A+B: conditions, follow-up cron, WA/email/notify, test run, playbooks |
+| Channels | `/channels` | — | Live: Website + WA + Email + Meta + IndiaMART + TradeIndia + Brainmine |
+| Broadcasting | `/broadcasting` | — | WhatsApp templates + Meta sync + campaigns |
 | Human Support | `/human-support` | `mock.ts` | Live handoff queue: claim / resolve / return to AI |
 | Reports | `/reports` | — | Live catalog: 7 report types + CSV export |
 | Settings | `/settings` | — | Live: profile, company (Admin), password |
-| Chat Widget | global | inline hardcoded | Live website chat via Supabase + OpenAI |
+| Chat Widget | global | — | Live chat + attachment upload + handoff banner |
+| Notifications | TopBar bell | mock list | Live feed: escalations, human queue, unread, new leads, failed automations/broadcasts, WA template status |
 
 **Legend:** `NOT STARTED` → `IN PROGRESS` → `DONE` (update Status column as we go)
 
@@ -295,6 +299,12 @@ Record decisions here so we don't re-debate.
 ## Session Log
 
 Brief notes from each working session — append, don't delete.
+
+### 2026-07-31
+- **IndiaMART historical backfill:** Date-range pull splits into ≤7-day chunks, enforces 5-min cooldown between API hits, persists progress on channel `config.backfill`. Channels UI: From/To + Start/Cancel + live status. Auto-tick on setup poll + `/api/cron/automations`. Fixed `loadIndiaMartConfig` to retain `backfill` / `last_api_hit_at`.
+- **TradeIndia historical backfill:** Day-by-day (from_date=to_date) to stay within 24h API limit; ~1 min polite gap; Channels UI + cron tick. Same progress pattern as IndiaMART.
+- **Leads bulk actions:** Row select → assign sales person, bulk status, Export CSV (selected or current filter).
+- **Org branding:** Settings → Company logo upload + optional brand accent hex. Migration `015_org_branding.sql` (columns + `branding` storage bucket). Logo in sidebar; accent overrides CSS primary.
 
 ### 2026-07-30
 - Ran app locally at http://localhost:8080/ (npm install needed SSL workaround on user's network).
@@ -337,10 +347,18 @@ Brief notes from each working session — append, don't delete.
 - **Email channel:** Configure From + SMTP on Channels. Inbound webhook `/api/webhooks/email` (JSON or SendGrid form) creates Inbox threads (`channel=email`); AI can reply by SMTP; Inbox agent replies send email. Optional `x-enertech-email-secret`. Env: `EMAIL_*`.
 - **AI Agents:** `/agents` loads Supabase `agents` (seeded). **Master = Support** owns every thread; specialists (Sales, Warranty, …) are applied per message when keywords match. Combined system prompt + shared KB/history; Inbox label `AI · Support → Warranty`. Configure model/prompt/memory per agent.
 - **Facebook / Instagram:** Meta Page Messaging via `src/server/meta-messenger.ts`. Configure on `/channels`; webhooks `/api/webhooks/facebook` and `/api/webhooks/instagram`; Inbox outbound replies.
-- **IndiaMART:** Lead Manager CRM key on `/channels`. **Sync leads now** pulls enquiries into Leads (source `indiamart`) + Inbox follow-up threads. Push webhook `/api/webhooks/indiamart`. Migration `007_indiamart_channel.sql`.
+- **IndiaMART:** Lead Manager CRM key on `/channels`. **Sync leads now** pulls latest window into Leads (source `indiamart`) + Inbox. **Historical backfill** splits a date range into ≤7-day chunks with 5-min gaps (API limits); progress stored on channel `config.backfill`; cron `/api/cron/automations` also ticks. Push webhook `/api/webhooks/indiamart`. Migration `007_indiamart_channel.sql`.
 - **Automation:** `/automation` live workflows (triggers: lead created / IndiaMART / escalation / status change; actions update leads & conversations). Migration `008_automations.sql`. Run history per workflow.
 - **Profile / Settings:** `/settings` saves profile (name, phone, job title), email, password; Admins save company name/short. Requires `006_profile_fields.sql`.
 - **Reports:** `/reports` live catalog (conversations, pipeline, channels, AI quality, escalations, lead sources, automations). Range 7/30/90; preview KPIs/tables; **Export CSV**. `src/lib/reports-api.ts`.
+- **Command Center:** `/command-center` live AI/human/escalated sessions, timeline, pause/resume/takeover, global AI pause.
+- **AI Chat + Answer Inspector:** `/ai-chat` lists recent AI replies with confidence, RAG sources, reasoning, hallucination risk. New replies store inspector metadata via `src/server/answer-inspector.ts`.
+- **Widget polish:** paperclip uploads image/PDF to Storage; softer lead capture (name/email/phone); human handoff banner + system message on escalate.
+- **Automation canvas:** visual trigger→action nodes on `/automation` (edit dialog + detail), reorder actions.
+- **Broadcasting:** `/broadcasting` — WhatsApp message templates (create + submit to Meta, Sync from Meta), campaigns to leads/customers/IndiaMART/manual phones. Migration `009_broadcasting.sql`. Needs WABA ID on Channels → WhatsApp.
+- **Leads master:** `/leads` is the master enquiry sheet (Company, Name, Email, Phone, Location, Source, Requirement, Sales Person, Status, Note, Tags). Migration `010_leads_master.sql`. Status changes ready for Automation follow-ups later.
+- **Brainmine CRM+:** Channels card + Sync now (read-only pull → master leads, source `brainmine`). Configurable URL/auth/path (ERPNext Lead defaults). Migrations `011` + `011b`. Wire exact field map when API docs arrive.
+- **TradeIndia:** Channels card + Sync now (My Inquiry API pull → Leads + Inbox). Dedup by `rfi_id`. **Historical backfill** = one calendar day per pull (~1 min gap), progress on `config.backfill`; cron ticks too. Maps sample fields (sender_*, product_name, subject, message HTML-stripped, inquiry_type). Migrations `014` / `014b` / `014c` (`tradeindia_lead` trigger). Credentials via Channels UI or `TRADEINDIA_*` env — never commit keys.
 
 ---
 
@@ -367,6 +385,8 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 
 ## Next Immediate Step
 
-1. Open `/reports` — pick a report, set range, Export CSV.
-2. Finish IndiaMART 007/007b + Automation 008 if those pages are still empty.
-3. Next product work: deploy to Render, or Command Center / AI Chat page.
+1. **WhatsApp Meta setup:** Channels → Configure WhatsApp (Phone Number ID, Access Token, Verify Token, WABA) → **Test connection**. For inbound: public HTTPS tunnel + Meta webhook (not localhost).
+2. Run `015_org_branding.sql` if logo/avatar storage still fails.
+3. Pending migrations if not run: `012`/`012b`, `013`, `014`/`014b`/`014c`, `015`.
+4. **Before Render/production deploy:** confirm with user.
+5. Still later: RBAC/audit logs, Automation wait/if-else, Brainmine field map.

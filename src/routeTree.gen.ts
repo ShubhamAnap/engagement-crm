@@ -14,6 +14,7 @@ import { Route as AgentsRouteImport } from './routes/agents'
 import { Route as AiChatRouteImport } from './routes/ai-chat'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as AutomationRouteImport } from './routes/automation'
+import { Route as BroadcastingRouteImport } from './routes/broadcasting'
 import { Route as ChannelsRouteImport } from './routes/channels'
 import { Route as CommandCenterRouteImport } from './routes/command-center'
 import { Route as CustomersRouteImport } from './routes/customers'
@@ -27,6 +28,7 @@ import { Route as PipelineRouteImport } from './routes/pipeline'
 import { Route as ProductsRouteImport } from './routes/products'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as ApiCronAutomationsRouteImport } from './routes/api/cron/automations'
 import { Route as ApiWebhooksEmailRouteImport } from './routes/api/webhooks/email'
 import { Route as ApiWebhooksFacebookRouteImport } from './routes/api/webhooks/facebook'
 import { Route as ApiWebhooksIndiamartRouteImport } from './routes/api/webhooks/indiamart'
@@ -56,6 +58,11 @@ const AnalyticsRoute = AnalyticsRouteImport.update({
 const AutomationRoute = AutomationRouteImport.update({
   id: '/automation',
   path: '/automation',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BroadcastingRoute = BroadcastingRouteImport.update({
+  id: '/broadcasting',
+  path: '/broadcasting',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChannelsRoute = ChannelsRouteImport.update({
@@ -123,6 +130,11 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCronAutomationsRoute = ApiCronAutomationsRouteImport.update({
+  id: '/api/cron/automations',
+  path: '/api/cron/automations',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiWebhooksEmailRoute = ApiWebhooksEmailRouteImport.update({
   id: '/api/webhooks/email',
   path: '/api/webhooks/email',
@@ -155,6 +167,7 @@ export interface FileRoutesByFullPath {
   '/ai-chat': typeof AiChatRoute
   '/analytics': typeof AnalyticsRoute
   '/automation': typeof AutomationRoute
+  '/broadcasting': typeof BroadcastingRoute
   '/channels': typeof ChannelsRoute
   '/command-center': typeof CommandCenterRoute
   '/customers': typeof CustomersRoute
@@ -168,6 +181,7 @@ export interface FileRoutesByFullPath {
   '/products': typeof ProductsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
+  '/api/cron/automations': typeof ApiCronAutomationsRoute
   '/api/webhooks/email': typeof ApiWebhooksEmailRoute
   '/api/webhooks/facebook': typeof ApiWebhooksFacebookRoute
   '/api/webhooks/indiamart': typeof ApiWebhooksIndiamartRoute
@@ -180,6 +194,7 @@ export interface FileRoutesByTo {
   '/ai-chat': typeof AiChatRoute
   '/analytics': typeof AnalyticsRoute
   '/automation': typeof AutomationRoute
+  '/broadcasting': typeof BroadcastingRoute
   '/channels': typeof ChannelsRoute
   '/command-center': typeof CommandCenterRoute
   '/customers': typeof CustomersRoute
@@ -193,6 +208,7 @@ export interface FileRoutesByTo {
   '/products': typeof ProductsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
+  '/api/cron/automations': typeof ApiCronAutomationsRoute
   '/api/webhooks/email': typeof ApiWebhooksEmailRoute
   '/api/webhooks/facebook': typeof ApiWebhooksFacebookRoute
   '/api/webhooks/indiamart': typeof ApiWebhooksIndiamartRoute
@@ -206,6 +222,7 @@ export interface FileRoutesById {
   '/ai-chat': typeof AiChatRoute
   '/analytics': typeof AnalyticsRoute
   '/automation': typeof AutomationRoute
+  '/broadcasting': typeof BroadcastingRoute
   '/channels': typeof ChannelsRoute
   '/command-center': typeof CommandCenterRoute
   '/customers': typeof CustomersRoute
@@ -219,6 +236,7 @@ export interface FileRoutesById {
   '/products': typeof ProductsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
+  '/api/cron/automations': typeof ApiCronAutomationsRoute
   '/api/webhooks/email': typeof ApiWebhooksEmailRoute
   '/api/webhooks/facebook': typeof ApiWebhooksFacebookRoute
   '/api/webhooks/indiamart': typeof ApiWebhooksIndiamartRoute
@@ -233,6 +251,7 @@ export interface FileRouteTypes {
     | '/ai-chat'
     | '/analytics'
     | '/automation'
+    | '/broadcasting'
     | '/channels'
     | '/command-center'
     | '/customers'
@@ -246,6 +265,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/reports'
     | '/settings'
+    | '/api/cron/automations'
     | '/api/webhooks/email'
     | '/api/webhooks/facebook'
     | '/api/webhooks/indiamart'
@@ -258,6 +278,7 @@ export interface FileRouteTypes {
     | '/ai-chat'
     | '/analytics'
     | '/automation'
+    | '/broadcasting'
     | '/channels'
     | '/command-center'
     | '/customers'
@@ -271,6 +292,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/reports'
     | '/settings'
+    | '/api/cron/automations'
     | '/api/webhooks/email'
     | '/api/webhooks/facebook'
     | '/api/webhooks/indiamart'
@@ -283,6 +305,7 @@ export interface FileRouteTypes {
     | '/ai-chat'
     | '/analytics'
     | '/automation'
+    | '/broadcasting'
     | '/channels'
     | '/command-center'
     | '/customers'
@@ -296,6 +319,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/reports'
     | '/settings'
+    | '/api/cron/automations'
     | '/api/webhooks/email'
     | '/api/webhooks/facebook'
     | '/api/webhooks/indiamart'
@@ -309,6 +333,7 @@ export interface RootRouteChildren {
   AiChatRoute: typeof AiChatRoute
   AnalyticsRoute: typeof AnalyticsRoute
   AutomationRoute: typeof AutomationRoute
+  BroadcastingRoute: typeof BroadcastingRoute
   ChannelsRoute: typeof ChannelsRoute
   CommandCenterRoute: typeof CommandCenterRoute
   CustomersRoute: typeof CustomersRoute
@@ -322,6 +347,7 @@ export interface RootRouteChildren {
   ProductsRoute: typeof ProductsRoute
   ReportsRoute: typeof ReportsRoute
   SettingsRoute: typeof SettingsRoute
+  ApiCronAutomationsRoute: typeof ApiCronAutomationsRoute
   ApiWebhooksEmailRoute: typeof ApiWebhooksEmailRoute
   ApiWebhooksFacebookRoute: typeof ApiWebhooksFacebookRoute
   ApiWebhooksIndiamartRoute: typeof ApiWebhooksIndiamartRoute
@@ -364,6 +390,13 @@ declare module '@tanstack/react-router' {
       path: '/automation'
       fullPath: '/automation'
       preLoaderRoute: typeof AutomationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/broadcasting': {
+      id: '/broadcasting'
+      path: '/broadcasting'
+      fullPath: '/broadcasting'
+      preLoaderRoute: typeof BroadcastingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/channels': {
@@ -457,6 +490,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/cron/automations': {
+      id: '/api/cron/automations'
+      path: '/api/cron/automations'
+      fullPath: '/api/cron/automations'
+      preLoaderRoute: typeof ApiCronAutomationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/webhooks/email': {
       id: '/api/webhooks/email'
       path: '/api/webhooks/email'
@@ -501,6 +541,7 @@ const rootRouteChildren: RootRouteChildren = {
   AiChatRoute: AiChatRoute,
   AnalyticsRoute: AnalyticsRoute,
   AutomationRoute: AutomationRoute,
+  BroadcastingRoute: BroadcastingRoute,
   ChannelsRoute: ChannelsRoute,
   CommandCenterRoute: CommandCenterRoute,
   CustomersRoute: CustomersRoute,
@@ -514,6 +555,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProductsRoute: ProductsRoute,
   ReportsRoute: ReportsRoute,
   SettingsRoute: SettingsRoute,
+  ApiCronAutomationsRoute: ApiCronAutomationsRoute,
   ApiWebhooksEmailRoute: ApiWebhooksEmailRoute,
   ApiWebhooksFacebookRoute: ApiWebhooksFacebookRoute,
   ApiWebhooksIndiamartRoute: ApiWebhooksIndiamartRoute,

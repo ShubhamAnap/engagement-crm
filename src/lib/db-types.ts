@@ -12,6 +12,8 @@ export type ChannelType =
   | "instagram"
   | "facebook"
   | "indiamart"
+  | "tradeindia"
+  | "brainmine"
   | "api"
   | "webhook";
 
@@ -82,6 +84,13 @@ export type DbLead = {
   phone: string | null;
   email: string | null;
   product_label: string | null;
+  /** Master: what the enquiry is about */
+  requirement: string | null;
+  notes: string | null;
+  tags: string[];
+  location: string | null;
+  /** Display name for assigned salesperson */
+  sales_person: string | null;
   owner_id: string | null;
   value_paise: number | null;
   value_label: string | null;

@@ -4,6 +4,7 @@ import { createServiceSupabase } from "@/lib/supabase";
 import { buildPlaceholderAiReply } from "@/lib/chat-replies";
 import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
+import { buildAnswerInspector } from "@/server/answer-inspector";
 import { findCatalogueDownloads, retrieveKnowledgeContext } from "@/server/knowledge";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
@@ -649,17 +650,26 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
         downloadLinks.map((l) => `• ${l.title}: ${l.url}`).join("\n");
     }
     const source = ai.source;
+    const inspector = buildAnswerInspector({
+      chunks,
+      replySource: source,
+      model: ai.model,
+      agentName: agentCfg.agentName,
+      specialistKey: agentCfg.specialistKey,
+      channel: (convo.channel as string) || "website",
+      visitorName: convo.visitor_name || "Website visitor",
+      downloadCount: downloadLinks.length,
+      memoryEnabled: agentCfg.memoryEnabled,
+    });
 
     const { error: aiErr } = await supabase.from("messages").insert({
       org_id: ORG_ID,
       conversation_id: data.conversationId,
       sender: "ai",
       body: reply,
-      confidence: source === "openai" ? 0.86 : 0.65,
-      sources:
-        source === "openai"
-          ? [`OpenAI ${ai.model}`, agentCfg.agentName, agentCfg.specialistKey || "master"].filter(Boolean)
-          : ["Fallback rules"],
+      confidence: inspector.confidence,
+      sources: inspector.sources,
+      metadata: inspector.metadata,
     });
     if (aiErr) throw new Error(aiErr.message);
 
@@ -680,6 +690,13 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
     if (escalate) {
       convoPatch.status = "escalated";
       convoPatch.assignee_label = "Human queue";
+      await supabase.from("messages").insert({
+        org_id: ORG_ID,
+        conversation_id: data.conversationId,
+        sender: "system",
+        body: "Connecting you to a human support executive. An agent will reply here shortly — you can keep typing while you wait.",
+        metadata: { handoff: true },
+      });
     }
     if (Object.keys(convoPatch).length > 0) {
       await supabase.from("conversations").update(convoPatch).eq("id", data.conversationId);
@@ -708,5 +725,135 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       source,
       aiPaused: false,
       status: escalate ? "escalated" : convo.status,
+    };
+  });
+
+const CHAT_BUCKET = "knowledge";
+
+function chatPublicUrl(path: string): string {
+  const base = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+  return `${base.replace(/\/$/, "")}/storage/v1/object/public/${CHAT_BUCKET}/${path}`;
+}
+
+/** Upload a visitor attachment (image/PDF) into the conversation. */
+export const widgetUploadAttachment = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      key: z.string().min(1),
+      conversationId: z.string().uuid(),
+      fileName: z.string().min(1).max(180),
+      mimeType: z.string().max(120).optional(),
+      base64: z.string().min(1).max(12_000_000),
+    }),
+  )
+  .handler(async ({ data }) => {
+    assertWidgetKey(data.key);
+    const supabase = createServiceSupabase();
+
+    const { data: convo, error: convoError } = await supabase
+      .from("conversations")
+      .select("id, status")
+      .eq("id", data.conversationId)
+      .eq("org_id", ORG_ID)
+      .maybeSingle();
+    if (convoError) throw new Error(convoError.message);
+    if (!convo) throw new Error("Conversation not found");
+
+    const lower = data.fileName.toLowerCase();
+    const mime = (data.mimeType || "").toLowerCase();
+    const allowed =
+      mime.startsWith("image/") ||
+      mime === "application/pdf" ||
+      lower.endsWith(".png") ||
+      lower.endsWith(".jpg") ||
+      lower.endsWith(".jpeg") ||
+      lower.endsWith(".webp") ||
+      lower.endsWith(".gif") ||
+      lower.endsWith(".pdf");
+    if (!allowed) {
+      throw new Error("Only images (PNG/JPG/WEBP/GIF) or PDF files are supported.");
+    }
+
+    const safeName = data.fileName.replace(/[^\w.\-()+ ]+/g, "_").slice(0, 120);
+    const storagePath = `chat/${ORG_ID}/${data.conversationId}/${Date.now()}-${safeName}`;
+    const buffer = Buffer.from(data.base64, "base64");
+    if (buffer.byteLength > 8 * 1024 * 1024) {
+      throw new Error("File too large (max 8 MB).");
+    }
+
+    const { error: uploadError } = await supabase.storage.from(CHAT_BUCKET).upload(storagePath, buffer, {
+      contentType: data.mimeType || "application/octet-stream",
+      upsert: false,
+    });
+    if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
+
+    const url = chatPublicUrl(storagePath);
+    const isImage =
+      mime.startsWith("image/") ||
+      /\.(png|jpe?g|webp|gif)$/i.test(lower);
+    const body = isImage
+      ? `Shared an image: ${safeName}\n${url}`
+      : `Shared a file: ${safeName}\n${url}`;
+
+    const { error: msgErr } = await supabase.from("messages").insert({
+      org_id: ORG_ID,
+      conversation_id: data.conversationId,
+      sender: "customer",
+      body,
+      metadata: {
+        attachment: true,
+        file_name: safeName,
+        mime_type: data.mimeType || null,
+        storage_path: storagePath,
+        url,
+      },
+    });
+    if (msgErr) throw new Error(msgErr.message);
+
+    const aiPaused =
+      convo.status === "human" ||
+      convo.status === "escalated" ||
+      convo.status === "resolved" ||
+      convo.status === "closed";
+
+    let reply: string | null = null;
+    if (!aiPaused) {
+      reply =
+        "Thanks — I received your file. Our team can review it in the inbox. Tell me what you need help with, or ask to talk to a human.";
+      await supabase.from("messages").insert({
+        org_id: ORG_ID,
+        conversation_id: data.conversationId,
+        sender: "ai",
+        body: reply,
+        confidence: 0.9,
+        sources: [],
+        metadata: {
+          inspector: true,
+          hallucination_risk: "Low",
+          reasoning: ["Customer uploaded an attachment.", "Acknowledged receipt without inventing file contents."],
+          memory: "Attachment saved on the conversation for human review.",
+          agent_name: "EnerBot",
+          specialist_key: null,
+          model: "rules",
+          reply_source: "fallback",
+          grounded: false,
+          download_count: 0,
+        },
+      });
+    }
+
+    const { data: messages, error } = await supabase
+      .from("messages")
+      .select("*")
+      .eq("conversation_id", data.conversationId)
+      .order("created_at", { ascending: true });
+    if (error) throw new Error(error.message);
+
+    return {
+      messages: messages ?? [],
+      reply,
+      url,
+      status: convo.status,
+      aiPaused,
     };
   });

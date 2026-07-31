@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bell,
   Check,
@@ -13,6 +14,7 @@ import {
   Plus,
   Search,
   Settings,
+  ShieldAlert,
   Sun,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -33,11 +35,17 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { COLOR_PALETTES, useTheme } from "@/lib/theme";
 import { useAuth } from "@/lib/auth";
 import { Pill } from "@/components/shared/ui-kit";
+import {
+  listNotifications,
+  markAllNotificationsRead,
+  markNotificationsRead,
+} from "@/lib/notifications-api";
+import { listPendingApprovals } from "@/lib/automations-api";
 
 const searchTargets = [
   { label: "Dashboard", to: "/" },
@@ -53,52 +61,44 @@ const searchTargets = [
   { label: "Analytics", to: "/analytics" },
   { label: "Automation", to: "/automation" },
   { label: "Channels", to: "/channels" },
+  { label: "Broadcasting", to: "/broadcasting" },
   { label: "Human Support", to: "/human-support" },
   { label: "Reports", to: "/reports" },
   { label: "Settings", to: "/settings" },
-];
-
-const notifications = [
-  {
-    title: "Escalation from AI · Technical Agent",
-    body: "CV-4820 · Sunrise Hospitals · confidence 0.41",
-    time: "4m",
-    unread: true,
-    to: "/inbox" as const,
-  },
-  {
-    title: "Webhook endpoint failing",
-    body: "orders-sync returned 502 three times",
-    time: "22m",
-    unread: true,
-    to: "/channels" as const,
-  },
-  {
-    title: "Quotation QT-1182 viewed",
-    body: "Metro Datacenters opened the proposal",
-    time: "1h",
-    unread: false,
-    to: "/leads" as const,
-  },
-  {
-    title: "Datasheets re-indexed",
-    body: "3,210 chunks embedded successfully",
-    time: "2h",
-    unread: false,
-    to: "/knowledge" as const,
-  },
 ];
 
 export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
   const [open, setOpen] = useState(false);
   const { theme, setTheme, palette, setPalette } = useTheme();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { profile, signOut } = useAuth();
 
   const displayName = profile?.fullName ?? "User";
   const displayEmail = profile?.email ?? "";
   const displayRole = profile?.role ?? "Agent";
   const displayInitials = profile?.initials ?? "?";
+  const displayAvatar = profile?.avatarUrl ?? null;
+  const orgId = profile?.org.id;
+  const userId = profile?.id;
+
+  const notificationsQuery = useQuery({
+    queryKey: ["notifications", orgId, userId],
+    queryFn: () => listNotifications(orgId!, userId!),
+    enabled: Boolean(orgId && userId),
+    refetchInterval: 20_000,
+  });
+
+  const approvalsQuery = useQuery({
+    queryKey: ["automation-approvals", orgId],
+    queryFn: () => listPendingApprovals(orgId!),
+    enabled: Boolean(orgId),
+    refetchInterval: 15_000,
+  });
+
+  const notifications = notificationsQuery.data ?? [];
+  const unreadCount = notifications.filter((n) => n.unread).length;
+  const pendingApprovals = approvalsQuery.data?.length ?? 0;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -161,45 +161,110 @@ export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
           </DropdownMenuContent>
         </DropdownMenu>
 
+        <Button
+          variant="ghost"
+          size="icon"
+          className="relative"
+          aria-label="Automation approvals"
+          title={
+            pendingApprovals
+              ? `${pendingApprovals} campaign(s) waiting for approval`
+              : "No pending automation approvals"
+          }
+          onClick={() => {
+            if (pendingApprovals > 0) {
+              document
+                .querySelector("[data-automation-approvals]")
+                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+            } else {
+              navigate({ to: "/automation" });
+            }
+          }}
+        >
+          <ShieldAlert className="size-[18px]" />
+          {pendingApprovals > 0 ? (
+            <span className="absolute top-1.5 right-1.5 flex size-4 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-white ring-2 ring-background">
+              {pendingApprovals > 9 ? "9+" : pendingApprovals}
+            </span>
+          ) : null}
+        </Button>
+
         <Popover>
           <PopoverTrigger asChild>
             <Button variant="ghost" size="icon" className="relative" aria-label="Notifications">
               <Bell className="size-[18px]" />
-              <span className="absolute top-2 right-2 size-2 rounded-full bg-primary ring-2 ring-background" />
+              {unreadCount > 0 ? (
+                <span className="absolute top-2 right-2 size-2 rounded-full bg-primary ring-2 ring-background" />
+              ) : null}
             </Button>
           </PopoverTrigger>
           <PopoverContent align="end" className="w-88 p-0">
             <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
-              <p className="text-sm font-semibold">Notifications</p>
-              <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs">
+              <p className="text-sm font-semibold">
+                Notifications
+                {unreadCount > 0 ? (
+                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                    ({unreadCount})
+                  </span>
+                ) : null}
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 text-xs"
+                disabled={unreadCount === 0 || !userId}
+                onClick={() => {
+                  if (!userId) return;
+                  markAllNotificationsRead(userId, notifications);
+                  void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+                }}
+              >
                 <Check className="size-3.5" /> Mark all read
               </Button>
             </div>
             <ul className="max-h-80 overflow-y-auto">
-              {notifications.map((n) => (
-                <li key={n.title} className="border-b border-border last:border-0">
-                  <button
-                    type="button"
-                    className="w-full px-3 py-2.5 text-left hover:bg-secondary/60"
-                    onClick={() => navigate({ to: n.to })}
-                  >
-                    <div className="flex items-start gap-2">
-                      {n.unread ? (
-                        <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary" />
-                      ) : (
-                        <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-transparent" />
-                      )}
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">{n.title}</p>
-                        <p className="truncate text-xs text-muted-foreground">{n.body}</p>
-                      </div>
-                      <span className="num ml-auto shrink-0 text-[11px] text-muted-foreground">
-                        {n.time}
-                      </span>
-                    </div>
-                  </button>
+              {notificationsQuery.isLoading ? (
+                <li className="px-3 py-6 text-center text-xs text-muted-foreground">Loading…</li>
+              ) : notifications.length === 0 ? (
+                <li className="px-3 py-6 text-center text-xs text-muted-foreground">
+                  No alerts right now — escalations, new leads, and handoffs will show here.
                 </li>
-              ))}
+              ) : (
+                notifications.map((n) => (
+                  <li key={n.id} className="border-b border-border last:border-0">
+                    <button
+                      type="button"
+                      className="w-full px-3 py-2.5 text-left hover:bg-secondary/60"
+                      onClick={() => {
+                        if (userId) {
+                          markNotificationsRead(userId, [n.id]);
+                          void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+                        }
+                        if (n.to === "/inbox" && n.search?.c) {
+                          navigate({ to: "/inbox", search: { c: n.search.c } });
+                        } else {
+                          navigate({ to: n.to });
+                        }
+                      }}
+                    >
+                      <div className="flex items-start gap-2">
+                        {n.unread ? (
+                          <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary" />
+                        ) : (
+                          <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-transparent" />
+                        )}
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{n.title}</p>
+                          <p className="truncate text-xs text-muted-foreground">{n.body}</p>
+                        </div>
+                        <span className="num ml-auto shrink-0 text-[11px] text-muted-foreground">
+                          {n.time}
+                        </span>
+                      </div>
+                    </button>
+                  </li>
+                ))
+              )}
             </ul>
           </PopoverContent>
         </Popover>
@@ -255,6 +320,7 @@ export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
           <DropdownMenuTrigger asChild>
             <button className="flex items-center gap-2 rounded-lg px-1.5 py-1 transition-colors hover:bg-secondary">
               <Avatar className="size-7">
+                {displayAvatar ? <AvatarImage src={displayAvatar} alt="" /> : null}
                 <AvatarFallback className="bg-primary/15 text-[11px] font-semibold text-primary">
                   {displayInitials}
                 </AvatarFallback>

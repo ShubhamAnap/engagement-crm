@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -9,10 +9,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader, Panel, Pill } from "@/components/shared/ui-kit";
 import { useAuth } from "@/lib/auth";
 import {
+  removeMyAvatar,
+  removeOrgLogo,
   updateMyEmail,
   updateMyOrganization,
   updateMyPassword,
   updateMyProfile,
+  uploadMyAvatar,
+  uploadOrgLogo,
 } from "@/lib/profile-api";
 
 export const Route = createFileRoute("/settings")({
@@ -33,7 +37,7 @@ export const Route = createFileRoute("/settings")({
 });
 
 function Page() {
-  const { profile, refreshProfile, loading } = useAuth();
+  const { profile, refreshProfile, loading, session } = useAuth();
   const search = Route.useSearch();
   const defaultTab =
     search.tab === "company" || search.tab === "security" || search.tab === "channels"
@@ -46,8 +50,11 @@ function Page() {
   const [email, setEmail] = useState("");
   const [orgName, setOrgName] = useState("");
   const [orgShort, setOrgShort] = useState("");
+  const [brandPrimary, setBrandPrimary] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!profile) return;
@@ -57,6 +64,7 @@ function Page() {
     setEmail(profile.email || "");
     setOrgName(profile.org.name || "");
     setOrgShort(profile.org.short || "");
+    setBrandPrimary(profile.org.brandPrimary || "");
   }, [profile]);
 
   const profileMutation = useMutation({
@@ -85,12 +93,57 @@ function Page() {
   });
 
   const orgMutation = useMutation({
-    mutationFn: () => updateMyOrganization({ name: orgName, shortName: orgShort }),
+    mutationFn: () =>
+      updateMyOrganization({
+        name: orgName,
+        shortName: orgShort,
+        brandPrimary: brandPrimary.trim() || null,
+      }),
     onSuccess: async () => {
       await refreshProfile();
       toast.success("Company profile saved");
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not save company"),
+  });
+
+  const logoMutation = useMutation({
+    mutationFn: (file: File) => uploadOrgLogo(file),
+    onSuccess: async () => {
+      await refreshProfile();
+      toast.success("Logo uploaded");
+      if (logoInputRef.current) logoInputRef.current.value = "";
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Logo upload failed"),
+  });
+
+  const removeLogoMutation = useMutation({
+    mutationFn: () => removeOrgLogo(),
+    onSuccess: async () => {
+      await refreshProfile();
+      toast.success("Logo removed");
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not remove logo"),
+  });
+
+  const avatarMutation = useMutation({
+    mutationFn: (file: File) => uploadMyAvatar(file),
+    onSuccess: async () => {
+      await refreshProfile();
+      toast.success("Profile photo updated");
+      if (avatarInputRef.current) avatarInputRef.current.value = "";
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Photo upload failed"),
+  });
+
+  const removeAvatarMutation = useMutation({
+    mutationFn: () => removeMyAvatar(),
+    onSuccess: async () => {
+      await refreshProfile();
+      toast.success("Profile photo removed");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not remove photo"),
   });
 
   const passwordMutation = useMutation({
@@ -132,7 +185,16 @@ function Page() {
           </Panel>
         ) : !profile ? (
           <Panel>
-            <p className="text-sm text-muted-foreground">Sign in to manage your profile.</p>
+            <p className="mb-3 text-sm text-muted-foreground">
+              {session
+                ? "Could not load your profile. Try refreshing, or run pending Supabase migrations if branding columns were added."
+                : "Sign in to manage your profile."}
+            </p>
+            {session ? (
+              <Button size="sm" onClick={() => void refreshProfile()}>
+                Retry
+              </Button>
+            ) : null}
           </Panel>
         ) : (
           <Tabs defaultValue={defaultTab}>
@@ -145,14 +207,57 @@ function Page() {
 
             <TabsContent value="profile" className="mt-4 space-y-4">
               <Panel title="Your profile">
-                <div className="mb-4 flex items-center gap-3">
-                  <div className="grid size-14 place-items-center rounded-full bg-primary/15 text-lg font-semibold text-primary">
-                    {profile.initials}
+                <div className="mb-4 flex flex-wrap items-center gap-4">
+                  <div className="relative">
+                    {profile.avatarUrl ? (
+                      <img
+                        src={profile.avatarUrl}
+                        alt=""
+                        className="size-14 rounded-full object-cover ring-2 ring-border"
+                      />
+                    ) : (
+                      <div className="grid size-14 place-items-center rounded-full bg-primary/15 text-lg font-semibold text-primary">
+                        {profile.initials}
+                      </div>
+                    )}
                   </div>
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold">{profile.fullName}</p>
                     <p className="text-xs text-muted-foreground">
                       {profile.role} · {profile.org.short}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <input
+                        ref={avatarInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/gif"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) avatarMutation.mutate(file);
+                        }}
+                      />
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={avatarMutation.isPending}
+                        onClick={() => avatarInputRef.current?.click()}
+                      >
+                        {avatarMutation.isPending ? "Uploading…" : "Upload photo"}
+                      </Button>
+                      {profile.avatarUrl ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={removeAvatarMutation.isPending}
+                          onClick={() => removeAvatarMutation.mutate()}
+                        >
+                          {removeAvatarMutation.isPending ? "Removing…" : "Remove"}
+                        </Button>
+                      ) : null}
+                    </div>
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      PNG, JPG, or WebP — max 2 MB. Shown in the top bar.
                     </p>
                   </div>
                 </div>
@@ -224,7 +329,7 @@ function Page() {
               </Panel>
             </TabsContent>
 
-            <TabsContent value="company" className="mt-4">
+            <TabsContent value="company" className="mt-4 space-y-4">
               <Panel title="Company profile">
                 {!isAdmin ? (
                   <p className="mb-4 text-sm text-muted-foreground">
@@ -254,6 +359,29 @@ function Page() {
                     <Label>Plan</Label>
                     <Input value={profile.org.plan} disabled />
                   </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="brand-primary">Brand accent (optional)</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="brand-primary"
+                        value={brandPrimary}
+                        disabled={!isAdmin}
+                        onChange={(e) => setBrandPrimary(e.target.value)}
+                        placeholder="#0B6E4F"
+                      />
+                      <input
+                        type="color"
+                        aria-label="Pick brand color"
+                        className="h-9 w-12 cursor-pointer rounded border border-border bg-transparent p-1 disabled:opacity-50"
+                        disabled={!isAdmin}
+                        value={/^#[0-9A-Fa-f]{6}$/.test(brandPrimary) ? brandPrimary : "#0B6E4F"}
+                        onChange={(e) => setBrandPrimary(e.target.value.toUpperCase())}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Applied as the app primary accent when set.
+                    </p>
+                  </div>
                 </div>
                 {isAdmin ? (
                   <div className="mt-4 flex justify-end">
@@ -266,6 +394,65 @@ function Page() {
                     </Button>
                   </div>
                 ) : null}
+              </Panel>
+
+              <Panel title="Company logo">
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="grid size-16 place-items-center overflow-hidden rounded-lg border border-border bg-secondary/40">
+                    {profile.org.logoUrl ? (
+                      <img
+                        src={profile.org.logoUrl}
+                        alt={`${profile.org.short} logo`}
+                        className="size-full object-contain p-1"
+                      />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">No logo</span>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <p className="text-sm text-muted-foreground">
+                      Shown in the sidebar. PNG, JPG, WebP, or SVG — max 2 MB.
+                    </p>
+                    {isAdmin ? (
+                      <div className="flex flex-wrap gap-2">
+                        <input
+                          ref={logoInputRef}
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) logoMutation.mutate(file);
+                          }}
+                        />
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={logoMutation.isPending}
+                          onClick={() => logoInputRef.current?.click()}
+                        >
+                          {logoMutation.isPending ? "Uploading…" : "Upload logo"}
+                        </Button>
+                        {profile.org.logoUrl ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={removeLogoMutation.isPending}
+                            onClick={() => removeLogoMutation.mutate()}
+                          >
+                            {removeLogoMutation.isPending ? "Removing…" : "Remove"}
+                          </Button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  If upload fails, run{" "}
+                  <code className="rounded bg-secondary px-1">015_org_branding.sql</code> once in
+                  Supabase → SQL Editor (adds logo columns + branding bucket). The app will also try
+                  the existing knowledge bucket as a fallback.
+                </p>
               </Panel>
             </TabsContent>
 

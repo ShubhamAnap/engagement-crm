@@ -8,17 +8,40 @@ export type LeadInput = {
   company?: string;
   phone?: string;
   email?: string;
+  /** Alias kept for pipeline/inbox — synced from requirement */
   productLabel?: string;
+  requirement?: string;
+  notes?: string;
+  tags?: string[];
+  location?: string;
+  salesPerson?: string;
   status?: LeadStatus;
   priority?: PriorityLevel;
   source?: ChannelType | null;
   score?: number;
   nextFollowUpAt?: string | null;
-  notes?: string;
 };
+
+export type LeadRow = DbLead & {
+  owner_name?: string | null;
+};
+
+function parseTags(raw: string | string[] | undefined | null): string[] {
+  if (Array.isArray(raw)) {
+    return raw.map((t) => t.trim()).filter(Boolean);
+  }
+  if (!raw?.trim()) return [];
+  return raw
+    .split(/[,;]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
 
 function buildLeadPayload(input: LeadInput, includeRef: boolean) {
   const now = new Date().toISOString();
+  const requirement = (input.requirement ?? input.productLabel)?.trim() || null;
+  const notes = input.notes?.trim() || null;
+  const tags = parseTags(input.tags);
   return {
     org_id: input.orgId,
     owner_id: input.ownerId ?? null,
@@ -31,25 +54,74 @@ function buildLeadPayload(input: LeadInput, includeRef: boolean) {
     company: input.company?.trim() || null,
     phone: input.phone?.trim() || null,
     email: input.email?.trim() || null,
-    product_label: input.productLabel?.trim() || null,
+    product_label: requirement,
+    requirement,
+    notes,
+    tags,
+    location: input.location?.trim() || null,
+    sales_person: input.salesPerson?.trim() || null,
     last_activity_at: now,
     next_follow_up_at: input.nextFollowUpAt || null,
     metadata: {
-      notes: input.notes?.trim() || null,
+      notes,
     },
   };
 }
 
-export async function listLeads(orgId: string): Promise<DbLead[]> {
+function normalizeLead(row: Record<string, unknown>): LeadRow {
+  const owner = row.owner as { full_name?: string } | { full_name?: string }[] | null | undefined;
+  const ownerObj = Array.isArray(owner) ? owner[0] : owner;
+  const tags = Array.isArray(row.tags) ? (row.tags as string[]) : [];
+  const meta = (row.metadata && typeof row.metadata === "object"
+    ? row.metadata
+    : {}) as Record<string, unknown>;
+  return {
+    ...(row as unknown as DbLead),
+    tags,
+    requirement: (row.requirement as string) || (row.product_label as string) || null,
+    notes: (row.notes as string) || (typeof meta.notes === "string" ? meta.notes : null),
+    location: (row.location as string) || null,
+    sales_person: (row.sales_person as string) || null,
+    owner_name: ownerObj?.full_name || (row.sales_person as string) || null,
+  };
+}
+
+export async function listLeads(orgId: string): Promise<LeadRow[]> {
   const supabase = getBrowserSupabase();
   const { data, error } = await supabase
     .from("leads")
-    .select("*")
+    .select("*, owner:profiles!leads_owner_id_fkey(full_name)")
     .eq("org_id", orgId)
     .order("created_at", { ascending: false })
-    .limit(200);
+    .limit(500);
+  if (error) {
+    // Fallback if FK hint fails on older schemas
+    const fallback = await supabase
+      .from("leads")
+      .select("*")
+      .eq("org_id", orgId)
+      .order("created_at", { ascending: false })
+      .limit(500);
+    if (fallback.error) throw fallback.error;
+    return (fallback.data ?? []).map((row) => normalizeLead(row as Record<string, unknown>));
+  }
+  return (data ?? []).map((row) => normalizeLead(row as Record<string, unknown>));
+}
+
+export async function listOrgSalesPeople(
+  orgId: string,
+): Promise<Array<{ id: string; name: string }>> {
+  const supabase = getBrowserSupabase();
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, full_name, email")
+    .eq("org_id", orgId)
+    .order("full_name", { ascending: true });
   if (error) throw error;
-  return (data ?? []) as DbLead[];
+  return (data ?? []).map((p) => ({
+    id: p.id as string,
+    name: (p.full_name as string) || (p.email as string) || "User",
+  }));
 }
 
 export async function createLead(input: LeadInput): Promise<DbLead> {
@@ -74,9 +146,31 @@ export async function createLead(input: LeadInput): Promise<DbLead> {
 
 export async function updateLead(leadId: string, input: LeadInput): Promise<DbLead> {
   const supabase = getBrowserSupabase();
-  const { data, error } = await supabase.from("leads").update(buildLeadPayload(input, false)).eq("id", leadId).select("*").single();
+  // Preserve status-change automation when status changes
+  const { data: prev } = await supabase.from("leads").select("status").eq("id", leadId).maybeSingle();
+  const { data, error } = await supabase
+    .from("leads")
+    .update(buildLeadPayload(input, false))
+    .eq("id", leadId)
+    .select("*")
+    .single();
   if (error) throw error;
-  return data as DbLead;
+  const lead = data as DbLead;
+  if (prev?.status && input.status && prev.status !== input.status) {
+    try {
+      const { fireAutomationTrigger } = await import("@/lib/automations-api");
+      await fireAutomationTrigger({
+        data: {
+          trigger: "lead_status_changed",
+          leadId: lead.id,
+          toStatus: lead.status,
+        },
+      });
+    } catch (err) {
+      console.error("lead_status_changed automation", err);
+    }
+  }
+  return lead;
 }
 
 export async function updateLeadStatus(leadId: string, status: LeadStatus): Promise<DbLead> {
@@ -123,4 +217,111 @@ export async function deleteLead(leadId: string): Promise<void> {
   const supabase = getBrowserSupabase();
   const { error } = await supabase.from("leads").delete().eq("id", leadId);
   if (error) throw error;
+}
+
+/** Bulk-assign owner + sales person name on selected leads. */
+export async function bulkAssignLeads(options: {
+  leadIds: string[];
+  ownerId: string | null;
+  salesPerson: string;
+}): Promise<number> {
+  if (options.leadIds.length === 0) return 0;
+  const supabase = getBrowserSupabase();
+  const now = new Date().toISOString();
+  const { error, count } = await supabase
+    .from("leads")
+    .update(
+      {
+        owner_id: options.ownerId,
+        sales_person: options.salesPerson.trim() || null,
+        last_activity_at: now,
+      },
+      { count: "exact" },
+    )
+    .in("id", options.leadIds);
+  if (error) throw error;
+  return count ?? options.leadIds.length;
+}
+
+/** Bulk status update (fires automation per lead when status changes). */
+export async function bulkUpdateLeadStatus(options: {
+  leadIds: string[];
+  status: LeadStatus;
+}): Promise<number> {
+  if (options.leadIds.length === 0) return 0;
+  let updated = 0;
+  for (const id of options.leadIds) {
+    await updateLeadStatus(id, options.status);
+    updated += 1;
+  }
+  return updated;
+}
+
+function csvEscape(value: unknown): string {
+  const raw = value == null ? "" : String(value);
+  if (/[",\n\r]/.test(raw)) return `"${raw.replace(/"/g, '""')}"`;
+  return raw;
+}
+
+/** Build CSV for export (browser download). */
+export function buildLeadsCsv(leads: LeadRow[]): string {
+  const headers = [
+    "Company",
+    "Name",
+    "Email",
+    "Phone",
+    "Location",
+    "Source",
+    "Requirement",
+    "Sales Person",
+    "Status",
+    "Priority",
+    "Note",
+    "Tags",
+    "Next Follow-up",
+    "Created At",
+    "External Ref",
+    "ID",
+  ];
+  const lines = [headers.join(",")];
+  for (const lead of leads) {
+    lines.push(
+      [
+        lead.company,
+        lead.name,
+        lead.email,
+        lead.phone,
+        lead.location,
+        lead.source,
+        lead.requirement || lead.product_label,
+        lead.sales_person || lead.owner_name,
+        lead.status,
+        lead.priority,
+        lead.notes,
+        (lead.tags || []).join("; "),
+        lead.next_follow_up_at,
+        lead.created_at,
+        lead.external_ref,
+        lead.id,
+      ]
+        .map(csvEscape)
+        .join(","),
+    );
+  }
+  return lines.join("\r\n");
+}
+
+export function downloadLeadsCsv(leads: LeadRow[], filename?: string) {
+  const csv = buildLeadsCsv(leads);
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download =
+    filename ||
+    `enertech-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }

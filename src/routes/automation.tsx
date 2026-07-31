@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Pencil, Play, Plus, RefreshCw, Timer, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,8 +24,9 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState, PageHeader, Panel, Pill, StatCard } from "@/components/shared/ui-kit";
+import { WorkflowCanvas } from "@/components/automation/WorkflowCanvas";
 import { useAuth } from "@/lib/auth";
-import { ENERTECH_ORG_ID } from "@/lib/chat-api";
+import { ENERTECH_ORG_ID, formatRelativeTime } from "@/lib/chat-api";
 import type { AutomationAction, AutomationTrigger } from "@/lib/automation-types";
 import {
   ACTION_TYPE_OPTIONS,
@@ -34,8 +35,10 @@ import {
   deleteAutomation,
   listAutomationRuns,
   listAutomations,
+  processDueFollowUpsFn,
   setAutomationStatus,
   successRate,
+  testAutomationRun,
   updateAutomation,
   type AutomationStatus,
   type DbAutomation,
@@ -72,12 +75,20 @@ function actionSummary(action: AutomationAction): string {
       return `Follow-up in ${action.hours}h`;
     case "add_lead_note":
       return `Note: ${action.note}`;
+    case "set_sales_person":
+      return `Sales person → ${action.salesPerson}`;
     case "tag_conversation":
       return `Tag: ${action.tag}`;
     case "set_assignee_label":
       return `Assignee: ${action.label}`;
     case "add_system_message":
       return `System: ${action.body}`;
+    case "send_whatsapp_template":
+      return `WhatsApp template → ${action.templateName} (${action.language})`;
+    case "send_email":
+      return `Email → ${action.subject}`;
+    case "notify_team":
+      return `Notify → ${action.title}`;
     default:
       return "Action";
   }
@@ -93,13 +104,36 @@ function defaultAction(type: AutomationAction["type"]): AutomationAction {
       return { type, hours: 24 };
     case "add_lead_note":
       return { type, note: "Auto note" };
+    case "set_sales_person":
+      return { type, salesPerson: "Sales queue" };
     case "tag_conversation":
       return { type, tag: "Follow-up" };
     case "set_assignee_label":
       return { type, label: "Sales queue" };
     case "add_system_message":
       return { type, body: "Automation ran." };
+    case "send_whatsapp_template":
+      return { type, templateName: "followup_01", language: "en", bodyParams: ["{{name}}"] };
+    case "send_email":
+      return {
+        type,
+        subject: "EnerTech follow-up — {{name}}",
+        body: "Hi {{name}},\n\nFollowing up on your enquiry for EnerTech UPS.\n\n— EnerTech Engage",
+      };
+    case "notify_team":
+      return {
+        type,
+        title: "Automation alert",
+        body: "{{name}} / {{company}} needs attention",
+        href: "/leads",
+      };
   }
+}
+
+function runSteps(output: Record<string, unknown> | null | undefined): string[] {
+  const steps = output?.steps;
+  if (!Array.isArray(steps)) return [];
+  return steps.map((s) => String(s));
 }
 
 function Page() {
@@ -116,6 +150,11 @@ function Page() {
   const [formStatus, setFormStatus] = useState<AutomationStatus>("Draft");
   const [formTrigger, setFormTrigger] = useState<AutomationTrigger>("lead_created");
   const [formToStatus, setFormToStatus] = useState<LeadStatus>("Proposal");
+  const [formSource, setFormSource] = useState("");
+  const [formPriority, setFormPriority] = useState<string>("");
+  const [formChannel, setFormChannel] = useState("");
+  const [formLeadStatus, setFormLeadStatus] = useState<string>("");
+  const [formRequiresApproval, setFormRequiresApproval] = useState(true);
   const [formActions, setFormActions] = useState<AutomationAction[]>([
     defaultAction("set_follow_up_hours"),
   ]);
@@ -163,6 +202,11 @@ function Page() {
     setFormStatus("Draft");
     setFormTrigger("lead_created");
     setFormToStatus("Proposal");
+    setFormSource("");
+    setFormPriority("");
+    setFormChannel("");
+    setFormLeadStatus("");
+    setFormRequiresApproval(true);
     setFormActions([defaultAction("set_follow_up_hours")]);
   }
 
@@ -174,6 +218,11 @@ function Page() {
     setFormStatus(a.status);
     setFormTrigger(a.trigger_type);
     setFormToStatus(((a.trigger_config?.to_status as LeadStatus) || "Proposal") as LeadStatus);
+    setFormSource(String(a.trigger_config?.source || ""));
+    setFormPriority(String(a.trigger_config?.priority || ""));
+    setFormChannel(String(a.trigger_config?.channel || ""));
+    setFormLeadStatus(String(a.trigger_config?.lead_status || ""));
+    setFormRequiresApproval(a.requires_approval !== false);
     setFormActions(a.actions?.length ? a.actions : [defaultAction("add_lead_note")]);
   }
 
@@ -181,14 +230,20 @@ function Page() {
     mutationFn: async () => {
       if (!formName.trim()) throw new Error("Name is required");
       if (!formActions.length) throw new Error("Add at least one action");
+      const triggerConfig: Record<string, unknown> = {};
+      if (formTrigger === "lead_status_changed") triggerConfig.to_status = formToStatus;
+      if (formSource.trim()) triggerConfig.source = formSource.trim();
+      if (formPriority) triggerConfig.priority = formPriority;
+      if (formChannel.trim()) triggerConfig.channel = formChannel.trim();
+      if (formLeadStatus) triggerConfig.lead_status = formLeadStatus;
       const input = {
         name: formName,
         description: formDesc,
         status: formStatus,
         triggerType: formTrigger,
-        triggerConfig:
-          formTrigger === "lead_status_changed" ? { to_status: formToStatus } : {},
+        triggerConfig,
         actions: formActions,
+        requiresApproval: formRequiresApproval,
       };
       if (editing) return updateAutomation(editing.id, input);
       return createAutomation(orgId, input);
@@ -223,13 +278,40 @@ function Page() {
     onError: (error) => toast.error(error instanceof Error ? error.message : "Delete failed"),
   });
 
+  const testMutation = useMutation({
+    mutationFn: (id: string) => testAutomationRun({ data: { automationId: id } }),
+    onSuccess: async (result) => {
+      await invalidate();
+      if (result.ok) {
+        toast.success(`Test OK · ${result.steps.length} step(s)`);
+      } else {
+        toast.error(result.error || "Test failed");
+      }
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Test failed"),
+  });
+
+  const dueMutation = useMutation({
+    mutationFn: () => processDueFollowUpsFn(),
+    onSuccess: async (result) => {
+      await invalidate();
+      void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      void queryClient.invalidateQueries({ queryKey: ["automation-approvals"] });
+      toast.success(
+        `Due follow-ups: ${result.processed} lead(s) · ${result.pending} awaiting approval · ${result.ran} auto-run · ${result.ok} ok`,
+      );
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not process follow-ups"),
+  });
+
   const dialogOpen = creating || Boolean(editing);
 
   return (
     <>
       <PageHeader
         title="Automation"
-        description="Trigger → actions workflows for leads, IndiaMART remarketing, and escalations."
+        description="Trigger → condition → actions for leads, WhatsApp, email, and team alerts."
         meta={
           <div className="flex flex-wrap gap-2">
             <Pill tone="success" dot>
@@ -240,6 +322,16 @@ function Page() {
         }
         actions={
           <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              disabled={dueMutation.isPending}
+              onClick={() => dueMutation.mutate()}
+            >
+              <Timer className={`size-3.5 ${dueMutation.isPending ? "animate-spin" : ""}`} />
+              Process due follow-ups
+            </Button>
             <Button
               size="sm"
               variant="outline"
@@ -278,11 +370,11 @@ function Page() {
 
         <Panel title="How it works">
           <p className="text-sm text-muted-foreground">
-            Live workflows run automatically when events happen: new lead, IndiaMART sync, chat
-            escalation, or lead status change. Actions update leads/conversations (priority,
-            follow-up time, notes, tags). Run{" "}
-            <code className="rounded bg-secondary px-1 text-xs">008_automations.sql</code> once in
-            Supabase if this page is empty.
+            Live workflows queue for <strong>Approve / Reject</strong> in the amber bar under the top
+            nav (when “Require approval” is on — default). Nothing runs until you approve: follow-ups,
+            IndiaMART remarketing, WhatsApp, email, etc. Run{" "}
+            <code className="rounded bg-secondary px-1 text-xs">013_automation_approvals.sql</code>{" "}
+            in Supabase. Cron still detects due follow-ups, but campaigns wait for your approval.
           </p>
         </Panel>
 
@@ -333,6 +425,11 @@ function Page() {
                         <Pill tone={statusTone(a.status)} dot>
                           {a.status}
                         </Pill>
+                        {a.requires_approval !== false ? (
+                          <Pill tone="warning">Approval</Pill>
+                        ) : (
+                          <Pill tone="neutral">Auto</Pill>
+                        )}
                       </div>
                     </li>
                   );
@@ -355,6 +452,15 @@ function Page() {
                     <Button
                       size="sm"
                       variant="outline"
+                      className="gap-1.5"
+                      disabled={testMutation.isPending}
+                      onClick={() => testMutation.mutate(selected.id)}
+                    >
+                      <Play className="size-3.5" /> Test run
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
                       className="gap-1.5 text-destructive"
                       onClick={() => {
                         if (window.confirm(`Delete “${selected.name}”?`)) {
@@ -365,15 +471,17 @@ function Page() {
                       <Trash2 className="size-3.5" /> Delete
                     </Button>
                   </div>
-                  <p className="mb-2 text-xs uppercase text-muted-foreground">Trigger</p>
-                  <div className="mb-3 rounded-lg border border-border bg-secondary/40 px-3 py-2.5 text-sm font-medium">
-                    {TRIGGER_OPTIONS.find((t) => t.value === selected.trigger_type)?.label}
-                    {selected.trigger_type === "lead_status_changed" &&
-                    selected.trigger_config?.to_status
-                      ? ` → ${String(selected.trigger_config.to_status)}`
-                      : ""}
-                  </div>
-                  <p className="mb-2 text-xs uppercase text-muted-foreground">Actions</p>
+                  <p className="mb-2 text-xs uppercase text-muted-foreground">Canvas</p>
+                  <WorkflowCanvas
+                    trigger={selected.trigger_type}
+                    toStatus={
+                      selected.trigger_type === "lead_status_changed"
+                        ? String(selected.trigger_config?.to_status || "")
+                        : undefined
+                    }
+                    actions={selected.actions || []}
+                  />
+                  <p className="mt-3 mb-2 text-xs uppercase text-muted-foreground">Action list</p>
                   <div className="space-y-1.5">
                     {(selected.actions || []).map((step, i) => (
                       <div key={`${step.type}-${i}`}>
@@ -401,21 +509,41 @@ function Page() {
                 <p className="p-4 text-sm text-muted-foreground">Loading runs…</p>
               ) : (runsQuery.data || []).length === 0 ? (
                 <p className="p-4 text-sm text-muted-foreground">
-                  No runs yet. Create a lead or sync IndiaMART to fire matching workflows.
+                  No runs yet. Use Test run, create a lead, or Process due follow-ups.
                 </p>
               ) : (
                 <ul className="divide-y divide-border text-sm">
-                  {(runsQuery.data || []).map((r) => (
-                    <li key={r.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                      <span>
-                        <Pill tone={r.status === "success" ? "success" : "danger"}>{r.status}</Pill>
-                        <span className="ml-2 text-muted-foreground">{r.trigger_type}</span>
-                      </span>
-                      <span className="num text-xs text-muted-foreground">
-                        {new Date(r.created_at).toLocaleString()}
-                      </span>
-                    </li>
-                  ))}
+                  {(runsQuery.data || []).map((r) => {
+                    const steps = runSteps(r.output);
+                    return (
+                      <li key={r.id} className="space-y-1.5 px-4 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="flex flex-wrap items-center gap-2">
+                            <Pill tone={r.status === "success" ? "success" : "danger"}>
+                              {r.status}
+                            </Pill>
+                            <span className="text-muted-foreground">{r.trigger_type}</span>
+                          </span>
+                          <span className="num shrink-0 text-xs text-muted-foreground">
+                            {formatRelativeTime(r.created_at) ||
+                              new Date(r.created_at).toLocaleString()}
+                          </span>
+                        </div>
+                        {r.error ? (
+                          <p className="text-xs text-destructive">{r.error}</p>
+                        ) : null}
+                        {steps.length ? (
+                          <ol className="list-decimal space-y-0.5 pl-4 text-xs text-muted-foreground">
+                            {steps.map((step, i) => (
+                              <li key={i} className="truncate">
+                                {step}
+                              </li>
+                            ))}
+                          </ol>
+                        ) : null}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </Panel>
@@ -424,13 +552,20 @@ function Page() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={(open) => !open && (setCreating(false), setEditing(null))}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{editing ? "Edit workflow" : "New workflow"}</DialogTitle>
             <DialogDescription>
-              Choose a trigger and ordered actions. Set status to Live to run automatically.
+              Edit the canvas nodes below. Actions run top to bottom when the trigger fires.
             </DialogDescription>
           </DialogHeader>
+
+          <WorkflowCanvas
+            className="mb-2"
+            trigger={formTrigger}
+            toStatus={formTrigger === "lead_status_changed" ? formToStatus : undefined}
+            actions={formActions}
+          />
 
           <div className="space-y-3">
             <div className="space-y-2">
@@ -476,6 +611,21 @@ function Page() {
                 </Select>
               </div>
             </div>
+
+            <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2.5">
+              <div>
+                <p className="text-sm font-medium">Require approval before run</p>
+                <p className="text-xs text-muted-foreground">
+                  Shows Approve / Reject in the top amber bar. Turn off only for trusted silent CRM
+                  updates.
+                </p>
+              </div>
+              <Switch
+                checked={formRequiresApproval}
+                onCheckedChange={setFormRequiresApproval}
+                aria-label="Require approval"
+              />
+            </div>
             {formTrigger === "lead_status_changed" ? (
               <div className="space-y-2">
                 <Label>When status becomes</Label>
@@ -503,6 +653,78 @@ function Page() {
                 </Select>
               </div>
             ) : null}
+
+            <div className="space-y-2 rounded-lg border border-border p-3">
+              <Label className="text-xs uppercase text-muted-foreground">
+                Conditions (optional — leave empty to match all)
+              </Label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Source</Label>
+                  <Input
+                    placeholder="e.g. indiamart, website"
+                    value={formSource}
+                    onChange={(e) => setFormSource(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Priority</Label>
+                  <Select
+                    value={formPriority || "any"}
+                    onValueChange={(v) => setFormPriority(v === "any" ? "" : v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Any" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="any">Any</SelectItem>
+                      {(["High", "Medium", "Low"] as PriorityLevel[]).map((p) => (
+                        <SelectItem key={p} value={p}>
+                          {p}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Channel</Label>
+                  <Input
+                    placeholder="e.g. whatsapp, website"
+                    value={formChannel}
+                    onChange={(e) => setFormChannel(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Lead status</Label>
+                  <Select
+                    value={formLeadStatus || "any"}
+                    onValueChange={(v) => setFormLeadStatus(v === "any" ? "" : v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Any" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="any">Any</SelectItem>
+                      {(
+                        [
+                          "New",
+                          "Contacted",
+                          "Qualified",
+                          "Proposal",
+                          "Negotiation",
+                          "Won",
+                          "Lost",
+                        ] as LeadStatus[]
+                      ).map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -541,6 +763,40 @@ function Page() {
                           ))}
                         </SelectContent>
                       </Select>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={index === 0}
+                        onClick={() =>
+                          setFormActions((prev) => {
+                            const next = [...prev];
+                            const tmp = next[index - 1];
+                            next[index - 1] = next[index];
+                            next[index] = tmp;
+                            return next;
+                          })
+                        }
+                      >
+                        <ArrowUp className="size-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={index === formActions.length - 1}
+                        onClick={() =>
+                          setFormActions((prev) => {
+                            const next = [...prev];
+                            const tmp = next[index + 1];
+                            next[index + 1] = next[index];
+                            next[index] = tmp;
+                            return next;
+                          })
+                        }
+                      >
+                        <ArrowDown className="size-3.5" />
+                      </Button>
                       <Button
                         type="button"
                         size="sm"
@@ -680,6 +936,145 @@ function Page() {
                           )
                         }
                       />
+                    ) : null}
+                    {action.type === "set_sales_person" ? (
+                      <Input
+                        placeholder="Sales person name"
+                        value={action.salesPerson}
+                        onChange={(e) =>
+                          setFormActions((prev) =>
+                            prev.map((a, i) =>
+                              i === index
+                                ? { type: "set_sales_person", salesPerson: e.target.value }
+                                : a,
+                            ),
+                          )
+                        }
+                      />
+                    ) : null}
+                    {action.type === "send_whatsapp_template" ? (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Input
+                          placeholder="Template name (Meta)"
+                          value={action.templateName}
+                          onChange={(e) =>
+                            setFormActions((prev) =>
+                              prev.map((a, i) =>
+                                i === index && a.type === "send_whatsapp_template"
+                                  ? { ...a, templateName: e.target.value }
+                                  : a,
+                              ),
+                            )
+                          }
+                        />
+                        <Input
+                          placeholder="Language (en)"
+                          value={action.language}
+                          onChange={(e) =>
+                            setFormActions((prev) =>
+                              prev.map((a, i) =>
+                                i === index && a.type === "send_whatsapp_template"
+                                  ? { ...a, language: e.target.value }
+                                  : a,
+                              ),
+                            )
+                          }
+                        />
+                        <Input
+                          className="sm:col-span-2"
+                          placeholder="Body params CSV — {{name}},{{company}}"
+                          value={(action.bodyParams || []).join(",")}
+                          onChange={(e) =>
+                            setFormActions((prev) =>
+                              prev.map((a, i) =>
+                                i === index && a.type === "send_whatsapp_template"
+                                  ? {
+                                      ...a,
+                                      bodyParams: e.target.value
+                                        .split(",")
+                                        .map((s) => s.trim())
+                                        .filter(Boolean),
+                                    }
+                                  : a,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                    ) : null}
+                    {action.type === "send_email" ? (
+                      <div className="space-y-2">
+                        <Input
+                          placeholder="Subject ({{name}} ok)"
+                          value={action.subject}
+                          onChange={(e) =>
+                            setFormActions((prev) =>
+                              prev.map((a, i) =>
+                                i === index && a.type === "send_email"
+                                  ? { ...a, subject: e.target.value }
+                                  : a,
+                              ),
+                            )
+                          }
+                        />
+                        <Textarea
+                          rows={3}
+                          placeholder="Body"
+                          value={action.body}
+                          onChange={(e) =>
+                            setFormActions((prev) =>
+                              prev.map((a, i) =>
+                                i === index && a.type === "send_email"
+                                  ? { ...a, body: e.target.value }
+                                  : a,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                    ) : null}
+                    {action.type === "notify_team" ? (
+                      <div className="space-y-2">
+                        <Input
+                          placeholder="Title"
+                          value={action.title}
+                          onChange={(e) =>
+                            setFormActions((prev) =>
+                              prev.map((a, i) =>
+                                i === index && a.type === "notify_team"
+                                  ? { ...a, title: e.target.value }
+                                  : a,
+                              ),
+                            )
+                          }
+                        />
+                        <Input
+                          placeholder="Body ({{name}} / {{company}})"
+                          value={action.body}
+                          onChange={(e) =>
+                            setFormActions((prev) =>
+                              prev.map((a, i) =>
+                                i === index && a.type === "notify_team"
+                                  ? { ...a, body: e.target.value }
+                                  : a,
+                              ),
+                            )
+                          }
+                        />
+                        <Input
+                          placeholder="Link href e.g. /leads or /human-support"
+                          value={action.href || ""}
+                          onChange={(e) =>
+                            setFormActions((prev) =>
+                              prev.map((a, i) =>
+                                i === index && a.type === "notify_team"
+                                  ? { ...a, href: e.target.value }
+                                  : a,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
                     ) : null}
                   </div>
                 ))}

@@ -6,6 +6,7 @@ import nodemailer from "nodemailer";
 import { createServiceSupabase } from "@/lib/supabase";
 import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
+import { buildAnswerInspector } from "@/server/answer-inspector";
 import { findCatalogueDownloads, retrieveKnowledgeContext } from "@/server/knowledge";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
@@ -269,6 +270,13 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
   }
 
   let reply = "Thanks for emailing EnerTech. How can we help with your UPS needs?";
+  let inspector = buildAnswerInspector({
+    chunks: [],
+    replySource: "fallback",
+    model: "gpt-4o-mini",
+    agentName: "EnerBot",
+    channel: "email",
+  });
   try {
     const { data: history } = await supabase
       .from("messages")
@@ -301,6 +309,17 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
       memoryEnabled: agentCfg.memoryEnabled,
     });
     reply = generated.reply;
+    inspector = buildAnswerInspector({
+      chunks,
+      replySource: generated.source,
+      model: generated.model,
+      agentName: agentCfg.agentName,
+      specialistKey: agentCfg.specialistKey,
+      channel: "email",
+      visitorName: (convo.visitor_name as string) || fromName || fromEmail,
+      downloadCount: downloads.length,
+      memoryEnabled: agentCfg.memoryEnabled,
+    });
     if (agentCfg.agentId) {
       const prevMeta =
         convo.metadata && typeof convo.metadata === "object"
@@ -328,8 +347,9 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
     conversation_id: convo.id,
     sender: "ai",
     body: reply,
-    confidence: 0.7,
-    sources: [],
+    confidence: inspector.confidence,
+    sources: inspector.sources,
+    metadata: inspector.metadata,
   });
 
   try {

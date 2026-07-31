@@ -96,6 +96,8 @@ const CHANNEL_LABELS: Record<string, string> = {
   instagram: "Instagram",
   facebook: "Facebook",
   indiamart: "IndiaMART",
+  tradeindia: "TradeIndia",
+  brainmine: "Brainmine CRM+",
   api: "API",
   webhook: "Webhook",
 };

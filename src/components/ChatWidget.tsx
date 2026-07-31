@@ -19,6 +19,7 @@ import {
   widgetListMessages,
   widgetLookupVisitor,
   widgetSendMessage,
+  widgetUploadAttachment,
 } from "@/server/widget-chat";
 
 type ServerMessage = { id: string; sender: string; body: string };
@@ -50,13 +51,8 @@ function rotateSessionId() {
 }
 
 function isProfileComplete(profile: VisitorProfile) {
-  return Boolean(
-    profile.name.trim() &&
-      profile.email.trim() &&
-      profile.phone.trim() &&
-      profile.company.trim() &&
-      profile.location.trim(),
-  );
+  // Name + email + phone is enough to open chat; company/location enrich the lead.
+  return Boolean(profile.name.trim() && profile.email.trim() && profile.phone.trim());
 }
 
 function hasIdentity(profile: VisitorProfile) {
@@ -100,6 +96,7 @@ export function ChatWidget() {
   const [profile, setProfile] = useState<VisitorProfile>(emptyProfile);
   const [saveHint, setSaveHint] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const profileRef = useRef(profile);
   const lookedUpRef = useRef("");
   const busyRef = useRef(false);
@@ -295,6 +292,58 @@ export function ChatWidget() {
     }
   }
 
+  const uploadFile = async (file: File) => {
+    if (busy) return;
+    if (!session) {
+      toast.error("Sign in to use the live widget preview");
+      return;
+    }
+    if (!widgetKey) {
+      toast.error("Widget public key is missing.");
+      return;
+    }
+    if (!isProfileComplete(profile)) {
+      toast.error("Please fill Name, Email, and Phone before uploading");
+      return;
+    }
+
+    setBusy(true);
+    setTyping(true);
+    try {
+      let convoId = conversationId;
+      if (!convoId) convoId = await syncConversationProfile(profile);
+      else await syncConversationProfile(profile);
+
+      const buffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      let binary = "";
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+      }
+      const base64 = btoa(binary);
+
+      const result = await widgetUploadAttachment({
+        data: {
+          key: widgetKey,
+          conversationId: convoId,
+          fileName: file.name,
+          mimeType: file.type || undefined,
+          base64,
+        },
+      });
+      setMsgs(applyHistory(result.messages as ServerMessage[]));
+      if (result.aiPaused || result.status === "human" || result.status === "escalated") setHumanMode(true);
+      toast.success("File shared with support");
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setTyping(false);
+      setBusy(false);
+    }
+  };
+
   const send = async (text: string) => {
     if (!text.trim() || busy) return;
     if (!session) {
@@ -306,7 +355,7 @@ export function ChatWidget() {
       return;
     }
     if (!isProfileComplete(profile)) {
-      toast.error("Please fill Name, Email, Phone, Company, and Location before chatting");
+      toast.error("Please fill Name, Email, and Phone before chatting (company & location optional)");
       return;
     }
 
@@ -410,15 +459,24 @@ export function ChatWidget() {
               </div>
               <div className="relative">
                 <Building2 className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input value={profile.company} onChange={(e) => setProfile((s) => ({ ...s, company: e.target.value }))} placeholder="Company name" className="h-8 pl-8 text-xs" />
+                <Input value={profile.company} onChange={(e) => setProfile((s) => ({ ...s, company: e.target.value }))} placeholder="Company (optional)" className="h-8 pl-8 text-xs" />
               </div>
               <div className="relative sm:col-span-2">
                 <MapPin className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input value={profile.location} onChange={(e) => setProfile((s) => ({ ...s, location: e.target.value }))} placeholder="Location" className="h-8 pl-8 text-xs" />
+                <Input value={profile.location} onChange={(e) => setProfile((s) => ({ ...s, location: e.target.value }))} placeholder="Location (optional)" className="h-8 pl-8 text-xs" />
               </div>
             </div>
             {saveHint ? <p className="mt-2 text-[11px] text-muted-foreground">{saveHint}</p> : null}
+            {!isProfileComplete(profile) ? (
+              <p className="mt-1 text-[11px] text-muted-foreground">Name, email &amp; phone required to chat.</p>
+            ) : null}
           </div>
+
+          {humanMode ? (
+            <div className="border-b border-amber-500/30 bg-amber-500/10 px-3.5 py-2 text-xs text-amber-950 dark:text-amber-100">
+              A human support agent is handling this chat. You can keep messaging — replies appear here live.
+            </div>
+          ) : null}
 
           <div className="flex-1 space-y-3 overflow-y-auto p-3.5">
             {msgs.map((m) => (
@@ -480,11 +538,38 @@ export function ChatWidget() {
               void send(draft);
             }}
           >
-            <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" aria-label="Attach file" onClick={() => toast("File upload coming in a later phase")}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0"
+              aria-label="Attach file"
+              disabled={busy}
+              onClick={() => fileRef.current?.click()}
+            >
               <Paperclip className="size-4" />
             </Button>
+            <input
+              ref={fileRef}
+              type="file"
+              className="hidden"
+              accept="image/*,.pdf,application/pdf"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void uploadFile(file);
+              }}
+            />
             <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Ask about products, service or pricing…" className="h-9" aria-label="Message" disabled={busy} />
-            <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" aria-label="Talk to a human" onClick={() => void send("Please connect me to a human support agent")}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0"
+              aria-label="Talk to a human"
+              disabled={busy}
+              onClick={() => void send("Please connect me to a human support agent")}
+            >
               <Headphones className="size-4" />
             </Button>
             <Button type="submit" size="icon" className="size-8 shrink-0" aria-label="Send" disabled={busy}>

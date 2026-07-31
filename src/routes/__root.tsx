@@ -20,6 +20,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { TopBar } from "@/components/layout/TopBar";
+import { AutomationApprovalBanner } from "@/components/automation/AutomationApprovalBanner";
 import { ChatWidget } from "@/components/ChatWidget";
 import { AuthProvider, useAuth } from "@/lib/auth";
 
@@ -121,7 +122,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: appCss,
       },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "icon", href: "/favicon.ico", sizes: "any" },
+      { rel: "icon", href: "/favicon.png", type: "image/png", sizes: "48x48" },
+      { rel: "icon", href: "/favicon-32.png", type: "image/png", sizes: "32x32" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png", sizes: "180x180" },
     ],
     scripts: [{ children: themeInitScript }],
   }),
@@ -226,6 +230,7 @@ function AuthenticatedShell() {
         </Sheet>
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <TopBar onOpenMobileNav={() => setMobileOpen(true)} />
+          <AutomationApprovalBanner />
           <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
             <Outlet />
           </main>

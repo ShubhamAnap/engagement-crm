@@ -41,16 +41,33 @@ import {
   updateChannel,
   type ChannelWithStats,
 } from "@/lib/channels-api";
-import { getWhatsAppSetupInfo, saveWhatsAppChannelConfig } from "@/server/whatsapp";
+import { getWhatsAppSetupInfo, saveWhatsAppChannelConfig, testWhatsAppConnection } from "@/server/whatsapp";
 import { getEmailSetupInfo, saveEmailChannelConfig } from "@/server/email";
 import { getMetaSetupInfo, saveMetaChannelConfig } from "@/server/meta-messenger";
 import {
+  cancelIndiaMartBackfillFn,
   ensureIndiaMartChannel,
   getIndiaMartSetupInfo,
   saveIndiaMartChannelConfig,
+  startIndiaMartBackfillFn,
   syncIndiaMartLeads,
 } from "@/server/indiamart";
+import {
+  cancelTradeIndiaBackfillFn,
+  ensureTradeIndiaChannel,
+  getTradeIndiaSetup,
+  saveTradeIndiaChannelConfig,
+  startTradeIndiaBackfillFn,
+  syncTradeIndiaLeads,
+} from "@/server/tradeindia";
+import {
+  ensureBrainmineChannel,
+  getBrainmineSetup,
+  saveBrainmineChannelConfig,
+  syncBrainmineLeads,
+} from "@/server/brainmine";
 import type { ChannelStatus } from "@/lib/db-types";
+import type { BrainmineAuthStyle } from "@/server/brainmine";
 
 const statusOptions: ChannelStatus[] = ["Connected", "Degraded", "Disconnected", "Action Required"];
 
@@ -106,6 +123,18 @@ function Page() {
   const [imCrmKey, setImCrmKey] = useState("");
   const [imPushSecret, setImPushSecret] = useState("");
   const [imWebhookCopied, setImWebhookCopied] = useState(false);
+  const [imBackfillFrom, setImBackfillFrom] = useState("");
+  const [imBackfillTo, setImBackfillTo] = useState("");
+  const [tiBackfillFrom, setTiBackfillFrom] = useState("");
+  const [tiBackfillTo, setTiBackfillTo] = useState("");
+  const [tiUserid, setTiUserid] = useState("");
+  const [tiProfileId, setTiProfileId] = useState("");
+  const [tiKey, setTiKey] = useState("");
+  const [bmApiBaseUrl, setBmApiBaseUrl] = useState("");
+  const [bmApiKey, setBmApiKey] = useState("");
+  const [bmApiSecret, setBmApiSecret] = useState("");
+  const [bmAuthStyle, setBmAuthStyle] = useState<BrainmineAuthStyle>("token");
+  const [bmLeadsPath, setBmLeadsPath] = useState("/api/resource/Lead");
 
   const channelsQuery = useQuery({
     queryKey: ["channels", orgId],
@@ -135,6 +164,44 @@ function Page() {
   const imSetupQuery = useQuery({
     queryKey: ["indiamart-setup"],
     queryFn: () => getIndiaMartSetupInfo(),
+    refetchInterval: (q) => {
+      const bf = q.state.data?.backfill;
+      if (bf?.status === "running" || bf?.status === "waiting") return 30_000;
+      if ((q.state.data?.cooldownMs ?? 0) > 0) return 30_000;
+      return false;
+    },
+  });
+
+  useEffect(() => {
+    const earliest = imSetupQuery.data?.backfillEarliestDate;
+    const latest = imSetupQuery.data?.backfillLatestDate;
+    if (!earliest || !latest) return;
+    setImBackfillFrom((prev) => prev || earliest);
+    setImBackfillTo((prev) => prev || latest);
+  }, [imSetupQuery.data?.backfillEarliestDate, imSetupQuery.data?.backfillLatestDate]);
+
+  const tiSetupQuery = useQuery({
+    queryKey: ["tradeindia-setup"],
+    queryFn: () => getTradeIndiaSetup(),
+    refetchInterval: (q) => {
+      const bf = q.state.data?.backfill;
+      if (bf?.status === "running" || bf?.status === "waiting") return 20_000;
+      if ((q.state.data?.cooldownMs ?? 0) > 0) return 20_000;
+      return false;
+    },
+  });
+
+  useEffect(() => {
+    const earliest = tiSetupQuery.data?.backfillEarliestDate;
+    const latest = tiSetupQuery.data?.backfillLatestDate;
+    if (!earliest || !latest) return;
+    setTiBackfillFrom((prev) => prev || earliest);
+    setTiBackfillTo((prev) => prev || latest);
+  }, [tiSetupQuery.data?.backfillEarliestDate, tiSetupQuery.data?.backfillLatestDate]);
+
+  const bmSetupQuery = useQuery({
+    queryKey: ["brainmine-setup"],
+    queryFn: () => getBrainmineSetup(),
   });
 
   const channels = channelsQuery.data ?? [];
@@ -147,6 +214,8 @@ function Page() {
   const facebook = channels.find((c) => c.type === "facebook");
   const instagram = channels.find((c) => c.type === "instagram");
   const indiamart = channels.find((c) => c.type === "indiamart");
+  const tradeindia = channels.find((c) => c.type === "tradeindia");
+  const brainmine = channels.find((c) => c.type === "brainmine");
   const webhookUrl =
     waSetupQuery.data?.webhookUrl ||
     `${String(appUrl).replace(/\/$/, "")}/api/webhooks/whatsapp`;
@@ -179,6 +248,8 @@ function Page() {
       queryClient.invalidateQueries({ queryKey: ["email-setup"] }),
       queryClient.invalidateQueries({ queryKey: ["meta-setup"] }),
       queryClient.invalidateQueries({ queryKey: ["indiamart-setup"] }),
+      queryClient.invalidateQueries({ queryKey: ["tradeindia-setup"] }),
+      queryClient.invalidateQueries({ queryKey: ["brainmine-setup"] }),
     ]);
   };
 
@@ -198,6 +269,12 @@ function Page() {
       }
       if (channel.type === "indiamart" && enabled && !imSetupQuery.data?.configured) {
         throw new Error("Configure IndiaMART CRM key first (Configure on the IndiaMART card).");
+      }
+      if (channel.type === "tradeindia" && enabled && !tiSetupQuery.data?.configured) {
+        throw new Error("Configure TradeIndia userid, profile_id, and key first.");
+      }
+      if (channel.type === "brainmine" && enabled && !bmSetupQuery.data?.configured) {
+        throw new Error("Configure Brainmine API URL and key first.");
       }
       return setChannelEnabled({
         channelId: channel.id,
@@ -298,6 +375,45 @@ function Page() {
         });
       }
 
+      if (editing.type === "tradeindia") {
+        const existing = (editing.config || {}) as {
+          userid?: string;
+          profile_id?: string;
+          key?: string;
+        };
+        const userid = tiUserid.trim() || existing.userid || "";
+        const profileId = tiProfileId.trim() || existing.profile_id || "";
+        const key = tiKey.trim() || existing.key || "";
+        if (!userid) throw new Error("TradeIndia userid is required");
+        if (!profileId) throw new Error("TradeIndia profile_id is required");
+        if (!key) throw new Error("TradeIndia API key is required");
+        return saveTradeIndiaChannelConfig({
+          data: { userid, profileId, key, enable: true },
+        });
+      }
+
+      if (editing.type === "brainmine") {
+        const existing = (editing.config || {}) as {
+          api_base_url?: string;
+          api_key?: string;
+          api_secret?: string;
+        };
+        const base = bmApiBaseUrl.trim() || existing.api_base_url || "";
+        const key = bmApiKey.trim() || existing.api_key || "";
+        if (!base) throw new Error("Brainmine API base URL is required");
+        if (!key) throw new Error("Brainmine API key is required");
+        return saveBrainmineChannelConfig({
+          data: {
+            apiBaseUrl: base,
+            apiKey: key,
+            apiSecret: bmApiSecret.trim() || existing.api_secret || undefined,
+            authStyle: bmAuthStyle,
+            leadsPath: bmLeadsPath.trim() || "/api/resource/Lead",
+            enable: true,
+          },
+        });
+      }
+
       const health = Number(formHealth);
       if (!Number.isFinite(health) || health < 0 || health > 100) {
         throw new Error("Health must be 0–100");
@@ -385,6 +501,30 @@ function Page() {
       setImCrmKey("");
       setImPushSecret(cfg.push_secret || "");
     }
+    if (channel.type === "tradeindia") {
+      const cfg = (channel.config || {}) as {
+        userid?: string;
+        profile_id?: string;
+        key?: string;
+      };
+      setTiUserid(cfg.userid || tiSetupQuery.data?.userid || "");
+      setTiProfileId(cfg.profile_id || tiSetupQuery.data?.profileId || "");
+      setTiKey("");
+    }
+    if (channel.type === "brainmine") {
+      const cfg = (channel.config || {}) as {
+        api_base_url?: string;
+        api_key?: string;
+        api_secret?: string;
+        auth_style?: BrainmineAuthStyle;
+        leads_path?: string;
+      };
+      setBmApiBaseUrl(cfg.api_base_url || "");
+      setBmApiKey("");
+      setBmApiSecret("");
+      setBmAuthStyle(cfg.auth_style || "token");
+      setBmLeadsPath(cfg.leads_path || "/api/resource/Lead");
+    }
   }
 
   const syncImMutation = useMutation({
@@ -400,7 +540,34 @@ function Page() {
         toast.message("Some enquiries failed", { description: result.errors[0] });
       }
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Sync failed"),
+    onError: async (error) => {
+      await queryClient.invalidateQueries({ queryKey: ["indiamart-setup"] });
+      toast.error(error instanceof Error ? error.message : "Sync failed");
+    },
+  });
+
+  const startImBackfillMutation = useMutation({
+    mutationFn: () =>
+      startIndiaMartBackfillFn({
+        data: { from: imBackfillFrom, to: imBackfillTo },
+      }),
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["indiamart-setup"] });
+      await queryClient.invalidateQueries({ queryKey: ["leads"] });
+      toast.success(result.message);
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not start backfill"),
+  });
+
+  const cancelImBackfillMutation = useMutation({
+    mutationFn: () => cancelIndiaMartBackfillFn(),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["indiamart-setup"] });
+      toast.message("IndiaMART backfill cancelled");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not cancel backfill"),
   });
 
   const ensureImMutation = useMutation({
@@ -412,6 +579,107 @@ function Page() {
         return;
       }
       toast.success(result.created ? "IndiaMART channel card created" : "IndiaMART channel already exists");
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not create channel"),
+  });
+
+  const testWaMutation = useMutation({
+    mutationFn: () => testWhatsAppConnection(),
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-setup"] });
+      await invalidate();
+      toast.success(
+        result.verifiedName
+          ? `Connected: ${result.verifiedName}${result.displayPhone ? ` (${result.displayPhone})` : ""}`
+          : `WhatsApp API OK${result.displayPhone ? ` · ${result.displayPhone}` : ""}`,
+        {
+          description: result.needsPublicHttps
+            ? "Credentials work. For inbound messages, expose HTTPS (ngrok) and set Meta webhook — localhost won't receive callbacks."
+            : "Credentials work. Confirm Meta webhook is verified and subscribed to messages.",
+        },
+      );
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "WhatsApp connection test failed"),
+  });
+
+  const syncTiMutation = useMutation({
+    mutationFn: () => syncTradeIndiaLeads({ data: { hours: 24 } }),
+    onSuccess: async (result) => {
+      await invalidate();
+      await queryClient.invalidateQueries({ queryKey: ["leads"] });
+      await queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      await queryClient.invalidateQueries({ queryKey: ["automation-approvals"] });
+      toast.success(
+        `TradeIndia sync: ${result.created} new · ${result.skipped} duplicates · ${result.fetched} fetched`,
+      );
+      if (result.errors.length) {
+        toast.message("Some enquiries failed", { description: result.errors[0] });
+      }
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "TradeIndia sync failed"),
+  });
+
+  const startTiBackfillMutation = useMutation({
+    mutationFn: () =>
+      startTradeIndiaBackfillFn({
+        data: { from: tiBackfillFrom, to: tiBackfillTo },
+      }),
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["tradeindia-setup"] });
+      await queryClient.invalidateQueries({ queryKey: ["leads"] });
+      toast.success(result.message);
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not start TradeIndia backfill"),
+  });
+
+  const cancelTiBackfillMutation = useMutation({
+    mutationFn: () => cancelTradeIndiaBackfillFn(),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["tradeindia-setup"] });
+      toast.message("TradeIndia backfill cancelled");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not cancel backfill"),
+  });
+
+  const ensureTiMutation = useMutation({
+    mutationFn: () => ensureTradeIndiaChannel(),
+    onSuccess: async (result) => {
+      await invalidate();
+      if (!result.ok) {
+        toast.error(result.error || "Could not create TradeIndia channel");
+        return;
+      }
+      toast.success(
+        result.created ? "TradeIndia channel card created" : "TradeIndia channel already exists",
+      );
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not create channel"),
+  });
+
+  const syncBmMutation = useMutation({
+    mutationFn: () => syncBrainmineLeads(),
+    onSuccess: async (result) => {
+      await invalidate();
+      await queryClient.invalidateQueries({ queryKey: ["leads"] });
+      toast.success(
+        `Brainmine sync: ${result.created} new · ${result.updated} updated · ${result.skipped} skipped · ${result.fetched} fetched`,
+      );
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Brainmine sync failed"),
+  });
+
+  const ensureBmMutation = useMutation({
+    mutationFn: () => ensureBrainmineChannel(),
+    onSuccess: async (result) => {
+      await invalidate();
+      if (!result.ok) {
+        toast.error(result.error || "Could not create Brainmine channel");
+        return;
+      }
+      toast.success(result.created ? "Brainmine channel card created" : "Brainmine channel already exists");
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not create channel"),
   });
@@ -429,11 +697,35 @@ function Page() {
     queryClient,
   ]);
 
+  useEffect(() => {
+    if (tiSetupQuery.data?.channelCreated || (tiSetupQuery.data?.channelReady && !tradeindia)) {
+      void queryClient.invalidateQueries({ queryKey: ["channels", orgId] });
+    }
+  }, [
+    tiSetupQuery.data?.channelCreated,
+    tiSetupQuery.data?.channelReady,
+    tradeindia,
+    orgId,
+    queryClient,
+  ]);
+
+  useEffect(() => {
+    if (bmSetupQuery.data?.channelCreated || (bmSetupQuery.data?.channelReady && !brainmine)) {
+      void queryClient.invalidateQueries({ queryKey: ["channels", orgId] });
+    }
+  }, [
+    bmSetupQuery.data?.channelCreated,
+    bmSetupQuery.data?.channelReady,
+    brainmine,
+    orgId,
+    queryClient,
+  ]);
+
   return (
     <>
       <PageHeader
         title="Channels"
-        description="Manage customer touchpoints including Meta channels and IndiaMART lead sync for follow-up."
+        description="Manage customer touchpoints including Meta, IndiaMART, TradeIndia, and Brainmine CRM+ lead sync."
         meta={
           <div className="flex flex-wrap gap-2">
             <Pill tone={website?.is_enabled ? "success" : "warning"} dot>
@@ -538,16 +830,29 @@ function Page() {
           description="Connect Meta WhatsApp so inbound chats appear in Inbox like Website chat."
         >
           <ol className="mb-3 list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
-            <li>Create a Meta app with WhatsApp product → copy Phone Number ID + permanent Access Token.</li>
             <li>
-              Click <span className="font-medium text-foreground">Configure</span> on the WhatsApp channel card and paste credentials + a Verify Token you choose.
+              Meta Developer → create / open an app → add <strong>WhatsApp</strong> product →{" "}
+              <strong>API Setup</strong>.
             </li>
             <li>
-              In Meta webhook settings, set Callback URL to the URL below and use the same Verify Token. Subscribe to{" "}
-              <code className="rounded bg-secondary px-1">messages</code>.
+              Copy <strong>Phone number ID</strong>, create a permanent / system-user{" "}
+              <strong>Access Token</strong>, and note <strong>WhatsApp Business Account ID</strong>{" "}
+              (needed for Broadcasting templates).
             </li>
             <li>
-              For local testing, expose this app with a public HTTPS tunnel (ngrok / Cloudflare Tunnel) — Meta cannot call localhost.
+              Click <span className="font-medium text-foreground">Configure WhatsApp</span> below —
+              paste those values + a Verify Token you invent (any secret string).
+            </li>
+            <li>
+              Click <span className="font-medium text-foreground">Test connection</span> to verify the
+              token with Meta (works on localhost).
+            </li>
+            <li>
+              For inbound chats: Meta cannot call <code className="rounded bg-secondary px-1">localhost</code>.
+              Use a public HTTPS tunnel (ngrok / Cloudflare Tunnel), set{" "}
+              <code className="rounded bg-secondary px-1">VITE_APP_URL</code> to that HTTPS URL, restart
+              the app, then in Meta Webhooks set Callback URL to the URL below and the same Verify
+              Token. Subscribe to <code className="rounded bg-secondary px-1">messages</code>.
             </li>
           </ol>
           <div className="flex flex-wrap items-center gap-2">
@@ -572,12 +877,26 @@ function Page() {
                 Configure WhatsApp
               </Button>
             ) : null}
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!waSetupQuery.data?.configured || testWaMutation.isPending}
+              onClick={() => testWaMutation.mutate()}
+            >
+              {testWaMutation.isPending ? "Testing…" : "Test connection"}
+            </Button>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
             Status:{" "}
             {waSetupQuery.data?.configured
-              ? "Credentials saved — send a WhatsApp message to your business number; it should appear in Inbox (channel WhatsApp)."
-              : "Not configured yet."}
+              ? `Credentials saved${waSetupQuery.data.displayPhone ? ` · ${waSetupQuery.data.displayPhone}` : ""}${
+                  waSetupQuery.data.hasWaba ? " · WABA set" : " · add WABA for Broadcasting"
+                }.${
+                  waSetupQuery.data.needsPublicHttps
+                    ? " Inbound webhooks need a public HTTPS URL (not localhost)."
+                    : " Send a WhatsApp message to your business number → should appear in Inbox."
+                }`
+              : "Not configured yet — use Configure WhatsApp."}
           </p>
         </Panel>
 
@@ -735,8 +1054,10 @@ function Page() {
             </li>
             <li>Configure IndiaMART below with the CRM key (glusr_crm_key).</li>
             <li>
-              Click <span className="font-medium text-foreground">Sync leads now</span> to pull the latest window
-              (max 7 days). New enquiries become Leads (source IndiaMART) and Inbox threads tagged Remarketing.
+              Click <span className="font-medium text-foreground">Sync leads now</span> for the latest window
+              (max 7 days), or use <span className="font-medium text-foreground">Historical backfill</span> below
+              for older ranges (≤365 days, chunked every 5 min). IndiaMART allows{" "}
+              <strong>1 Pull every 5 minutes</strong>.
             </li>
             <li>
               Optional: set Push webhook URL in IndiaMART Seller panel to the URL below for real-time leads.
@@ -775,10 +1096,23 @@ function Page() {
             <Button
               size="sm"
               variant="secondary"
-              disabled={!imSetupQuery.data?.configured || syncImMutation.isPending}
+              disabled={
+                !imSetupQuery.data?.configured ||
+                syncImMutation.isPending ||
+                (imSetupQuery.data?.cooldownMs ?? 0) > 0 ||
+                imSetupQuery.data?.backfill?.status === "running" ||
+                imSetupQuery.data?.backfill?.status === "waiting"
+              }
               onClick={() => syncImMutation.mutate()}
             >
-              {syncImMutation.isPending ? "Syncing…" : "Sync leads now"}
+              {syncImMutation.isPending
+                ? "Syncing…"
+                : imSetupQuery.data?.backfill?.status === "running" ||
+                    imSetupQuery.data?.backfill?.status === "waiting"
+                  ? "Backfill running…"
+                  : (imSetupQuery.data?.cooldownMs ?? 0) > 0
+                    ? `Wait ${Math.ceil((imSetupQuery.data?.cooldownMs ?? 0) / 60_000)} min`
+                    : "Sync leads now"}
             </Button>
             <Button size="sm" variant="outline" asChild>
               <Link to="/leads">Open leads</Link>
@@ -791,10 +1125,322 @@ function Page() {
               : indiamart
                 ? imSetupQuery.data?.configured
                   ? imSetupQuery.data.lastSyncAt
-                    ? `CRM key saved. Last sync ${new Date(imSetupQuery.data.lastSyncAt).toLocaleString()}.`
-                    : "CRM key saved — run Sync leads now to import enquiries."
+                    ? `CRM key saved. Last sync ${new Date(imSetupQuery.data.lastSyncAt).toLocaleString()}.${
+                        (imSetupQuery.data.cooldownMs ?? 0) > 0
+                          ? ` Next sync in ~${Math.ceil((imSetupQuery.data.cooldownMs ?? 0) / 60_000)} min.`
+                          : ""
+                      }`
+                    : "CRM key saved — run Sync leads now to import enquiries (max once / 5 min)."
                   : "Channel card ready — click Configure IndiaMART and paste your CRM key."
                 : "IndiaMART card missing from the grid. Click Create IndiaMART card (requires migration 007)."}
+          </p>
+
+          <div className="mt-4 rounded-lg border border-border/80 bg-secondary/30 p-3">
+            <p className="mb-2 text-sm font-medium text-foreground">Historical backfill</p>
+            <p className="mb-3 text-xs text-muted-foreground">
+              IndiaMART allows up to <strong>7 days per pull</strong> and{" "}
+              <strong>1 pull / 5 minutes</strong>. History is available for about{" "}
+              <strong>365 days</strong>. Pick a range — we split into 7-day chunks and wait between
+              API hits.
+            </p>
+            <div className="mb-3 flex flex-wrap items-end gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="im-bf-from" className="text-xs">
+                  From
+                </Label>
+                <Input
+                  id="im-bf-from"
+                  type="date"
+                  className="w-[11rem]"
+                  min={imSetupQuery.data?.backfillEarliestDate}
+                  max={imSetupQuery.data?.backfillLatestDate}
+                  value={imBackfillFrom}
+                  disabled={
+                    !imSetupQuery.data?.configured ||
+                    imSetupQuery.data?.backfill?.status === "running" ||
+                    imSetupQuery.data?.backfill?.status === "waiting"
+                  }
+                  onChange={(e) => setImBackfillFrom(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="im-bf-to" className="text-xs">
+                  To
+                </Label>
+                <Input
+                  id="im-bf-to"
+                  type="date"
+                  className="w-[11rem]"
+                  min={imSetupQuery.data?.backfillEarliestDate}
+                  max={imSetupQuery.data?.backfillLatestDate}
+                  value={imBackfillTo}
+                  disabled={
+                    !imSetupQuery.data?.configured ||
+                    imSetupQuery.data?.backfill?.status === "running" ||
+                    imSetupQuery.data?.backfill?.status === "waiting"
+                  }
+                  onChange={(e) => setImBackfillTo(e.target.value)}
+                />
+              </div>
+              <Button
+                size="sm"
+                disabled={
+                  !imSetupQuery.data?.configured ||
+                  !imBackfillFrom ||
+                  !imBackfillTo ||
+                  startImBackfillMutation.isPending ||
+                  imSetupQuery.data?.backfill?.status === "running" ||
+                  imSetupQuery.data?.backfill?.status === "waiting"
+                }
+                onClick={() => startImBackfillMutation.mutate()}
+              >
+                {startImBackfillMutation.isPending ? "Starting…" : "Start backfill"}
+              </Button>
+              {(imSetupQuery.data?.backfill?.status === "running" ||
+                imSetupQuery.data?.backfill?.status === "waiting") && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={cancelImBackfillMutation.isPending}
+                  onClick={() => cancelImBackfillMutation.mutate()}
+                >
+                  {cancelImBackfillMutation.isPending ? "Cancelling…" : "Cancel"}
+                </Button>
+              )}
+            </div>
+            {imSetupQuery.data?.backfill ? (
+              <p className="text-xs text-muted-foreground">
+                {imSetupQuery.data.backfill.status === "running" ||
+                imSetupQuery.data.backfill.status === "waiting"
+                  ? `In progress: chunk ${imSetupQuery.data.backfill.chunksDone}/${imSetupQuery.data.backfill.chunksTotal} · +${imSetupQuery.data.backfill.created} leads · ${imSetupQuery.data.backfill.fetched} fetched.${
+                      imSetupQuery.data.backfill.nextChunkAt
+                        ? ` Next chunk ~${new Date(imSetupQuery.data.backfill.nextChunkAt).toLocaleTimeString()}.`
+                        : ""
+                    } Keep this page open or leave cron running every 5 min.`
+                  : imSetupQuery.data.backfill.status === "done"
+                    ? `Last backfill complete: +${imSetupQuery.data.backfill.created} leads · ${imSetupQuery.data.backfill.chunksDone} chunks.`
+                    : imSetupQuery.data.backfill.status === "error"
+                      ? `Backfill error: ${imSetupQuery.data.backfill.lastError || "failed"}`
+                      : imSetupQuery.data.backfill.status === "cancelled"
+                        ? `Backfill cancelled at chunk ${imSetupQuery.data.backfill.chunksDone}/${imSetupQuery.data.backfill.chunksTotal} (+${imSetupQuery.data.backfill.created} leads).`
+                        : null}
+              </p>
+            ) : null}
+          </div>
+        </Panel>
+
+        <Panel
+          title="TradeIndia (My Inquiry API)"
+          description="Pull buyer inquiries into master Leads + Inbox for follow-up and remarketing."
+        >
+          <ol className="mb-3 list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+            <li>
+              TradeIndia → Dashboard → Inquiries &amp; Contacts →{" "}
+              <span className="font-medium text-foreground">My Inquiry API</span> — copy userid,
+              profile_id, and key.
+            </li>
+            <li>Configure TradeIndia below (credentials are stored on the channel, not in git).</li>
+            <li>
+              <span className="font-medium text-foreground">Sync leads now</span> pulls the last{" "}
+              <strong>24 hours</strong>, or use <span className="font-medium text-foreground">Historical backfill</span>{" "}
+              below (one calendar day per pull, ~1 min between days). Leads get source{" "}
+              <span className="font-medium text-foreground">tradeindia</span> plus Inbox threads.
+            </li>
+          </ol>
+          <div className="flex flex-wrap items-center gap-2">
+            {tradeindia ? (
+              <Button size="sm" onClick={() => openEdit(tradeindia)}>
+                Configure TradeIndia
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                disabled={ensureTiMutation.isPending}
+                onClick={() => ensureTiMutation.mutate()}
+              >
+                {ensureTiMutation.isPending ? "Creating…" : "Create TradeIndia card"}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={
+                !tiSetupQuery.data?.configured ||
+                syncTiMutation.isPending ||
+                tiSetupQuery.data?.backfill?.status === "running" ||
+                tiSetupQuery.data?.backfill?.status === "waiting"
+              }
+              onClick={() => syncTiMutation.mutate()}
+            >
+              {syncTiMutation.isPending
+                ? "Syncing…"
+                : tiSetupQuery.data?.backfill?.status === "running" ||
+                    tiSetupQuery.data?.backfill?.status === "waiting"
+                  ? "Backfill running…"
+                  : "Sync leads now"}
+            </Button>
+            <Button size="sm" variant="outline" asChild>
+              <Link to="/leads">Open leads</Link>
+            </Button>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Status:{" "}
+            {tradeindia
+              ? tiSetupQuery.data?.configured
+                ? tiSetupQuery.data.lastSyncAt
+                  ? `Credentials saved. Last sync ${new Date(tiSetupQuery.data.lastSyncAt).toLocaleString()}.`
+                  : "Credentials saved — run Sync leads now to import inquiries."
+                : "Channel card ready — click Configure TradeIndia and paste userid / profile_id / key."
+              : "TradeIndia card missing. Click Create TradeIndia card (requires migration 014 + 014b)."}
+          </p>
+
+          <div className="mt-4 rounded-lg border border-border/80 bg-secondary/30 p-3">
+            <p className="mb-2 text-sm font-medium text-foreground">Historical backfill</p>
+            <p className="mb-3 text-xs text-muted-foreground">
+              TradeIndia allows only <strong>24 hours per pull</strong>. We pull{" "}
+              <strong>one calendar day at a time</strong> (~1 minute between days). Pick a range within
+              about the last 365 days — very old dates may be rejected by their API.
+            </p>
+            <div className="mb-3 flex flex-wrap items-end gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="ti-bf-from" className="text-xs">
+                  From
+                </Label>
+                <Input
+                  id="ti-bf-from"
+                  type="date"
+                  className="w-[11rem]"
+                  min={tiSetupQuery.data?.backfillEarliestDate}
+                  max={tiSetupQuery.data?.backfillLatestDate}
+                  value={tiBackfillFrom}
+                  disabled={
+                    !tiSetupQuery.data?.configured ||
+                    tiSetupQuery.data?.backfill?.status === "running" ||
+                    tiSetupQuery.data?.backfill?.status === "waiting"
+                  }
+                  onChange={(e) => setTiBackfillFrom(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="ti-bf-to" className="text-xs">
+                  To
+                </Label>
+                <Input
+                  id="ti-bf-to"
+                  type="date"
+                  className="w-[11rem]"
+                  min={tiSetupQuery.data?.backfillEarliestDate}
+                  max={tiSetupQuery.data?.backfillLatestDate}
+                  value={tiBackfillTo}
+                  disabled={
+                    !tiSetupQuery.data?.configured ||
+                    tiSetupQuery.data?.backfill?.status === "running" ||
+                    tiSetupQuery.data?.backfill?.status === "waiting"
+                  }
+                  onChange={(e) => setTiBackfillTo(e.target.value)}
+                />
+              </div>
+              <Button
+                size="sm"
+                disabled={
+                  !tiSetupQuery.data?.configured ||
+                  !tiBackfillFrom ||
+                  !tiBackfillTo ||
+                  startTiBackfillMutation.isPending ||
+                  tiSetupQuery.data?.backfill?.status === "running" ||
+                  tiSetupQuery.data?.backfill?.status === "waiting"
+                }
+                onClick={() => startTiBackfillMutation.mutate()}
+              >
+                {startTiBackfillMutation.isPending ? "Starting…" : "Start backfill"}
+              </Button>
+              {(tiSetupQuery.data?.backfill?.status === "running" ||
+                tiSetupQuery.data?.backfill?.status === "waiting") && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={cancelTiBackfillMutation.isPending}
+                  onClick={() => cancelTiBackfillMutation.mutate()}
+                >
+                  {cancelTiBackfillMutation.isPending ? "Cancelling…" : "Cancel"}
+                </Button>
+              )}
+            </div>
+            {tiSetupQuery.data?.backfill ? (
+              <p className="text-xs text-muted-foreground">
+                {tiSetupQuery.data.backfill.status === "running" ||
+                tiSetupQuery.data.backfill.status === "waiting"
+                  ? `In progress: day ${tiSetupQuery.data.backfill.chunksDone}/${tiSetupQuery.data.backfill.chunksTotal} · +${tiSetupQuery.data.backfill.created} leads · ${tiSetupQuery.data.backfill.fetched} fetched.${
+                      tiSetupQuery.data.backfill.nextChunkAt
+                        ? ` Next day ~${new Date(tiSetupQuery.data.backfill.nextChunkAt).toLocaleTimeString()}.`
+                        : ""
+                    } Keep this page open or leave cron running.`
+                  : tiSetupQuery.data.backfill.status === "done"
+                    ? `Last backfill complete: +${tiSetupQuery.data.backfill.created} leads · ${tiSetupQuery.data.backfill.chunksDone} days.`
+                    : tiSetupQuery.data.backfill.status === "error"
+                      ? `Backfill error: ${tiSetupQuery.data.backfill.lastError || "failed"}`
+                      : tiSetupQuery.data.backfill.status === "cancelled"
+                        ? `Backfill cancelled at day ${tiSetupQuery.data.backfill.chunksDone}/${tiSetupQuery.data.backfill.chunksTotal} (+${tiSetupQuery.data.backfill.created} leads).`
+                        : null}
+              </p>
+            ) : null}
+          </div>
+        </Panel>
+
+        <Panel
+          title="Brainmine CRM+ (lead sync)"
+          description="Read-only pull from your existing Brainmine CRM into the master Leads sheet for follow-up and remarketing."
+        >
+          <ol className="mb-3 list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+            <li>Ask Brainmine for API base URL + API key (and secret if ERPNext-style token auth).</li>
+            <li>
+              Configure below. Defaults assume ERPNext Lead API (
+              <code className="text-xs">/api/resource/Lead</code>). Change path/auth when docs arrive.
+            </li>
+            <li>
+              <span className="font-medium text-foreground">Sync leads now</span> upserts into{" "}
+              <Link className="text-primary underline" to="/leads">
+                /leads
+              </Link>{" "}
+              with source <span className="font-medium text-foreground">brainmine</span>.
+            </li>
+            <li>Engage stays read-only — we never write back to Brainmine.</li>
+          </ol>
+          <div className="flex flex-wrap items-center gap-2">
+            {brainmine ? (
+              <Button size="sm" onClick={() => openEdit(brainmine)}>
+                Configure Brainmine
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                disabled={ensureBmMutation.isPending}
+                onClick={() => ensureBmMutation.mutate()}
+              >
+                {ensureBmMutation.isPending ? "Creating…" : "Create Brainmine card"}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!bmSetupQuery.data?.configured || syncBmMutation.isPending}
+              onClick={() => syncBmMutation.mutate()}
+            >
+              {syncBmMutation.isPending ? "Syncing…" : "Sync leads now"}
+            </Button>
+            <Button size="sm" variant="outline" asChild>
+              <Link to="/leads">Open leads</Link>
+            </Button>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Status:{" "}
+            {brainmine
+              ? bmSetupQuery.data?.configured
+                ? bmSetupQuery.data.lastSyncAt
+                  ? `Connected. Last sync ${new Date(bmSetupQuery.data.lastSyncAt).toLocaleString()}.`
+                  : "Credentials saved — run Sync leads now."
+                : "Channel card ready — click Configure Brainmine."
+              : "Brainmine card missing. Click Create Brainmine card (requires migration 011 + 011b)."}
           </p>
         </Panel>
 
@@ -846,6 +1492,10 @@ function Page() {
                               ? "Meta Messenger"
                               : c.type === "indiamart"
                                 ? "Lead API"
+                                : c.type === "tradeindia"
+                                  ? "Inquiry API"
+                                  : c.type === "brainmine"
+                                  ? "CRM sync"
                                 : "Live"}
                       </Pill>
                     ) : (
@@ -890,6 +1540,9 @@ function Page() {
             <li>
               <span className="font-medium text-foreground">IndiaMART</span> — Lead Manager Pull/Push → Leads + Inbox follow-up.
             </li>
+            <li>
+              <span className="font-medium text-foreground">TradeIndia</span> — My Inquiry API pull → Leads + Inbox follow-up.
+            </li>
           </ul>
         </Panel>
       </div>
@@ -907,6 +1560,10 @@ function Page() {
                     ? "Paste Facebook Page ID and Page access token. Inbound DMs create Inbox conversations."
                     : editing?.type === "indiamart"
                       ? "Paste your IndiaMART Lead Manager CRM key. Sync pulls enquiries into Leads for remarketing."
+                      : editing?.type === "tradeindia"
+                        ? "Paste TradeIndia My Inquiry API userid, profile_id, and key. Sync pulls inquiries into Leads + Inbox."
+                        : editing?.type === "brainmine"
+                          ? "Connect Brainmine CRM+ (read-only). Sync pulls leads into the master Leads sheet."
                       : editing && isLiveChannel(editing.type)
                         ? "Website chat is live. Adjust display name, detail, and health."
                         : "Provider API is not connected yet. You can still rename and mark intent to enable."}
@@ -948,7 +1605,7 @@ function Page() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="wa-waba">WhatsApp Business Account ID (optional)</Label>
+                <Label htmlFor="wa-waba">WhatsApp Business Account ID (required for templates / broadcasting)</Label>
                 <Input
                   id="wa-waba"
                   value={waBusinessAccountId}
@@ -1146,6 +1803,115 @@ function Page() {
                 IndiaMART panel to import enquiries into Leads / Inbox.
               </p>
             </div>
+          ) : editing?.type === "tradeindia" ? (
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="ti-userid">User ID</Label>
+                <Input
+                  id="ti-userid"
+                  value={tiUserid}
+                  onChange={(e) => setTiUserid(e.target.value)}
+                  placeholder="From My Inquiry API"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="ti-profile">Profile ID</Label>
+                <Input
+                  id="ti-profile"
+                  value={tiProfileId}
+                  onChange={(e) => setTiProfileId(e.target.value)}
+                  placeholder="From My Inquiry API"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="ti-key">API key</Label>
+                <Input
+                  id="ti-key"
+                  type="password"
+                  value={tiKey}
+                  onChange={(e) => setTiKey(e.target.value)}
+                  placeholder={
+                    (editing.config as { key?: string } | null)?.key
+                      ? "Leave blank to keep existing key"
+                      : "From My Inquiry API"
+                  }
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Endpoint:{" "}
+                <span className="font-medium text-foreground">
+                  tradeindia.com/utils/my_inquiry.html
+                </span>
+                . After saving, use <span className="font-medium text-foreground">Sync leads now</span>.
+              </p>
+            </div>
+          ) : editing?.type === "brainmine" ? (
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="bm-base">API base URL</Label>
+                <Input
+                  id="bm-base"
+                  value={bmApiBaseUrl}
+                  onChange={(e) => setBmApiBaseUrl(e.target.value)}
+                  placeholder="https://your-crm.example.com"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="bm-key">API key</Label>
+                <Input
+                  id="bm-key"
+                  type="password"
+                  value={bmApiKey}
+                  onChange={(e) => setBmApiKey(e.target.value)}
+                  placeholder={
+                    (editing.config as { api_key?: string } | null)?.api_key
+                      ? "Leave blank to keep existing key"
+                      : "API key"
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="bm-secret">API secret (optional — token auth)</Label>
+                <Input
+                  id="bm-secret"
+                  type="password"
+                  value={bmApiSecret}
+                  onChange={(e) => setBmApiSecret(e.target.value)}
+                  placeholder="ERPNext-style api_secret"
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Auth style</Label>
+                  <Select
+                    value={bmAuthStyle}
+                    onValueChange={(v: BrainmineAuthStyle) => setBmAuthStyle(v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="token">token key:secret (ERPNext)</SelectItem>
+                      <SelectItem value="bearer">Bearer token</SelectItem>
+                      <SelectItem value="x-api-key">X-API-Key header</SelectItem>
+                      <SelectItem value="query">Query param</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="bm-path">Leads path</Label>
+                  <Input
+                    id="bm-path"
+                    value={bmLeadsPath}
+                    onChange={(e) => setBmLeadsPath(e.target.value)}
+                    placeholder="/api/resource/Lead"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Read-only sync into master Leads. Adjust path/auth when Brainmine shares official docs.
+              </p>
+            </div>
           ) : (
             <div className="space-y-3">
               <div className="space-y-2">
@@ -1203,7 +1969,9 @@ function Page() {
                     editing?.type === "email" ||
                     editing?.type === "facebook" ||
                     editing?.type === "instagram" ||
-                    editing?.type === "indiamart"
+                    editing?.type === "indiamart" ||
+                    editing?.type === "tradeindia" ||
+                    editing?.type === "brainmine"
                   ? "Save & connect"
                   : "Save"}
             </Button>

@@ -62,7 +62,8 @@ export async function setChannelEnabled(options: {
     type === "email" ||
     type === "facebook" ||
     type === "instagram" ||
-    type === "indiamart"
+    type === "indiamart" ||
+    type === "tradeindia"
   ) {
     status = enabled ? "Connected" : "Disconnected";
     health = enabled ? 100 : 0;
@@ -105,9 +106,17 @@ export async function setChannelEnabled(options: {
                     ? enabled
                       ? "Lead Manager API"
                       : "disabled"
-                    : enabled
-                      ? "Enabled — connect credentials to go live"
-                      : null,
+                    : type === "tradeindia"
+                      ? enabled
+                        ? "Inquiry API"
+                        : "disabled"
+                      : type === "brainmine"
+                        ? enabled
+                          ? "CRM+ lead sync (read-only)"
+                          : "disabled"
+                        : enabled
+                          ? "Enabled — connect credentials to go live"
+                          : null,
     })
     .eq("id", channelId)
     .select("*")
@@ -160,6 +169,8 @@ export function isLiveChannel(type: ChannelType): boolean {
     type === "email" ||
     type === "facebook" ||
     type === "instagram" ||
-    type === "indiamart"
+    type === "indiamart" ||
+    type === "tradeindia" ||
+    type === "brainmine"
   );
 }

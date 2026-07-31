@@ -12,11 +12,35 @@ import { createServiceSupabase } from "@/lib/supabase";
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const PULL_URL = "https://mapi.indiamart.com/wservce/crm/crmListing/v2/";
 
+export type IndiaMartBackfillState = {
+  status: "idle" | "running" | "waiting" | "done" | "error" | "cancelled";
+  from: string;
+  to: string;
+  cursor: string;
+  chunksTotal: number;
+  chunksDone: number;
+  fetched: number;
+  created: number;
+  skipped: number;
+  errors: string[];
+  lastError?: string | null;
+  startedAt?: string;
+  updatedAt?: string;
+  nextChunkAt?: string | null;
+};
+
 export type IndiaMartChannelConfig = {
   crm_key?: string;
   last_sync_at?: string;
+  /** Last Pull API call (success or rate-limit) — IndiaMART allows ~1 hit / 5 min */
+  last_api_hit_at?: string;
   push_secret?: string;
+  backfill?: IndiaMartBackfillState | null;
 };
+
+const INDIAMART_PULL_COOLDOWN_MS = 5 * 60 * 1000;
+const INDIAMART_CHUNK_MS = 7 * 24 * 60 * 60 * 1000;
+const INDIAMART_MAX_LOOKBACK_MS = 365 * 24 * 60 * 60 * 1000;
 
 export type IndiaMartEnquiry = {
   UNIQUE_QUERY_ID?: string;
@@ -61,7 +85,9 @@ export async function loadIndiaMartConfig(): Promise<IndiaMartChannelConfig> {
     return {
       crm_key: cfg.crm_key || fromEnv.crm_key,
       last_sync_at: cfg.last_sync_at,
+      last_api_hit_at: cfg.last_api_hit_at,
       push_secret: cfg.push_secret || fromEnv.push_secret,
+      backfill: cfg.backfill ?? null,
     };
   } catch {
     return fromEnv;
@@ -136,7 +162,13 @@ export async function pullIndiaMartEnquiries(options: {
 
   const code = Number(json.CODE);
   if (code && code !== 200) {
-    throw new Error(json.MESSAGE || json.STATUS || `IndiaMART error code ${code}`);
+    const msg = json.MESSAGE || json.STATUS || `IndiaMART error code ${code}`;
+    if (/5 minutes|every 5 minute|crossed this limit|try again after/i.test(msg)) {
+      throw new Error(
+        "IndiaMART allows Pull API only once every 5 minutes. Please wait, then Sync again.",
+      );
+    }
+    throw new Error(msg);
   }
 
   const response = json.RESPONSE;
@@ -353,6 +385,27 @@ export async function ingestIndiaMartEnquiry(enquiry: IndiaMartEnquiry): Promise
   };
 }
 
+export function indiaMartCooldownRemainingMs(cfg: IndiaMartChannelConfig, now = Date.now()): number {
+  const hit = cfg.last_api_hit_at || cfg.last_sync_at;
+  if (!hit) return 0;
+  const elapsed = now - new Date(hit).getTime();
+  if (!Number.isFinite(elapsed) || elapsed < 0) return 0;
+  return Math.max(0, INDIAMART_PULL_COOLDOWN_MS - elapsed);
+}
+
+async function stampIndiaMartApiHit(cfg: IndiaMartChannelConfig) {
+  const supabase = createServiceSupabase();
+  const hitAt = new Date().toISOString();
+  await supabase
+    .from("channels")
+    .update({
+      config: { ...cfg, last_api_hit_at: hitAt },
+    })
+    .eq("org_id", ORG_ID)
+    .eq("type", "indiamart");
+  return hitAt;
+}
+
 export async function syncIndiaMartWindow(options?: { days?: number }): Promise<{
   fetched: number;
   created: number;
@@ -362,6 +415,14 @@ export async function syncIndiaMartWindow(options?: { days?: number }): Promise<
   const cfg = await loadIndiaMartConfig();
   if (!indiaMartConfigReady(cfg) || !cfg.crm_key) {
     throw new Error("IndiaMART CRM key is not configured");
+  }
+
+  const waitMs = indiaMartCooldownRemainingMs(cfg);
+  if (waitMs > 0) {
+    const mins = Math.ceil(waitMs / 60_000);
+    throw new Error(
+      `IndiaMART Pull API cooldown: wait about ${mins} more minute${mins === 1 ? "" : "s"} (max 1 sync / 5 min), then try again.`,
+    );
   }
 
   const days = Math.min(Math.max(options?.days ?? 1, 1), 7);
@@ -374,11 +435,21 @@ export async function syncIndiaMartWindow(options?: { days?: number }): Promise<
   const maxStart = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
   const effectiveStart = start < maxStart ? maxStart : start;
 
-  const enquiries = await pullIndiaMartEnquiries({
-    crmKey: cfg.crm_key,
-    start: effectiveStart,
-    end,
-  });
+  // Stamp before calling so rapid double-clicks still respect cooldown
+  const hitAt = await stampIndiaMartApiHit(cfg);
+  const cfgWithHit: IndiaMartChannelConfig = { ...cfg, last_api_hit_at: hitAt };
+
+  let enquiries: IndiaMartEnquiry[];
+  try {
+    enquiries = await pullIndiaMartEnquiries({
+      crmKey: cfg.crm_key,
+      start: effectiveStart,
+      end,
+    });
+  } catch (err) {
+    // Keep last_api_hit_at so we don't hammer the API
+    throw err;
+  }
 
   let created = 0;
   let skipped = 0;
@@ -396,8 +467,9 @@ export async function syncIndiaMartWindow(options?: { days?: number }): Promise<
 
   const supabase = createServiceSupabase();
   const nextConfig: IndiaMartChannelConfig = {
-    ...cfg,
+    ...cfgWithHit,
     last_sync_at: end.toISOString(),
+    last_api_hit_at: hitAt,
   };
   await supabase
     .from("channels")
@@ -412,6 +484,341 @@ export async function syncIndiaMartWindow(options?: { days?: number }): Promise<
     .eq("type", "indiamart");
 
   return { fetched: enquiries.length, created, skipped, errors };
+}
+
+function startOfDay(d: Date): Date {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function endOfDay(d: Date): Date {
+  const x = new Date(d);
+  x.setHours(23, 59, 59, 0);
+  return x;
+}
+
+function parseInputDate(value: string, endOf = false): Date {
+  const raw = value.trim();
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const d = new Date(`${raw}T00:00:00`);
+    if (!Number.isFinite(d.getTime())) throw new Error(`Invalid date: ${value}`);
+    return endOf ? endOfDay(d) : startOfDay(d);
+  }
+  const d = new Date(raw);
+  if (!Number.isFinite(d.getTime())) throw new Error(`Invalid date: ${value}`);
+  return d;
+}
+
+/** Split [from, to] into ≤7-day chunks (IndiaMART Pull max window). */
+export function buildIndiaMartChunks(from: Date, to: Date): Array<{ start: Date; end: Date }> {
+  if (from.getTime() > to.getTime()) throw new Error("From date must be before To date");
+  const chunks: Array<{ start: Date; end: Date }> = [];
+  let cursor = new Date(from);
+  while (cursor.getTime() <= to.getTime()) {
+    const chunkEnd = new Date(Math.min(cursor.getTime() + INDIAMART_CHUNK_MS - 1000, to.getTime()));
+    chunks.push({ start: new Date(cursor), end: chunkEnd });
+    cursor = new Date(chunkEnd.getTime() + 1000);
+  }
+  return chunks;
+}
+
+async function saveIndiaMartConfig(config: IndiaMartChannelConfig, detail?: string) {
+  const supabase = createServiceSupabase();
+  const patch: Record<string, unknown> = { config };
+  if (detail) patch.detail = detail;
+  await supabase.from("channels").update(patch).eq("org_id", ORG_ID).eq("type", "indiamart");
+}
+
+/**
+ * Pull one explicit window (must be ≤7 days). Respects 5-minute cooldown.
+ */
+export async function syncIndiaMartExactWindow(options: {
+  start: Date;
+  end: Date;
+  updateLastSync?: boolean;
+}): Promise<{ fetched: number; created: number; skipped: number; errors: string[] }> {
+  const cfg = await loadIndiaMartConfig();
+  if (!indiaMartConfigReady(cfg) || !cfg.crm_key) {
+    throw new Error("IndiaMART CRM key is not configured");
+  }
+
+  const span = options.end.getTime() - options.start.getTime();
+  if (span < 0) throw new Error("Invalid window");
+  if (span > INDIAMART_CHUNK_MS) {
+    throw new Error("IndiaMART allows max 7 days per pull — window too large");
+  }
+
+  const waitMs = indiaMartCooldownRemainingMs(cfg);
+  if (waitMs > 0) {
+    const mins = Math.ceil(waitMs / 60_000);
+    throw new Error(
+      `IndiaMART Pull API cooldown: wait about ${mins} more minute${mins === 1 ? "" : "s"} (max 1 sync / 5 min).`,
+    );
+  }
+
+  const hitAt = await stampIndiaMartApiHit(cfg);
+  const cfgWithHit: IndiaMartChannelConfig = { ...cfg, last_api_hit_at: hitAt };
+
+  const enquiries = await pullIndiaMartEnquiries({
+    crmKey: cfg.crm_key,
+    start: options.start,
+    end: options.end,
+  });
+
+  let created = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+  for (const enquiry of enquiries) {
+    try {
+      const result = await ingestIndiaMartEnquiry(enquiry);
+      if (result.created) created += 1;
+      else skipped += 1;
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : "ingest failed");
+    }
+  }
+
+  const nextConfig: IndiaMartChannelConfig = {
+    ...cfgWithHit,
+    last_api_hit_at: hitAt,
+    last_sync_at: options.updateLastSync === false ? cfg.last_sync_at : options.end.toISOString(),
+    backfill: cfg.backfill,
+  };
+  await saveIndiaMartConfig(
+    nextConfig,
+    `Last sync ${options.end.toLocaleString()} · +${created} leads`,
+  );
+
+  return { fetched: enquiries.length, created, skipped, errors };
+}
+
+export async function startIndiaMartBackfill(options: {
+  from: string;
+  to: string;
+}): Promise<{
+  ok: boolean;
+  chunksTotal: number;
+  message: string;
+  backfill: IndiaMartBackfillState;
+}> {
+  const cfg = await loadIndiaMartConfig();
+  if (!indiaMartConfigReady(cfg)) {
+    throw new Error("IndiaMART CRM key is not configured");
+  }
+  if (cfg.backfill?.status === "running" || cfg.backfill?.status === "waiting") {
+    throw new Error("A backfill is already in progress — wait for it to finish or cancel it");
+  }
+
+  const now = Date.now();
+  const earliest = new Date(now - INDIAMART_MAX_LOOKBACK_MS);
+  let from = parseInputDate(options.from, false);
+  let to = parseInputDate(options.to, true);
+  if (to.getTime() > now) to = new Date(now);
+  if (from.getTime() < earliest.getTime()) {
+    from = earliest;
+  }
+  if (from.getTime() > to.getTime()) {
+    throw new Error("From date must be on or before To date (within last 365 days)");
+  }
+
+  const chunks = buildIndiaMartChunks(from, to);
+  if (chunks.length === 0) throw new Error("No date range to pull");
+
+  const backfill: IndiaMartBackfillState = {
+    status: "running",
+    from: from.toISOString(),
+    to: to.toISOString(),
+    cursor: chunks[0].start.toISOString(),
+    chunksTotal: chunks.length,
+    chunksDone: 0,
+    fetched: 0,
+    created: 0,
+    skipped: 0,
+    errors: [],
+    lastError: null,
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    nextChunkAt: null,
+  };
+
+  await saveIndiaMartConfig(
+    { ...cfg, backfill },
+    `IndiaMART backfill started · ${chunks.length} chunk(s) of ≤7 days`,
+  );
+
+  // Try first chunk immediately if cooldown allows
+  const tick = await tickIndiaMartBackfill();
+  return {
+    ok: true,
+    chunksTotal: chunks.length,
+    message:
+      tick.processed
+        ? `Backfill started — chunk 1/${chunks.length} done. Remaining chunks run every 5 minutes.`
+        : `Backfill queued — ${chunks.length} chunk(s). ${tick.message}`,
+    backfill: tick.backfill || backfill,
+  };
+}
+
+/**
+ * Advance backfill by one 7-day chunk when cooldown allows.
+ * Safe to call from UI poll or cron every few minutes.
+ */
+export async function tickIndiaMartBackfill(): Promise<{
+  processed: boolean;
+  waiting: boolean;
+  done: boolean;
+  message: string;
+  backfill: IndiaMartBackfillState | null;
+  cooldownMs: number;
+}> {
+  const cfg = await loadIndiaMartConfig();
+  const bf = cfg.backfill;
+  if (!bf || (bf.status !== "running" && bf.status !== "waiting")) {
+    return {
+      processed: false,
+      waiting: false,
+      done: bf?.status === "done",
+      message: "No active backfill",
+      backfill: bf || null,
+      cooldownMs: indiaMartCooldownRemainingMs(cfg),
+    };
+  }
+
+  const cooldownMs = indiaMartCooldownRemainingMs(cfg);
+  if (cooldownMs > 0) {
+    const next = new Date(Date.now() + cooldownMs).toISOString();
+    const waiting: IndiaMartBackfillState = {
+      ...bf,
+      status: "waiting",
+      nextChunkAt: next,
+      updatedAt: new Date().toISOString(),
+    };
+    await saveIndiaMartConfig({ ...cfg, backfill: waiting });
+    return {
+      processed: false,
+      waiting: true,
+      done: false,
+      message: `Waiting ${Math.ceil(cooldownMs / 60_000)} min for IndiaMART rate limit`,
+      backfill: waiting,
+      cooldownMs,
+    };
+  }
+
+  const from = new Date(bf.from);
+  const to = new Date(bf.to);
+  const chunks = buildIndiaMartChunks(from, to);
+  const idx = Math.min(bf.chunksDone, chunks.length);
+  if (idx >= chunks.length) {
+    const done: IndiaMartBackfillState = {
+      ...bf,
+      status: "done",
+      nextChunkAt: null,
+      updatedAt: new Date().toISOString(),
+    };
+    await saveIndiaMartConfig(
+      { ...cfg, backfill: done },
+      `IndiaMART backfill complete · +${done.created} leads`,
+    );
+    return {
+      processed: false,
+      waiting: false,
+      done: true,
+      message: "Backfill complete",
+      backfill: done,
+      cooldownMs: 0,
+    };
+  }
+
+  const chunk = chunks[idx];
+  try {
+    // syncIndiaMartExactWindow stamps hit + updates last_sync; preserve backfill after
+    const result = await syncIndiaMartExactWindow({
+      start: chunk.start,
+      end: chunk.end,
+      updateLastSync: true,
+    });
+
+    const cfgAfter = await loadIndiaMartConfig();
+    const nextDone = idx + 1;
+    const finished = nextDone >= chunks.length;
+    const nextBf: IndiaMartBackfillState = {
+      ...bf,
+      status: finished ? "done" : "waiting",
+      chunksDone: nextDone,
+      cursor: finished
+        ? bf.to
+        : chunks[nextDone].start.toISOString(),
+      fetched: bf.fetched + result.fetched,
+      created: bf.created + result.created,
+      skipped: bf.skipped + result.skipped,
+      errors: [...bf.errors, ...result.errors].slice(-20),
+      lastError: null,
+      updatedAt: new Date().toISOString(),
+      nextChunkAt: finished
+        ? null
+        : new Date(Date.now() + INDIAMART_PULL_COOLDOWN_MS).toISOString(),
+    };
+
+    await saveIndiaMartConfig(
+      {
+        ...cfgAfter,
+        backfill: nextBf,
+      },
+      finished
+        ? `IndiaMART backfill complete · +${nextBf.created} leads`
+        : `IndiaMART backfill ${nextDone}/${chunks.length} · +${nextBf.created} leads so far`,
+    );
+
+    return {
+      processed: true,
+      waiting: !finished,
+      done: finished,
+      message: finished
+        ? `Backfill complete · ${nextBf.created} new leads`
+        : `Chunk ${nextDone}/${chunks.length} done · next in 5 min`,
+      backfill: nextBf,
+      cooldownMs: INDIAMART_PULL_COOLDOWN_MS,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "chunk failed";
+    const errBf: IndiaMartBackfillState = {
+      ...bf,
+      status: /cooldown|5 min/i.test(msg) ? "waiting" : "error",
+      lastError: msg,
+      errors: [...bf.errors, msg].slice(-20),
+      updatedAt: new Date().toISOString(),
+      nextChunkAt: /cooldown|5 min/i.test(msg)
+        ? new Date(Date.now() + indiaMartCooldownRemainingMs(cfg)).toISOString()
+        : bf.nextChunkAt,
+    };
+    await saveIndiaMartConfig({ ...cfg, backfill: errBf });
+    return {
+      processed: false,
+      waiting: errBf.status === "waiting",
+      done: false,
+      message: msg,
+      backfill: errBf,
+      cooldownMs: indiaMartCooldownRemainingMs(await loadIndiaMartConfig()),
+    };
+  }
+}
+
+export async function cancelIndiaMartBackfill(): Promise<IndiaMartBackfillState | null> {
+  const cfg = await loadIndiaMartConfig();
+  if (!cfg.backfill) return null;
+  const cancelled: IndiaMartBackfillState = {
+    ...cfg.backfill,
+    status: "cancelled",
+    nextChunkAt: null,
+    updatedAt: new Date().toISOString(),
+  };
+  await saveIndiaMartConfig(
+    { ...cfg, backfill: cancelled },
+    `IndiaMART backfill cancelled · ${cancelled.chunksDone}/${cancelled.chunksTotal} chunks done`,
+  );
+  return cancelled;
 }
 
 /** Ensure channel row exists (after enum migration). Safe to call repeatedly. */
@@ -489,6 +896,8 @@ export const saveIndiaMartChannelConfig = createServerFn({ method: "POST" })
       crm_key: data.crmKey.trim(),
       push_secret: data.pushSecret?.trim() || existing.push_secret,
       last_sync_at: existing.last_sync_at,
+      last_api_hit_at: existing.last_api_hit_at,
+      backfill: existing.backfill,
     };
     const enable = data.enable ?? true;
     const { data: updated, error } = await supabase
@@ -517,12 +926,29 @@ export const saveIndiaMartChannelConfig = createServerFn({ method: "POST" })
 
 export const getIndiaMartSetupInfo = createServerFn({ method: "GET" }).handler(async () => {
   const ensured = await ensureIndiaMartChannelRow();
-  const cfg = await loadIndiaMartConfig();
+  let cfg = await loadIndiaMartConfig();
+
+  // Auto-advance backfill when cooldown has elapsed (UI poll / page load)
+  if (cfg.backfill && (cfg.backfill.status === "running" || cfg.backfill.status === "waiting")) {
+    if (indiaMartCooldownRemainingMs(cfg) === 0) {
+      await tickIndiaMartBackfill();
+      cfg = await loadIndiaMartConfig();
+    }
+  }
+
+  const cooldownMs = indiaMartCooldownRemainingMs(cfg);
   const appUrl = process.env.VITE_APP_URL || process.env.APP_URL || "";
+  const earliest = new Date(Date.now() - INDIAMART_MAX_LOOKBACK_MS).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+
   return {
     configured: indiaMartConfigReady(cfg),
     hasCrmKey: Boolean(cfg.crm_key),
     lastSyncAt: cfg.last_sync_at || null,
+    lastApiHitAt: cfg.last_api_hit_at || cfg.last_sync_at || null,
+    cooldownMs,
+    nextSyncAt:
+      cooldownMs > 0 ? new Date(Date.now() + cooldownMs).toISOString() : null,
     pushSecretSet: Boolean(cfg.push_secret),
     channelReady: ensured.ok,
     channelCreated: ensured.created,
@@ -530,6 +956,9 @@ export const getIndiaMartSetupInfo = createServerFn({ method: "GET" }).handler(a
     webhookUrl: appUrl
       ? `${appUrl.replace(/\/$/, "")}/api/webhooks/indiamart`
       : "/api/webhooks/indiamart",
+    backfill: cfg.backfill || null,
+    backfillEarliestDate: earliest,
+    backfillLatestDate: today,
   };
 });
 
@@ -538,3 +967,22 @@ export const syncIndiaMartLeads = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     return syncIndiaMartWindow({ days: data.days ?? 1 });
   });
+
+export const startIndiaMartBackfillFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      from: z.string().min(8).max(40),
+      to: z.string().min(8).max(40),
+    }),
+  )
+  .handler(async ({ data }) => {
+    return startIndiaMartBackfill({ from: data.from, to: data.to });
+  });
+
+export const tickIndiaMartBackfillFn = createServerFn({ method: "POST" }).handler(async () => {
+  return tickIndiaMartBackfill();
+});
+
+export const cancelIndiaMartBackfillFn = createServerFn({ method: "POST" }).handler(async () => {
+  return cancelIndiaMartBackfill();
+});

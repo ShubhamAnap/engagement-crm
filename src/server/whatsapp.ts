@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
+import { buildAnswerInspector } from "@/server/answer-inspector";
 import { findCatalogueDownloads, retrieveKnowledgeContext } from "@/server/knowledge";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
@@ -234,6 +235,13 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
 
         // AI reply (same stack as website chat)
         let reply = "Thanks for messaging EnerTech. How can we help with your UPS needs?";
+        let inspector = buildAnswerInspector({
+          chunks: [],
+          replySource: "fallback",
+          model: "gpt-4o-mini",
+          agentName: "EnerBot",
+          channel: "whatsapp",
+        });
         try {
           const { data: history } = await supabase
             .from("messages")
@@ -267,6 +275,17 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             memoryEnabled: agentCfg.memoryEnabled,
           });
           reply = generated.reply;
+          inspector = buildAnswerInspector({
+            chunks,
+            replySource: generated.source,
+            model: generated.model,
+            agentName: agentCfg.agentName,
+            specialistKey: agentCfg.specialistKey,
+            channel: "whatsapp",
+            visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
+            downloadCount: downloads.length,
+            memoryEnabled: agentCfg.memoryEnabled,
+          });
           if (agentCfg.agentId) {
             const prevMeta =
               convo.metadata && typeof convo.metadata === "object"
@@ -294,8 +313,9 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           conversation_id: convo.id,
           sender: "ai",
           body: reply,
-          confidence: 0.7,
-          sources: [],
+          confidence: inspector.confidence,
+          sources: inspector.sources,
+          metadata: inspector.metadata,
         });
 
         try {
@@ -363,8 +383,63 @@ export const getWhatsAppSetupInfo = createServerFn({ method: "GET" }).handler(as
     phoneNumberId: cfg.phone_number_id ? `${cfg.phone_number_id.slice(0, 4)}…` : null,
     hasAccessToken: Boolean(cfg.access_token),
     verifyTokenSet: Boolean(cfg.verify_token),
+    hasWaba: Boolean(cfg.business_account_id),
     displayPhone: cfg.display_phone || null,
     webhookUrl: appUrl ? `${appUrl.replace(/\/$/, "")}/api/webhooks/whatsapp` : "/api/webhooks/whatsapp",
+    needsPublicHttps: !appUrl || /localhost|127\.0\.0\.1/i.test(appUrl),
+  };
+});
+
+/** Verify Phone Number ID + access token against Meta Graph API. */
+export const testWhatsAppConnection = createServerFn({ method: "POST" }).handler(async () => {
+  const cfg = await loadWhatsAppConfig();
+  if (!cfg.phone_number_id || !cfg.access_token) {
+    throw new Error("Save Phone Number ID and Access Token under Channels → WhatsApp first.");
+  }
+
+  const res = await fetch(
+    `${GRAPH_BASE}/${cfg.phone_number_id}?fields=display_phone_number,verified_name,quality_rating`,
+    {
+      headers: { Authorization: `Bearer ${cfg.access_token}` },
+    },
+  );
+  const json = (await res.json().catch(() => ({}))) as {
+    display_phone_number?: string;
+    verified_name?: string;
+    quality_rating?: string;
+    error?: { message?: string };
+  };
+
+  if (!res.ok) {
+    throw new Error(json.error?.message || `Meta Graph error (${res.status})`);
+  }
+
+  // Persist display phone if Meta returns it and we don't have one
+  if (json.display_phone_number && !cfg.display_phone) {
+    const supabase = createServiceSupabase();
+    await supabase
+      .from("channels")
+      .update({
+        config: { ...cfg, display_phone: json.display_phone_number },
+        detail: json.display_phone_number,
+        status: "Connected",
+        is_enabled: true,
+        health: 100,
+      })
+      .eq("org_id", ORG_ID)
+      .eq("type", "whatsapp");
+  }
+
+  return {
+    ok: true as const,
+    displayPhone: json.display_phone_number || cfg.display_phone || null,
+    verifiedName: json.verified_name || null,
+    qualityRating: json.quality_rating || null,
+    webhookReady: Boolean(cfg.verify_token),
+    needsPublicHttps: (() => {
+      const appUrl = process.env.VITE_APP_URL || process.env.APP_URL || "";
+      return !appUrl || /localhost|127\.0\.0\.1/i.test(appUrl);
+    })(),
   };
 });
 

@@ -17,6 +17,7 @@ import {
   SlidersHorizontal,
   ArrowUpDown,
   Store,
+  Database,
   type LucideIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -181,6 +182,8 @@ export const channelMeta: Record<
   instagram: { label: "Instagram", icon: Instagram, tone: "danger" },
   facebook: { label: "Facebook", icon: Facebook, tone: "info" },
   indiamart: { label: "IndiaMART", icon: Store, tone: "warning" },
+  tradeindia: { label: "TradeIndia", icon: Store, tone: "info" },
+  brainmine: { label: "Brainmine CRM+", icon: Database, tone: "primary" },
   api: { label: "API", icon: Globe, tone: "primary" },
   webhook: { label: "Webhook", icon: Globe, tone: "warning" },
 };

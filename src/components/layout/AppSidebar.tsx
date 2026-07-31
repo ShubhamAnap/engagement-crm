@@ -12,6 +12,7 @@ import {
   Inbox,
   KanbanSquare,
   LayoutDashboard,
+  Megaphone,
   MessagesSquare,
   Radio,
   Settings,
@@ -43,6 +44,7 @@ const groups: { label: string; items: Item[] }[] = [
       { to: "/agents", label: "AI Agents", icon: Bot },
       { to: "/knowledge", label: "Knowledge Base", icon: BookOpen },
       { to: "/automation", label: "Automation", icon: Workflow },
+      { to: "/broadcasting", label: "Broadcasting", icon: Megaphone },
     ],
   },
   {
@@ -80,6 +82,7 @@ export function AppSidebar({
   const { profile } = useAuth();
   const orgShort = profile?.org.short ?? "EnerTech";
   const orgPlan = profile?.org.plan ?? "Enterprise";
+  const logoUrl = profile?.org.logoUrl;
 
   return (
     <aside
@@ -97,9 +100,17 @@ export function AppSidebar({
           className="flex min-w-0 items-center gap-2.5"
           aria-label="Go to dashboard"
         >
-          <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
-            <Cpu className="size-4.5" />
-          </div>
+          {logoUrl ? (
+            <img
+              src={logoUrl}
+              alt=""
+              className="size-8 shrink-0 rounded-lg object-contain"
+            />
+          ) : (
+            <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
+              <Cpu className="size-4.5" />
+            </div>
+          )}
           {!collapsed && (
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">

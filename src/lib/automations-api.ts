@@ -20,6 +20,7 @@ export type DbAutomation = {
   run_count: number;
   success_count: number;
   last_run_at: string | null;
+  requires_approval: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -36,11 +37,31 @@ export type DbAutomationRun = {
   created_at: string;
 };
 
+export type DbAutomationApproval = {
+  id: string;
+  org_id: string;
+  automation_id: string;
+  automation_name: string;
+  trigger_type: string;
+  status: "pending" | "approved" | "rejected" | "expired";
+  goal: string;
+  summary: string;
+  context: Record<string, unknown>;
+  actions_snapshot: AutomationAction[];
+  lead_id: string | null;
+  conversation_id: string | null;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  created_at: string;
+};
+
 export const TRIGGER_OPTIONS: Array<{ value: AutomationTrigger; label: string }> = [
   { value: "lead_created", label: "Lead created" },
   { value: "indiamart_lead", label: "IndiaMART lead synced" },
+  { value: "tradeindia_lead", label: "TradeIndia lead synced" },
   { value: "conversation_escalated", label: "Conversation escalated" },
   { value: "lead_status_changed", label: "Lead status changed" },
+  { value: "follow_up_due", label: "Follow-up due (scheduled)" },
 ];
 
 export const ACTION_TYPE_OPTIONS = [
@@ -48,9 +69,13 @@ export const ACTION_TYPE_OPTIONS = [
   { value: "set_lead_status", label: "Set lead status" },
   { value: "set_follow_up_hours", label: "Schedule follow-up (hours)" },
   { value: "add_lead_note", label: "Add lead note" },
+  { value: "set_sales_person", label: "Assign sales person" },
   { value: "tag_conversation", label: "Tag conversation" },
   { value: "set_assignee_label", label: "Set assignee label" },
   { value: "add_system_message", label: "Post system message" },
+  { value: "send_whatsapp_template", label: "Send WhatsApp template" },
+  { value: "send_email", label: "Send email" },
+  { value: "notify_team", label: "Notify team (in-app)" },
 ] as const;
 
 export function successRate(a: DbAutomation): number {
@@ -70,6 +95,7 @@ export async function listAutomations(orgId: string = ENERTECH_ORG_ID): Promise<
     ...(row as DbAutomation),
     actions: Array.isArray(row.actions) ? (row.actions as AutomationAction[]) : [],
     trigger_config: (row.trigger_config || {}) as Record<string, unknown>,
+    requires_approval: row.requires_approval !== false,
   }));
 }
 
@@ -95,6 +121,7 @@ export type AutomationInput = {
   triggerType: AutomationTrigger;
   triggerConfig?: Record<string, unknown>;
   actions: AutomationAction[];
+  requiresApproval?: boolean;
 };
 
 export async function createAutomation(
@@ -112,6 +139,7 @@ export async function createAutomation(
       trigger_type: input.triggerType,
       trigger_config: input.triggerConfig || {},
       actions: input.actions,
+      requires_approval: input.requiresApproval !== false,
     })
     .select("*")
     .single();
@@ -133,6 +161,7 @@ export async function updateAutomation(
       trigger_type: input.triggerType,
       trigger_config: input.triggerConfig || {},
       actions: input.actions,
+      requires_approval: input.requiresApproval !== false,
     })
     .eq("id", automationId)
     .select("*")
@@ -169,13 +198,17 @@ export const fireAutomationTrigger = createServerFn({ method: "POST" })
       trigger: z.enum([
         "lead_created",
         "indiamart_lead",
+        "tradeindia_lead",
         "conversation_escalated",
         "lead_status_changed",
+        "follow_up_due",
       ]),
       leadId: z.string().uuid().optional(),
       conversationId: z.string().uuid().optional(),
       toStatus: z.string().optional(),
       source: z.string().optional(),
+      priority: z.string().optional(),
+      channel: z.string().optional(),
     }),
   )
   .handler(async ({ data }) => {
@@ -185,5 +218,122 @@ export const fireAutomationTrigger = createServerFn({ method: "POST" })
       conversationId: data.conversationId,
       toStatus: data.toStatus,
       source: data.source,
+      priority: data.priority,
+      channel: data.channel,
     });
+  });
+
+/** Test-run one workflow against an optional lead / conversation. */
+export const testAutomationRun = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      automationId: z.string().uuid(),
+      leadId: z.string().uuid().optional(),
+      conversationId: z.string().uuid().optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const { createServiceSupabase } = await import("@/lib/supabase");
+    const { runSingleAutomation } = await import("@/server/automation-engine");
+    const supabase = createServiceSupabase();
+
+    let leadId = data.leadId;
+    let conversationId = data.conversationId;
+
+    if (!leadId && !conversationId) {
+      const { data: lead } = await supabase
+        .from("leads")
+        .select("id")
+        .eq("org_id", ENERTECH_ORG_ID)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      leadId = (lead?.id as string) || undefined;
+    }
+
+    if (!leadId && !conversationId) {
+      throw new Error("No lead found to test against — create a lead first");
+    }
+
+    return runSingleAutomation(data.automationId, { leadId, conversationId });
+  });
+
+/** Process leads whose next_follow_up_at is past (also called by cron). */
+export const processDueFollowUpsFn = createServerFn({ method: "POST" }).handler(async () => {
+  const { processDueFollowUps } = await import("@/server/automation-engine");
+  return processDueFollowUps();
+});
+
+export async function listPendingApprovals(
+  orgId: string = ENERTECH_ORG_ID,
+): Promise<DbAutomationApproval[]> {
+  const supabase = getBrowserSupabase();
+  const { data, error } = await supabase
+    .from("automation_approvals")
+    .select("*")
+    .eq("org_id", orgId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) {
+    // Migration not applied yet
+    console.warn("[approvals]", error.message);
+    return [];
+  }
+  return (data ?? []).map((row) => ({
+    ...(row as DbAutomationApproval),
+    actions_snapshot: Array.isArray(row.actions_snapshot)
+      ? (row.actions_snapshot as AutomationAction[])
+      : [],
+    context: (row.context || {}) as Record<string, unknown>,
+  }));
+}
+
+export const approveAutomationApprovalFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      approvalId: z.string().uuid(),
+      resolvedBy: z.string().uuid().optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const { approveAutomationApproval } = await import("@/server/automation-engine");
+    return approveAutomationApproval(data.approvalId, data.resolvedBy);
+  });
+
+export const rejectAutomationApprovalFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      approvalId: z.string().uuid(),
+      resolvedBy: z.string().uuid().optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const { rejectAutomationApproval } = await import("@/server/automation-engine");
+    await rejectAutomationApproval(data.approvalId, data.resolvedBy);
+    return { ok: true };
+  });
+
+export const bulkApproveAutomationApprovalsFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      resolvedBy: z.string().uuid().optional(),
+      approvalIds: z.array(z.string().uuid()).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const { bulkApproveAutomationApprovals } = await import("@/server/automation-engine");
+    return bulkApproveAutomationApprovals(data.approvalIds ?? "all", data.resolvedBy);
+  });
+
+export const bulkRejectAutomationApprovalsFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      resolvedBy: z.string().uuid().optional(),
+      approvalIds: z.array(z.string().uuid()).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const { bulkRejectAutomationApprovals } = await import("@/server/automation-engine");
+    return bulkRejectAutomationApprovals(data.approvalIds ?? "all", data.resolvedBy);
   });

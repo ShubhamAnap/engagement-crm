@@ -5,6 +5,9 @@ export type Organization = {
   name: string;
   short_name: string;
   plan: string;
+  logo_url?: string | null;
+  logo_path?: string | null;
+  brand_primary?: string | null;
   created_at: string;
 };
 
@@ -35,6 +38,8 @@ export type SessionUser = {
     name: string;
     short: string;
     plan: string;
+    logoUrl?: string | null;
+    brandPrimary?: string | null;
   };
 };
 

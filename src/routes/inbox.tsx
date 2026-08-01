@@ -488,7 +488,7 @@ function Page() {
   const conversationList = (
     <CardPanel
       title="Conversations"
-      className="flex h-full min-h-0 flex-col overflow-hidden rounded-none border-0 shadow-none"
+      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-none border-0 shadow-none"
       bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden p-0"
     >
       <Toolbar
@@ -591,7 +591,7 @@ function Page() {
   );
 
   const conversationThread = (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-card">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card">
       <header className="shrink-0 border-b border-border px-3 py-2.5 sm:px-4 sm:py-3">
         <div className="flex items-start gap-2">
           <Button
@@ -654,8 +654,8 @@ function Page() {
           <EmptyState title="Select a conversation" description="Choose a thread from the left." />
         </div>
       ) : (
-        <>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:p-4">
             <div className="space-y-3">
               {messagesQuery.isLoading ? (
                 <ListSkeleton rows={4} />
@@ -723,23 +723,23 @@ function Page() {
             </div>
           </div>
 
-          <div className="shrink-0 border-t border-border bg-card p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
+          <div className="z-10 shrink-0 border-t border-border bg-card p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
             {marketplaceLead && !waPhone ? (
               <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
                 <p className="font-medium text-destructive">No mobile number on this lead</p>
-                <p className="mt-1 text-xs text-muted-foreground">
+                <p className="mt-1 hidden text-xs text-muted-foreground sm:block">
                   IndiaMART/TradeIndia contact medium is WhatsApp by default — add a phone on the lead to reply.
                 </p>
               </div>
             ) : null}
             {needsTemplate ? (
-              <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
+              <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-2.5 text-sm sm:p-3">
                 <p className="font-medium text-foreground">
                   {marketplaceLead
-                    ? "First WhatsApp contact — send a template to start"
-                    : "WhatsApp window closed — send a template to message"}
+                    ? "Send a WhatsApp template to start"
+                    : "WhatsApp window closed — use Template"}
                 </p>
-                <p className="mt-1 text-xs text-muted-foreground">
+                <p className="mt-1 hidden text-xs text-muted-foreground sm:block">
                   Free-form text is blocked by Meta. Open the template picker from the composer (same
                   row as attach), choose an approved template, then send.
                 </p>
@@ -751,6 +751,7 @@ function Page() {
                   <Button
                     size="sm"
                     variant="ghost"
+                    className="hidden sm:inline-flex"
                     onClick={() => void navigate({ to: "/broadcasting" })}
                   >
                     Manage templates
@@ -764,20 +765,20 @@ function Page() {
                       }
                     >
                       <ExternalLink className="size-3.5" />
-                      Open WhatsApp app
+                      WhatsApp app
                     </Button>
                   ) : null}
                 </div>
               </div>
             ) : null}
             {waCanCloudApi ? (
-              <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <div className="mb-2 hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
                 <Clock className="size-3.5 text-primary" />
                 Session open · <span className="font-medium text-foreground">{waWindow?.label}</span> to
                 reply freely on WhatsApp
               </div>
             ) : null}
-            <div className="mb-2 flex items-center gap-1.5 text-xs text-primary">
+            <div className="mb-2 hidden items-center gap-1.5 text-xs text-primary sm:flex">
               <Sparkles className="size-3.5" />{" "}
               {waOutbound && waPhone
                 ? waCanCloudApi
@@ -867,7 +868,7 @@ function Page() {
               </Button>
             </div>
           </div>
-        </>
+        </div>
       )}
     </div>
   );
@@ -974,13 +975,13 @@ function Page() {
                 maxSize="42%"
                 className="min-h-0 min-w-0"
               >
-                <div className="h-full min-h-0 overflow-hidden border-r border-border">
+                <div className="flex h-full min-h-0 flex-col overflow-hidden border-r border-border">
                   {conversationList}
                 </div>
               </ResizablePanel>
               <ResizableHandle withHandle />
               <ResizablePanel id="chat" defaultSize="48%" minSize="28%" className="min-h-0 min-w-0">
-                <div className="h-full min-h-0 overflow-hidden">{conversationThread}</div>
+                <div className="flex h-full min-h-0 flex-col overflow-hidden">{conversationThread}</div>
               </ResizablePanel>
               <ResizableHandle withHandle />
               <ResizablePanel
@@ -1007,11 +1008,11 @@ function Page() {
       {/* Mobile / tablet: list OR full-screen thread (sales on the road) */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:hidden">
         {!mobileThreadOpen ? (
-          <div className="min-h-0 flex-1 overflow-hidden border-t border-border bg-card">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-border bg-card">
             {conversationList}
           </div>
         ) : (
-          <div className="min-h-0 flex-1 overflow-hidden border-t border-border bg-card">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-border bg-card">
             {conversationThread}
           </div>
         )}

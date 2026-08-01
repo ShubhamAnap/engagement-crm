@@ -218,7 +218,7 @@ function AuthenticatedShell() {
 
   return (
     <>
-      <div className="flex min-h-screen w-full bg-background">
+      <div className="flex h-dvh max-h-dvh w-full overflow-hidden bg-background">
         <AppSidebar collapsed={collapsed} onToggle={() => setCollapsed((v) => !v)} />
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetContent side="left" className="w-[248px] p-0">
@@ -231,7 +231,7 @@ function AuthenticatedShell() {
             />
           </SheetContent>
         </Sheet>
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <TopBar onOpenMobileNav={() => setMobileOpen(true)} />
           <AutomationApprovalBanner />
           <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

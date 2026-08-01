@@ -1,0 +1,638 @@
+================================================================================
+  ENERTECH ENGAGE — COMPLETE PROJECT DOCUMENTATION
+================================================================================
+Product:     EnerTech Engage
+Company:     EnerTech UPS Pvt. Ltd.
+Document:    Full system documentation (text)
+Updated:     2026-08-01
+Repo:        https://github.com/ShubhamAnapenertechsupport
+Live:        https://enertechups-ai.onrender.com/ (typical Render URL)
+Local:       http://localhost:8080/
+
+================================================================================
+1. PRODUCT OVERVIEW
+================================================================================
+
+EnerTech Engage is an enterprise AI customer engagement platform for EnerTech
+UPS. It combines omnichannel inbox, CRM (leads/customers), product catalog,
+knowledge base (RAG), AI agents, automation workflows, broadcasting
+(WhatsApp + Gmail), analytics, and reports.
+
+Goal: Convert a UI prototype into a working multi-channel sales & support
+platform that can later become multi-tenant SaaS.
+
+Brand rules:
+- Product name is always "EnerTech Engage"
+- No third-party builder branding, telemetry, or marketing links
+
+Default organization ID (seeded):
+  a0000000-0000-4000-8000-000000000001
+
+Roles (profiles): Admin, Manager, Agent, Sales
+
+================================================================================
+2. TECH STACK
+================================================================================
+
+Layer              Choice
+-----------------  ----------------------------------------------------------
+Framework          TanStack Start (SSR) — NOT Next.js
+Bundler            Vite 7 / 8
+Routing            TanStack Router (file routes under src/routes/)
+Data fetching      TanStack Query + Supabase client + createServerFn
+UI                 React 19, Tailwind CSS 4, shadcn/ui, Recharts, Lucide
+Server runtime     Nitro node-server
+Database / Auth    Supabase (Postgres + Auth email/password + Storage)
+AI                 OpenAI GPT-4o-mini (+ text-embedding-3-small for RAG)
+Email              Gmail OAuth (preferred) + optional SMTP (nodemailer)
+WhatsApp           Meta Cloud API (Graph v21)
+Deploy             GitHub → Render (Web Service + cron)
+Node               20–22 (engines: >=22 <24 preferred on Render)
+
+Key package name: enertech-engage
+
+================================================================================
+3. LOCAL DEVELOPMENT
+================================================================================
+
+Requirements: Node.js 20+ (22 recommended)
+
+  npm install
+  npm run dev          → http://localhost:8080/
+  npm run build
+  npm start            → node .output/server/index.mjs
+  npm run seed:admin   → creates first admin from SEED_ADMIN_* env
+
+Corporate SSL workaround (if needed on Windows):
+
+  $env:NODE_TLS_REJECT_UNAUTHORIZED = "0"
+  npm install --strict-ssl=false
+
+Secrets: copy .env.example → .env (never commit .env)
+
+================================================================================
+4. DEPLOYMENT (RENDER)
+================================================================================
+
+Blueprint: render.yaml (Web Service + 5-minute automations cron)
+
+Manual Web Service tips:
+- Runtime: Node (not Bun)
+- Build: bash scripts/render-build.sh  OR  npm install --include=dev && npm run build
+- Start: npm run start:check  OR  npm start
+- Set VITE_APP_URL to the public HTTPS URL and redeploy after first deploy
+- Free tier sleeps — prefer Starter for WhatsApp webhooks
+
+Cron job:
+  POST {VITE_APP_URL}/api/cron/automations
+  Header: Authorization: Bearer {CRON_SECRET}
+  Interval: every 5 minutes (*/5 * * * *)
+
+Cron runs:
+- Due automation follow-ups
+- Wait-step resumes
+- IndiaMART / TradeIndia historical backfill ticks
+- IndiaMART / TradeIndia auto lead sync (if toggle ON)
+
+================================================================================
+5. ENVIRONMENT VARIABLES
+================================================================================
+
+App
+  VITE_APP_URL
+
+Widget
+  WIDGET_PUBLIC_KEY
+  VITE_WIDGET_PUBLIC_KEY          (same value)
+
+Supabase (browser)
+  VITE_SUPABASE_URL
+  VITE_SUPABASE_ANON_KEY
+
+Supabase (server)
+  SUPABASE_URL
+  SUPABASE_ANON_KEY
+  SUPABASE_SERVICE_ROLE_KEY
+
+OpenAI
+  OPENAI_API_KEY
+  OPENAI_MODEL                    (default gpt-4o-mini)
+  OPENAI_EMBEDDING_MODEL          (default text-embedding-3-small)
+
+WhatsApp (or configure in Channels UI)
+  WHATSAPP_PHONE_NUMBER_ID
+  WHATSAPP_ACCESS_TOKEN
+  WHATSAPP_VERIFY_TOKEN
+  WHATSAPP_BUSINESS_ACCOUNT_ID
+  WHATSAPP_DISPLAY_PHONE
+
+Gmail OAuth
+  GMAIL_CLIENT_ID
+  GMAIL_CLIENT_SECRET
+  GMAIL_REDIRECT_URI              (optional; default {VITE_APP_URL}/api/oauth/gmail/callback)
+
+Email SMTP (fallback)
+  EMAIL_FROM, EMAIL_FROM_NAME
+  EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, EMAIL_SMTP_SECURE
+  EMAIL_SMTP_USER, EMAIL_SMTP_PASS
+  EMAIL_INBOUND_SECRET
+
+Meta Facebook / Instagram
+  META_PAGE_ID, META_PAGE_ACCESS_TOKEN, META_VERIFY_TOKEN
+  FACEBOOK_*, INSTAGRAM_* variants
+
+IndiaMART
+  INDIAMART_CRM_KEY
+  INDIAMART_PUSH_SECRET
+
+TradeIndia
+  TRADEINDIA_USERID
+  TRADEINDIA_PROFILE_ID
+  TRADEINDIA_API_KEY
+
+Brainmine
+  BRAINMINE_API_BASE_URL, BRAINMINE_API_KEY, BRAINMINE_API_SECRET
+  BRAINMINE_AUTH_STYLE, BRAINMINE_LEADS_PATH
+
+Cron / seed
+  CRON_SECRET
+  SEED_ADMIN_EMAIL
+  SEED_ADMIN_PASSWORD
+
+================================================================================
+6. APPLICATION MODULES (ROUTES)
+================================================================================
+
+Route                 Module                    Status / notes
+--------------------  ------------------------  --------------------------------
+/login                Auth login                Supabase email/password
+/                     Dashboard                 Live KPIs, charts, recent activity
+/command-center       AI Command Center         Live sessions, pause/takeover
+/inbox                Omnichannel Inbox         WA/Email/Meta/Website + templates
+/ai-chat              AI Chat Support           Answer Inspector
+/agents               AI Agents                 Model/prompt/memory/status
+/knowledge            Knowledge Base            Upload + pgvector RAG
+/products             Product Catalog           CRUD + image + catalogue PDF
+/customers            Customers                 Full CRUD + CSV export
+/leads                Leads master sheet        Full CRM fields + bulk actions
+/pipeline             Sales Pipeline            Kanban on lead status
+/analytics            Analytics Insights        7/30/90 day charts
+/automation           Automation workflows      Wait, If/Else, outbound, cron
+/channels             Channel setup             All providers + auto sync
+/broadcasting         Broadcasting              WA templates + Gmail campaigns
+/human-support        Human Support queue       Claim / resolve / return to AI
+/reports              Reports                   Catalog + CSV export
+/settings             Settings                  Profile, company, branding, password
+/embed                Public chat embed         Widget iframe page
+
+API / webhooks
+  /api/webhooks/whatsapp
+  /api/webhooks/email
+  /api/webhooks/facebook
+  /api/webhooks/instagram
+  /api/webhooks/indiamart
+  /api/oauth/gmail/callback
+  /api/cron/automations
+
+Public widget loader: public/widget.js (gated by WIDGET_PUBLIC_KEY)
+
+================================================================================
+7. AUTHENTICATION & ACCESS
+================================================================================
+
+- Supabase Auth email/password
+- AuthProvider in src/lib/auth.tsx
+- Protected app routes; /login public
+- Profiles linked to organizations
+- TopBar / Sidebar show real profile name and role
+- Seed admin: npm run seed:admin (SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD)
+- Typical seed email: admin@enertechups.com
+
+RBAC enforcement beyond role labels is still a later item (audit logs too).
+
+================================================================================
+8. DATABASE (SUPABASE MIGRATIONS)
+================================================================================
+
+Run SQL migrations in order in Supabase SQL Editor (or CLI).
+
+File                                      Purpose
+----------------------------------------  --------------------------------------
+001_foundation.sql                        organizations, profiles, roles
+002_grants.sql                            Grants / RLS helpers
+003_core_schema.sql                       customers, products, leads, channels,
+                                          agents, conversations, messages,
+                                          knowledge_*
+004_knowledge_rag.sql                     pgvector, chunks, match RPC, bucket
+005_knowledge_storage_fix.sql            Storage policies for knowledge
+006_profile_fields.sql                    Profile phone/title; org fields
+007_indiamart_channel.sql                 IndiaMART channel type
+007b_indiamart_channel_row.sql            Seed IndiaMART channel row
+008_automations.sql                       Automation workflows / runs
+009_broadcasting.sql                      WA templates + broadcast campaigns
+010_leads_master.sql                      Leads master sheet columns
+011_brainmine_channel.sql                 Brainmine channel type
+011b_brainmine_channel_row.sql            Seed Brainmine row
+012_automation_follow_up_trigger.sql      Follow-up due trigger
+012b_automation_v2.sql                    Automation v2 enhancements
+013_automation_approvals.sql              Automation approvals
+014_tradeindia_channel.sql                TradeIndia channel type
+014b_tradeindia_channel_row.sql           Seed TradeIndia row
+014c_tradeindia_automation_trigger.sql    tradeindia_lead automation trigger
+015_org_branding.sql                      Logo + brand accent + branding bucket
+016_automation_wait_branch.sql            Wait + If/Else scheduled steps
+017_whatsapp_session_window.sql           conversations.wa_last_customer_at
+018_gmail_oauth_broadcast.sql             Gmail OAuth + email broadcast fields
+019_product_image.sql                     products.image_path / image_url
+
+Storage buckets (typical):
+  knowledge   — KB docs, product PDFs/images (public HTTPS for WhatsApp images)
+  branding    — org logo
+
+================================================================================
+9. CHANNELS (DETAILED)
+================================================================================
+
+9.1 Website chat
+- In-app ChatWidget + public /embed + public/widget.js
+- Visitor capture: name, email, phone, company, location
+- Creates/links customer + lead; merges same-contact threads
+- OpenAI replies via server (RAG + catalogue links)
+- Human takeover pauses AI (conversation status = human)
+- Attachments: image/PDF
+
+9.2 WhatsApp (Meta Cloud API)
+- Configure Phone Number ID, Access Token, Verify Token, WABA ID
+- Webhook: /api/webhooks/whatsapp
+- Inbox agent replies send via Graph API
+- 24-hour customer care window (wa_last_customer_at)
+  - Free-form text/attach only while window open
+  - Closed → use approved Template from Inbox or Broadcasting
+- Inbox Template picker (APPROVED templates + variables)
+- Product Recommend (Path B): image + caption from Products catalog
+- Templates/campaigns also on /broadcasting
+
+9.3 Email
+- SMTP outbound + inbound webhook /api/webhooks/email
+- Gmail OAuth (n8n-style) preferred for marketing send
+  - Channels → Gmail: Client ID/Secret, Connect with Google
+  - Callback: /api/oauth/gmail/callback
+  - Send Email dialog (Text/HTML)
+  - Broadcasting → Gmail campaigns
+
+9.4 Facebook / Instagram
+- Meta Page Messaging
+- Webhooks: /api/webhooks/facebook, /api/webhooks/instagram
+- Inbox outbound replies
+
+9.5 IndiaMART
+- CRM key from seller.indiamart.com/leadmanager/crmapi
+- Sync leads now (latest window; max 7 days; 1 pull / 5 min)
+- Historical backfill (≤365 days, 7-day chunks, 5-min gaps)
+- Push webhook /api/webhooks/indiamart
+- Creates Leads (source indiamart) + Inbox threads
+- AUTO LEAD SYNC toggle on Channels:
+    OFF = manual Sync only
+    ON  = cron schedule presets:
+          - Every hour
+          - Every 6 hours
+          - Once a day at IST time (6 AM / 9 AM / 12 PM / 3 PM / 6 PM / 9 PM)
+- Marketplace Inbox replies default via WhatsApp phone when available
+
+9.6 TradeIndia
+- My Inquiry API (userid, profile_id, key)
+- Sync last 24 hours; historical backfill day-by-day (~1 min gap)
+- Dedup by rfi_id; source tradeindia
+- Same Auto lead sync toggle + presets as IndiaMART
+- Automation trigger: tradeindia_lead
+
+9.7 Brainmine CRM+
+- Read-only pull → master leads (source brainmine)
+- Configurable base URL / auth / path (ERPNext-style defaults)
+
+================================================================================
+10. INBOX (OMNICHANNEL)
+================================================================================
+
+Route: /inbox
+
+Features:
+- Conversation list with channel filters
+- Thread view with polling refresh
+- Customer / lead profile sidebar (status, priority edit)
+- Resizable columns (desktop); stacked layout (mobile)
+- Agent reply → channel-specific outbound (WA/Email/Meta/Website note)
+- Paperclip attachments (image/PDF)
+- WhatsApp:
+    - Window hours remaining indicator
+    - Icon-only Template + Recommend buttons (wide reply box)
+    - Template modal; Recommend product modal
+- Deep link: /inbox?c=<conversationId>
+- Refresh button invalidates queries
+
+Important: IndiaMART chatbot is NOT used for replies — only EnerTech notes
+unless agent sends WhatsApp / email / call.
+
+================================================================================
+11. PRODUCTS & RECOMMENDATIONS
+================================================================================
+
+Route: /products
+
+- CRUD: SKU, name, category, stock, price, AI weight, battery/runtime, description
+- Catalogue PDF upload (Storage) for EnerBot downloads
+- Card image upload (019) for WhatsApp recommendation cards
+- Inbox → Recommend sends:
+    - Image + caption if image_url present
+    - Text caption fallback otherwise
+- Caption includes name, SKU, price, features, catalogue link
+- Requires open WhatsApp 24h window
+- Meta Commerce Catalog (Path A) deferred — Path B only for now
+
+================================================================================
+12. KNOWLEDGE BASE & RAG
+================================================================================
+
+Route: /knowledge
+
+- Collections + documents
+- Upload PDF / TXT / MD (Word rejected with clear error)
+- Collection image galleries
+- OpenAI embeddings → pgvector chunks
+- EnerBot retrieves relevant chunks for grounded answers
+- Can return catalogue PDF / image links when asked
+
+Stack: Supabase Storage + pgvector + text-embedding-3-small (not Pinecone)
+
+================================================================================
+13. CRM — CUSTOMERS, LEADS, PIPELINE
+================================================================================
+
+Customers (/customers)
+- List / create / edit / delete
+- CSV export
+- Linked from Inbox / website chat
+
+Leads (/leads) — master enquiry sheet
+- Company, Name, Email, Phone, Location, Source, Requirement
+- Sales Person, Status, Note, Tags
+- Bulk: select → assign sales person / status / export CSV
+- Sources include website, WhatsApp, indiamart, tradeindia, brainmine, etc.
+
+Pipeline (/pipeline)
+- Live Kanban on leads.status (New → … → Won/Lost)
+- Drag or select stage; New deal creates lead
+
+================================================================================
+14. AI LAYER
+================================================================================
+
+Agents (/agents)
+- Master Support agent owns threads
+- Specialists (Sales, Warranty, …) via keyword routing
+- Per-agent model / system prompt / memory / status
+
+AI Chat (/ai-chat)
+- Answer Inspector: confidence, sources, reasoning, hallucination risk
+
+Command Center (/command-center)
+- Live AI/human/escalated sessions
+- Pause / resume / takeover; timeline
+
+Human Support (/human-support)
+- Queue of escalated/human conversations
+- Take over → Inbox; Resolve; Return to AI
+
+Widget AI
+- generateOpenAiReply + knowledge retrieval
+- Pauses when conversation status is human/escalated
+
+================================================================================
+15. AUTOMATION
+================================================================================
+
+Route: /automation
+
+- Workflows CRUD (Live / Paused)
+- Triggers: lead created, IndiaMART, TradeIndia, escalation, status change,
+  follow-up due
+- Conditions: source, priority, channel, lead status, etc.
+- Actions: update lead/conversation, assign sales person, WhatsApp template,
+  email, notify team
+- Wait (minutes/hours/days) → scheduled resume via cron
+- If/Else branches (Yes/No action lists)
+- Visual WorkflowCanvas
+- Test run + step run history
+- Approvals table (013)
+
+Cron endpoint processes due follow-ups + scheduled wait steps.
+
+================================================================================
+16. BROADCASTING
+================================================================================
+
+Route: /broadcasting
+
+WhatsApp
+- Message templates: create, submit to Meta, Sync from Meta
+- Campaigns to leads / customers / IndiaMART phones / manual list
+- Needs WABA ID on Channels → WhatsApp
+- Migration 009
+
+Gmail
+- One-off send + email campaigns (Text/HTML)
+- Requires Gmail OAuth connected
+
+================================================================================
+17. ANALYTICS, DASHBOARD, REPORTS
+================================================================================
+
+Dashboard (/)
+- KPIs, 7-day conversation trend, channel split, funnel, recent items
+- Export KPI CSV
+
+Analytics (/analytics)
+- Range 7/30/90
+- AI share, conversion, handle time, funnel, channel performance,
+  top questions, agent performance
+
+Reports (/reports)
+- Catalog of report types
+- Preview + Export CSV
+
+Notifications (TopBar bell)
+- Escalations, human queue, unread, new leads, failed automations/broadcasts,
+  WA template status
+
+================================================================================
+18. SETTINGS & BRANDING
+================================================================================
+
+Route: /settings
+
+- Profile: name, phone, job title
+- Email / password update (Supabase Auth)
+- Company profile (Admin): org name/short
+- Branding: logo upload + optional accent hex (015)
+- Sidebar shows logo; accent overrides CSS primary
+- Themes: light/dark/system + palettes Forest, Ocean, Sunrise, Slate, Teal
+- Command palette: Cmd/Ctrl+K
+
+================================================================================
+19. KEY SOURCE FILES (MAP)
+================================================================================
+
+Auth / shell
+  src/lib/auth.tsx
+  src/lib/supabase.ts
+  src/routes/__root.tsx
+  src/routes/login.tsx
+  src/components/layout/AppSidebar.tsx
+  src/components/layout/TopBar.tsx
+
+Chat / inbox
+  src/components/ChatWidget.tsx
+  src/lib/chat-api.ts
+  src/routes/inbox.tsx
+  src/server/widget-chat.ts
+  src/server/openai.ts
+  src/components/inbox/SendWhatsAppTemplateDialog.tsx
+  src/components/inbox/RecommendProductDialog.tsx
+  src/lib/whatsapp-window.ts
+  src/lib/product-card.ts
+
+Channels / messaging servers
+  src/routes/channels.tsx
+  src/lib/channels-api.ts
+  src/lib/marketplace-auto-sync.ts
+  src/server/whatsapp.ts
+  src/server/email.ts
+  src/server/gmail.ts / gmail-api.ts
+  src/server/meta-messenger.ts
+  src/server/indiamart.ts
+  src/server/tradeindia.ts
+  src/server/brainmine.ts
+
+CRM / catalog
+  src/routes/leads.tsx, customers.tsx, products.tsx, pipeline.tsx
+  src/lib/leads-api.ts, customers-api.ts, products-api.ts
+
+Knowledge / AI
+  src/server/knowledge.ts, embeddings.ts, answer-inspector.ts, agents.ts
+  src/routes/knowledge.tsx, agents.tsx, ai-chat.tsx, command-center.tsx
+
+Automation / broadcast / analytics
+  src/server/automation-engine.ts
+  src/routes/automation.tsx, broadcasting.tsx, analytics.tsx, reports.tsx
+  src/routes/api/cron/automations.ts
+
+Types
+  src/lib/db-types.ts
+  src/lib/types.ts
+
+Living docs for AI/dev
+  PROJECT_CONTEXT.md
+  AGENTS.md
+  README.md
+
+================================================================================
+20. ARCHITECTURE DECISIONS (LOCKED)
+================================================================================
+
+- Build module-by-module; foundation first
+- Stay on TanStack Start (do not migrate to Next.js)
+- Database = Supabase Postgres
+- Auth = email/password
+- Roles = Admin, Manager, Agent, Sales
+- AI = OpenAI GPT-4o-mini
+- Deploy = GitHub → one Render Web Service
+- Knowledge RAG = pgvector + OpenAI embeddings (not Pinecone v1)
+- White-label as EnerTech Engage only
+- Secrets stay in .env / Render env — never commit keys
+- Marketplace auto-sync times evaluated in IST (Asia/Kolkata)
+
+================================================================================
+21. OPERATIONAL CHECKLIST (PRODUCTION)
+================================================================================
+
+[ ] All needed SQL migrations applied (especially 015–019, 007–014, 009)
+[ ] Render env vars set; VITE_APP_URL = HTTPS production URL
+[ ] CRON_SECRET + cron job every 5 minutes
+[ ] Admin seeded and password changed
+[ ] WhatsApp credentials + Meta webhook verified
+[ ] Gmail OAuth client + redirect URI if using email campaigns
+[ ] IndiaMART CRM key / TradeIndia keys configured
+[ ] Auto sync toggles set as desired on Channels
+[ ] Knowledge bucket public enough for WhatsApp product images (HTTPS)
+[ ] Widget public key configured; embed snippet on website
+[ ] Prefer paid Render instance so WhatsApp webhooks do not miss cold starts
+
+================================================================================
+22. KNOWN LIMITATIONS / LATER WORK
+================================================================================
+
+- Full RBAC enforcement and audit log UI still later
+- Meta Commerce Catalog (WhatsApp Path A) deferred
+- AI auto-suggest of products not yet built
+- Brainmine field map may need tuning when full API docs arrive
+- Some TypeScript warnings exist in analytics/index/knowledge (pre-existing)
+- IndiaMART API: max 1 pull / 5 minutes; max 7 days per pull
+- TradeIndia: max ~24 hours per pull; day-by-day backfill
+- Free Render sleep can drop inbound webhooks
+
+================================================================================
+23. HOW TO USE — QUICK USER GUIDE
+================================================================================
+
+Login
+  Open app → /login → Admin/Agent credentials
+
+Enable IndiaMART / TradeIndia auto sync
+  Channels → IndiaMART or TradeIndia panel
+  → Configure credentials if needed
+  → Flip Auto lead sync ON
+  → Choose Every hour / Every 6 hours / Once a day (+ IST time)
+  → Toggle OFF anytime to use only Sync leads now
+
+Manual sync
+  Channels → Sync leads now (respects API cooldowns)
+
+Historical import
+  Channels → Historical backfill → From/To → Start (leave cron running)
+
+WhatsApp inbox
+  Open WhatsApp thread → reply while green window open
+  If closed → Template icon → pick APPROVED template
+  Recommend icon → pick product card to send
+
+Products for WhatsApp cards
+  Products → Edit → upload WhatsApp card image (+ optional PDF)
+  Run migration 019 if image columns missing
+
+Website widget
+  Channels → copy embed snippet (widget.js + public key)
+  Or open /embed for preview
+
+Broadcasting
+  Create/sync WA templates; run campaigns
+  Or Gmail channel for email blasts
+
+Automation
+  Create workflow → trigger → optional Wait/If-Else → actions → Live
+  Cron processes waits and follow-ups
+
+================================================================================
+24. SUPPORTING DOCS IN REPO
+================================================================================
+
+PROJECT_CONTEXT.md   — living implementation tracker (read every session)
+AGENTS.md            — rules for AI coding agents
+README.md            — quick start + Render deploy
+.env.example         — all env keys template
+supabase/README.md   — migration notes (if present)
+supabase/migrations/ — SQL schema history
+render.yaml          — Render blueprint
+
+================================================================================
+END OF DOCUMENT
+================================================================================

@@ -1,7 +1,7 @@
 # EnerTech Engage — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
-> **Last updated:** 2026-07-31
+> **Last updated:** 2026-08-01
 
 ---
 
@@ -302,6 +302,7 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-08-01
+- **Product image/PDF upload fix:** Client Storage upload now remove+retries, then falls back to service-role server fn `uploadProductMediaServer` (`src/server/product-media.ts`) — same pattern as Knowledge Base. Clearer errors if `019_product_image.sql` / `005_knowledge_storage_fix.sql` missing. Extension-based MIME when `file.type` is empty.
 - **Mobile Inbox:** Phone/tablet uses list-first → full-screen thread (back + profile sheet). Larger touch targets, searchable list, safe-area composer. Floating ChatWidget hidden on `/inbox` so it doesn’t cover the composer.
 - **WhatsApp template #132012 fix:** Broadcasting + Inbox detect IMAGE/VIDEO/DOCUMENT headers from synced `components`, require a public media URL at send time, support named body params, and show full Meta error details. Helper `src/lib/wa-template-params.ts`.
 - **Gmail campaign fixes:** (1) UTF-8 bodies use base64 MIME (7bit broke Indian chars / ₹). (2) Recipient insert no longer hard-requires `merge_fields` column — falls back to `audience.merge_by_email`. (3) Delayed sends stop before proxy timeout (~55s) and **cron resumes** pending email campaigns (`tickPendingEmailBroadcasts`). Run `020_broadcast_recipient_merge.sql` when you can for per-row merge storage.

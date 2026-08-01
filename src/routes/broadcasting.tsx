@@ -265,9 +265,15 @@ function Page() {
     onSuccess: async (r) => {
       await invalidate();
       setEmailBroadcastOpen(false);
-      toast.success(
-        `Email campaign finished · sent ${r.sent}, failed ${r.failed} (delay ${r.delayMinSec ?? "—"}–${r.delayMaxSec ?? "—"}s)`,
-      );
+      if (r.done === false || (typeof r.pending === "number" && r.pending > 0)) {
+        toast.success(
+          `Campaign sending… ${r.sent ?? 0} sent so far, ${r.pending ?? "?"} still queued. Rest continue via cron — refresh in a minute.`,
+        );
+      } else {
+        toast.success(
+          `Email campaign finished · sent ${r.sent}, failed ${r.failed} (delay ${r.delayMinSec ?? "—"}–${r.delayMaxSec ?? "—"}s)`,
+        );
+      }
       setTab("campaigns");
       setChannel("email");
     },

@@ -5,9 +5,11 @@ import {
 } from "@/server/automation-engine";
 import { tickIndiaMartAutoSync, tickIndiaMartBackfill } from "@/server/indiamart";
 import { tickTradeIndiaAutoSync, tickTradeIndiaBackfill } from "@/server/tradeindia";
+import { tickPendingEmailBroadcasts } from "@/server/gmail";
 
 /**
- * Scheduled jobs: due follow-ups + Wait resumes + IndiaMART/TradeIndia backfill + auto lead sync.
+ * Scheduled jobs: due follow-ups + Wait resumes + IndiaMART/TradeIndia backfill + auto lead sync
+ * + resume Gmail campaigns stuck mid-send (delay pacing).
  * Point Render cron at:
  *   POST {VITE_APP_URL}/api/cron/automations
  * Header: Authorization: Bearer {CRON_SECRET}
@@ -19,24 +21,28 @@ export const Route = createFileRoute("/api/cron/automations")({
       GET: async ({ request }) => {
         const ok = authorize(request);
         if (!ok) return new Response("Unauthorized", { status: 401 });
-        const [followUps, waits, indiamart, tradeindia, imAuto, tiAuto] = await Promise.all([
-          processDueFollowUps(),
-          processScheduledAutomationSteps().catch((err) => ({
-            error: err instanceof Error ? err.message : "wait resume failed",
-          })),
-          tickIndiaMartBackfill().catch((err) => ({
-            error: err instanceof Error ? err.message : "indiamart tick failed",
-          })),
-          tickTradeIndiaBackfill().catch((err) => ({
-            error: err instanceof Error ? err.message : "tradeindia tick failed",
-          })),
-          tickIndiaMartAutoSync().catch((err) => ({
-            error: err instanceof Error ? err.message : "indiamart auto sync failed",
-          })),
-          tickTradeIndiaAutoSync().catch((err) => ({
-            error: err instanceof Error ? err.message : "tradeindia auto sync failed",
-          })),
-        ]);
+        const [followUps, waits, indiamart, tradeindia, imAuto, tiAuto, emailBc] =
+          await Promise.all([
+            processDueFollowUps(),
+            processScheduledAutomationSteps().catch((err) => ({
+              error: err instanceof Error ? err.message : "wait resume failed",
+            })),
+            tickIndiaMartBackfill().catch((err) => ({
+              error: err instanceof Error ? err.message : "indiamart tick failed",
+            })),
+            tickTradeIndiaBackfill().catch((err) => ({
+              error: err instanceof Error ? err.message : "tradeindia tick failed",
+            })),
+            tickIndiaMartAutoSync().catch((err) => ({
+              error: err instanceof Error ? err.message : "indiamart auto sync failed",
+            })),
+            tickTradeIndiaAutoSync().catch((err) => ({
+              error: err instanceof Error ? err.message : "tradeindia auto sync failed",
+            })),
+            tickPendingEmailBroadcasts().catch((err) => ({
+              error: err instanceof Error ? err.message : "email broadcast tick failed",
+            })),
+          ]);
         return Response.json({
           success: true,
           followUps,
@@ -45,29 +51,34 @@ export const Route = createFileRoute("/api/cron/automations")({
           tradeindia,
           indiamartAutoSync: imAuto,
           tradeindiaAutoSync: tiAuto,
+          emailBroadcasts: emailBc,
         });
       },
       POST: async ({ request }) => {
         const ok = authorize(request);
         if (!ok) return new Response("Unauthorized", { status: 401 });
-        const [followUps, waits, indiamart, tradeindia, imAuto, tiAuto] = await Promise.all([
-          processDueFollowUps(),
-          processScheduledAutomationSteps().catch((err) => ({
-            error: err instanceof Error ? err.message : "wait resume failed",
-          })),
-          tickIndiaMartBackfill().catch((err) => ({
-            error: err instanceof Error ? err.message : "indiamart tick failed",
-          })),
-          tickTradeIndiaBackfill().catch((err) => ({
-            error: err instanceof Error ? err.message : "tradeindia tick failed",
-          })),
-          tickIndiaMartAutoSync().catch((err) => ({
-            error: err instanceof Error ? err.message : "indiamart auto sync failed",
-          })),
-          tickTradeIndiaAutoSync().catch((err) => ({
-            error: err instanceof Error ? err.message : "tradeindia auto sync failed",
-          })),
-        ]);
+        const [followUps, waits, indiamart, tradeindia, imAuto, tiAuto, emailBc] =
+          await Promise.all([
+            processDueFollowUps(),
+            processScheduledAutomationSteps().catch((err) => ({
+              error: err instanceof Error ? err.message : "wait resume failed",
+            })),
+            tickIndiaMartBackfill().catch((err) => ({
+              error: err instanceof Error ? err.message : "indiamart tick failed",
+            })),
+            tickTradeIndiaBackfill().catch((err) => ({
+              error: err instanceof Error ? err.message : "tradeindia tick failed",
+            })),
+            tickIndiaMartAutoSync().catch((err) => ({
+              error: err instanceof Error ? err.message : "indiamart auto sync failed",
+            })),
+            tickTradeIndiaAutoSync().catch((err) => ({
+              error: err instanceof Error ? err.message : "tradeindia auto sync failed",
+            })),
+            tickPendingEmailBroadcasts().catch((err) => ({
+              error: err instanceof Error ? err.message : "email broadcast tick failed",
+            })),
+          ]);
         return Response.json({
           success: true,
           followUps,
@@ -76,6 +87,7 @@ export const Route = createFileRoute("/api/cron/automations")({
           tradeindia,
           indiamartAutoSync: imAuto,
           tradeindiaAutoSync: tiAuto,
+          emailBroadcasts: emailBc,
         });
       },
     },

@@ -302,6 +302,7 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-08-01
+- **Gmail campaign fixes:** (1) UTF-8 bodies use base64 MIME (7bit broke Indian chars / ₹). (2) Recipient insert no longer hard-requires `merge_fields` column — falls back to `audience.merge_by_email`. (3) Delayed sends stop before proxy timeout (~55s) and **cron resumes** pending email campaigns (`tickPendingEmailBroadcasts`). Run `020_broadcast_recipient_merge.sql` when you can for per-row merge storage.
 - **Gmail campaign CSV audience:** New email campaign → Audience **Upload CSV (campaign only)**. Template includes merge columns; max 500. Rows stored on `broadcast_recipients.merge_fields` (migration `020_broadcast_recipient_merge.sql`) — **not** saved as leads. Helper `src/lib/email-audience-import.ts`.
 - **Leads bulk CSV import:** `/leads` → **Bulk import** downloads template, uploads CSV (max 500 rows). Requires name + email or phone; skips existing email/phone. Helper `src/lib/leads-import.ts`.
 - **Gmail campaign merge fields:** Subject/body support `{{name}}`, `{{company}}`, `{{email}}`, `{{phone}}`, `{{requirement}}`, `{{sales_person}}`, `{{location}}`, `{{source}}`, `{{status}}`, `{{notes}}` — filled per recipient from Leads/Customers at send time (`src/lib/email-merge.ts`).

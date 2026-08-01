@@ -287,6 +287,8 @@ function buildRfc822(options: {
   format: "text" | "html";
 }) {
   const subject = options.subject.replace(/[\r\n]+/g, " ").trim();
+  // Always base64-encode body — 7bit breaks on UTF-8 (names, ₹, Hindi, etc.) and Gmail rejects/garbles.
+  const bodyB64 = Buffer.from(options.body, "utf8").toString("base64");
   const headers = [
     `From: ${options.from}`,
     `To: ${options.to}`,
@@ -295,9 +297,9 @@ function buildRfc822(options: {
     options.format === "html"
       ? 'Content-Type: text/html; charset="UTF-8"'
       : 'Content-Type: text/plain; charset="UTF-8"',
-    "Content-Transfer-Encoding: 7bit",
+    "Content-Transfer-Encoding: base64",
     "",
-    options.body,
+    bodyB64,
   ];
   return headers.join("\r\n");
 }
@@ -430,12 +432,24 @@ export async function clearGmailConnection() {
   return { ok: true as const };
 }
 
-export async function runEmailBroadcast(broadcastId: string): Promise<{
+export async function runEmailBroadcast(
+  broadcastId: string,
+  options?: { maxMs?: number },
+): Promise<{
   sent: number;
   failed: number;
+  pending: number;
   total: number;
+  delayMinSec: number;
+  delayMaxSec: number;
+  status: string;
+  done: boolean;
 }> {
   const supabase = createServiceSupabase();
+  const startedAt = Date.now();
+  // Keep under typical reverse-proxy / serverless timeouts (Render ~100s; leave headroom).
+  const maxMs = Math.max(5_000, Math.min(options?.maxMs ?? 55_000, 90_000));
+
   const { data: broadcast, error: bErr } = await supabase
     .from("broadcasts")
     .select("*")
@@ -453,18 +467,20 @@ export async function runEmailBroadcast(broadcastId: string): Promise<{
 
   await supabase
     .from("broadcasts")
-    .update({ status: "Sending", started_at: new Date().toISOString() })
+    .update({
+      status: "Sending",
+      started_at: broadcast.started_at || new Date().toISOString(),
+      completed_at: null,
+    })
     .eq("id", broadcastId);
 
   const { data: recipients, error: rErr } = await supabase
     .from("broadcast_recipients")
     .select("*")
     .eq("broadcast_id", broadcastId)
-    .eq("status", "pending");
+    .eq("status", "pending")
+    .order("created_at", { ascending: true });
   if (rErr) throw new Error(rErr.message);
-
-  let sent = 0;
-  let failed = 0;
 
   const aud = (broadcast.audience || {}) as Record<string, unknown>;
   let delayMinSec = Math.round(Number(aud.delay_min_sec ?? 4));
@@ -473,6 +489,12 @@ export async function runEmailBroadcast(broadcastId: string): Promise<{
   if (!Number.isFinite(delayMaxSec) || delayMaxSec < delayMinSec) delayMaxSec = delayMinSec;
   if (delayMinSec > 120) delayMinSec = 120;
   if (delayMaxSec > 300) delayMaxSec = 300;
+
+  const mergeByEmailRaw = aud.merge_by_email;
+  const mergeByEmail =
+    mergeByEmailRaw && typeof mergeByEmailRaw === "object" && !Array.isArray(mergeByEmailRaw)
+      ? (mergeByEmailRaw as Record<string, EmailMergeFields>)
+      : {};
 
   const list = recipients || [];
   const leadIds = [
@@ -510,11 +532,33 @@ export async function runEmailBroadcast(broadcastId: string): Promise<{
     }
   }
 
+  let stoppedEarly = false;
+
+  // Fail fast if Gmail isn't usable — leave recipients pending for a later retry.
+  try {
+    await getValidGmailAccessToken();
+  } catch (err) {
+    await supabase
+      .from("broadcasts")
+      .update({
+        status: "Queued",
+        failed_count: 0,
+      })
+      .eq("id", broadcastId);
+    throw err instanceof Error
+      ? err
+      : new Error("Gmail is not connected. Connect Gmail under Channels → Email.");
+  }
+
   for (let i = 0; i < list.length; i++) {
+    if (Date.now() - startedAt > maxMs) {
+      stoppedEarly = true;
+      break;
+    }
+
     const r = list[i];
-    const email = String(r.email || "").trim();
+    const email = String(r.email || "").trim().toLowerCase();
     if (!email) {
-      failed += 1;
       await supabase
         .from("broadcast_recipients")
         .update({ status: "failed", error: "Missing email" })
@@ -524,22 +568,30 @@ export async function runEmailBroadcast(broadcastId: string): Promise<{
         const fromLead = r.lead_id ? leadMap.get(String(r.lead_id)) : undefined;
         const fromCustomer = r.customer_id ? customerMap.get(String(r.customer_id)) : undefined;
         const rawMerge = r.merge_fields;
-        const fromUpload: EmailMergeFields | undefined =
+        const fromUploadCol: EmailMergeFields | undefined =
           rawMerge && typeof rawMerge === "object" && !Array.isArray(rawMerge)
             ? (rawMerge as EmailMergeFields)
             : undefined;
-        // Upload CSV fields win for campaign-only shortlists; else CRM lead/customer.
+        const fromAudience = mergeByEmail[email];
+        // Upload CSV / audience map wins for campaign-only shortlists; else CRM.
         const fields: EmailMergeFields = {
           ...(fromCustomer || {}),
           ...(fromLead || {}),
-          ...(fromUpload || {}),
+          ...(fromAudience || {}),
+          ...(fromUploadCol || {}),
           name:
-            fromUpload?.name ||
+            fromUploadCol?.name ||
+            fromAudience?.name ||
             fromLead?.name ||
             fromCustomer?.name ||
             (r.name as string) ||
             null,
-          email: fromUpload?.email || fromLead?.email || fromCustomer?.email || email,
+          email:
+            fromUploadCol?.email ||
+            fromAudience?.email ||
+            fromLead?.email ||
+            fromCustomer?.email ||
+            email,
         };
 
         const personalizedBody = applyEmailMerge(body, fields);
@@ -560,9 +612,7 @@ export async function runEmailBroadcast(broadcastId: string): Promise<{
             error: null,
           })
           .eq("id", r.id);
-        sent += 1;
       } catch (err) {
-        failed += 1;
         await supabase
           .from("broadcast_recipients")
           .update({
@@ -574,23 +624,112 @@ export async function runEmailBroadcast(broadcastId: string): Promise<{
     }
 
     // Random pause between emails (not after the last one) — Gmail pacing
-    if (i < list.length - 1 && delayMaxSec > 0) {
+    if (i < list.length - 1 && !stoppedEarly && delayMaxSec > 0) {
+      if (Date.now() - startedAt > maxMs) {
+        stoppedEarly = true;
+        break;
+      }
       const span = delayMaxSec - delayMinSec;
       const waitSec = delayMinSec + (span > 0 ? Math.random() * span : 0);
       const waitMs = Math.max(0, Math.round(waitSec * 1000));
+      const remainingBudget = maxMs - (Date.now() - startedAt);
+      if (waitMs > remainingBudget) {
+        stoppedEarly = true;
+        break;
+      }
       await new Promise((resolve) => setTimeout(resolve, waitMs));
     }
   }
 
+  // Recount from DB so cron resumes don't overwrite totals.
+  const { data: allRecipients } = await supabase
+    .from("broadcast_recipients")
+    .select("status")
+    .eq("broadcast_id", broadcastId);
+  const statuses = (allRecipients || []).map((row) => String(row.status || ""));
+  const sent = statuses.filter((s) => s === "sent").length;
+  const failed = statuses.filter((s) => s === "failed").length;
+  const pending = statuses.filter((s) => s === "pending").length;
+  const total = statuses.length;
+  const done = pending === 0;
+  const status = done
+    ? failed > 0 && sent === 0
+      ? "Failed"
+      : "Completed"
+    : "Sending";
+
   await supabase
     .from("broadcasts")
     .update({
-      status: failed > 0 && sent === 0 ? "Failed" : "Completed",
+      status,
       sent_count: sent,
       failed_count: failed,
-      completed_at: new Date().toISOString(),
+      total_count: total,
+      completed_at: done ? new Date().toISOString() : null,
     })
     .eq("id", broadcastId);
 
-  return { sent, failed, total: list.length, delayMinSec, delayMaxSec };
+  return {
+    sent,
+    failed,
+    pending,
+    total,
+    delayMinSec,
+    delayMaxSec,
+    status,
+    done,
+  };
+}
+
+/** Resume any email campaigns stuck in Sending / Queued with pending recipients. */
+export async function tickPendingEmailBroadcasts(limit = 3): Promise<{
+  processed: number;
+  results: Array<{ broadcastId: string; sent: number; failed: number; pending: number; done: boolean }>;
+}> {
+  const supabase = createServiceSupabase();
+  const { data: rows, error } = await supabase
+    .from("broadcasts")
+    .select("id")
+    .eq("org_id", ORG_ID)
+    .eq("channel_type", "email")
+    .in("status", ["Queued", "Sending"])
+    .order("created_at", { ascending: true })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+
+  const results: Array<{
+    broadcastId: string;
+    sent: number;
+    failed: number;
+    pending: number;
+    done: boolean;
+  }> = [];
+
+  for (const row of rows || []) {
+    const id = row.id as string;
+    const { count } = await supabase
+      .from("broadcast_recipients")
+      .select("id", { count: "exact", head: true })
+      .eq("broadcast_id", id)
+      .eq("status", "pending");
+    if (!count) {
+      // No pending — finalize status from counts
+      await runEmailBroadcast(id, { maxMs: 5_000 }).catch(() => null);
+      continue;
+    }
+    try {
+      const r = await runEmailBroadcast(id, { maxMs: 45_000 });
+      results.push({
+        broadcastId: id,
+        sent: r.sent,
+        failed: r.failed,
+        pending: r.pending,
+        done: r.done,
+      });
+    } catch (err) {
+      console.error("tickPendingEmailBroadcasts", id, err);
+    }
+  }
+
+  return { processed: results.length, results };
 }

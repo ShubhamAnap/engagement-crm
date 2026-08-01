@@ -139,6 +139,11 @@ export async function createAndSendEmailBroadcast(options: {
   if (delayMinSec > 120) delayMinSec = 120;
   if (delayMaxSec > 300) delayMaxSec = 300;
 
+  const mergeByEmail: Record<string, Record<string, string | null | undefined>> = {};
+  for (const r of recipients) {
+    if (r.merge_fields) mergeByEmail[r.email] = r.merge_fields;
+  }
+
   const supabase = getBrowserSupabase();
   const { data: broadcast, error } = await supabase
     .from("broadcasts")
@@ -155,6 +160,7 @@ export async function createAndSendEmailBroadcast(options: {
         kind: options.audienceKind,
         delay_min_sec: delayMinSec,
         delay_max_sec: delayMaxSec,
+        ...(Object.keys(mergeByEmail).length ? { merge_by_email: mergeByEmail } : {}),
       },
       total_count: recipients.length,
       created_by: options.createdBy || null,
@@ -163,24 +169,46 @@ export async function createAndSendEmailBroadcast(options: {
     .single();
   if (error) throw error;
 
-  const { error: recErr } = await supabase.from("broadcast_recipients").insert(
-    recipients.map((r) => ({
-      org_id: orgId,
-      broadcast_id: broadcast.id,
-      phone: null,
-      email: r.email,
-      name: r.name,
-      customer_id: r.customer_id || null,
-      lead_id: r.lead_id || null,
-      merge_fields: r.merge_fields || null,
-      status: "pending",
-    })),
-  );
-  if (recErr) throw recErr;
+  const baseRows = recipients.map((r) => ({
+    org_id: orgId,
+    broadcast_id: broadcast.id,
+    phone: null as string | null,
+    email: r.email,
+    name: r.name,
+    customer_id: r.customer_id || null,
+    lead_id: r.lead_id || null,
+    status: "pending",
+  }));
+
+  // Prefer storing merge_fields per recipient when migration 020 is applied.
+  // If the column is missing, fall back — audience.merge_by_email still personalizes.
+  const withMerge = baseRows.map((row, i) => ({
+    ...row,
+    merge_fields: recipients[i].merge_fields || null,
+  }));
+
+  let recErr = (await supabase.from("broadcast_recipients").insert(withMerge)).error;
+  if (recErr && /merge_fields/i.test(recErr.message || "")) {
+    recErr = (await supabase.from("broadcast_recipients").insert(baseRows)).error;
+  }
+  if (recErr) {
+    // Clean up orphan broadcast so UI doesn't show a dead Queued campaign
+    await supabase.from("broadcasts").delete().eq("id", broadcast.id);
+    throw new Error(
+      /merge_fields/i.test(recErr.message || "")
+        ? "Recipient save failed. Run migration 020_broadcast_recipient_merge.sql in Supabase, then retry."
+        : recErr.message || "Failed to save campaign recipients",
+    );
+  }
 
   const { runGmailEmailBroadcast } = await import("@/server/gmail-api");
   const result = await runGmailEmailBroadcast({ data: { broadcastId: broadcast.id as string } });
-  return { broadcastId: broadcast.id as string, ...result };
+  return {
+    broadcastId: broadcast.id as string,
+    delayMinSec,
+    delayMaxSec,
+    ...result,
+  };
 }
 
 async function resolveAudienceEmails(

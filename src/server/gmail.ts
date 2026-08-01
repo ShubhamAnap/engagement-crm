@@ -460,7 +460,17 @@ export async function runEmailBroadcast(broadcastId: string): Promise<{
   let sent = 0;
   let failed = 0;
 
-  for (const r of recipients || []) {
+  const aud = (broadcast.audience || {}) as Record<string, unknown>;
+  let delayMinSec = Math.round(Number(aud.delay_min_sec ?? 4));
+  let delayMaxSec = Math.round(Number(aud.delay_max_sec ?? 12));
+  if (!Number.isFinite(delayMinSec) || delayMinSec < 0) delayMinSec = 0;
+  if (!Number.isFinite(delayMaxSec) || delayMaxSec < delayMinSec) delayMaxSec = delayMinSec;
+  if (delayMinSec > 120) delayMinSec = 120;
+  if (delayMaxSec > 300) delayMaxSec = 300;
+
+  const list = recipients || [];
+  for (let i = 0; i < list.length; i++) {
+    const r = list[i];
     const email = String(r.email || "").trim();
     if (!email) {
       failed += 1;
@@ -468,41 +478,49 @@ export async function runEmailBroadcast(broadcastId: string): Promise<{
         .from("broadcast_recipients")
         .update({ status: "failed", error: "Missing email" })
         .eq("id", r.id);
-      continue;
-    }
-    try {
-      let personalized = body;
-      if (r.name) {
-        personalized = personalized.replace(/\{\{name\}\}/gi, String(r.name));
-        personalized = personalized.replace(/\{\{1\}\}/g, String(r.name));
+    } else {
+      try {
+        let personalized = body;
+        if (r.name) {
+          personalized = personalized.replace(/\{\{name\}\}/gi, String(r.name));
+          personalized = personalized.replace(/\{\{1\}\}/g, String(r.name));
+        }
+        const result = await sendGmailMessage({
+          to: email,
+          subject: subject.replace(/\{\{name\}\}/gi, String(r.name || "")),
+          body: personalized,
+          format,
+        });
+        await supabase
+          .from("broadcast_recipients")
+          .update({
+            status: "sent",
+            sent_at: new Date().toISOString(),
+            wa_message_id: result.id,
+            error: null,
+          })
+          .eq("id", r.id);
+        sent += 1;
+      } catch (err) {
+        failed += 1;
+        await supabase
+          .from("broadcast_recipients")
+          .update({
+            status: "failed",
+            error: err instanceof Error ? err.message : "send failed",
+          })
+          .eq("id", r.id);
       }
-      const result = await sendGmailMessage({
-        to: email,
-        subject: subject.replace(/\{\{name\}\}/gi, String(r.name || "")),
-        body: personalized,
-        format,
-      });
-      await supabase
-        .from("broadcast_recipients")
-        .update({
-          status: "sent",
-          sent_at: new Date().toISOString(),
-          wa_message_id: result.id,
-          error: null,
-        })
-        .eq("id", r.id);
-      sent += 1;
-    } catch (err) {
-      failed += 1;
-      await supabase
-        .from("broadcast_recipients")
-        .update({
-          status: "failed",
-          error: err instanceof Error ? err.message : "send failed",
-        })
-        .eq("id", r.id);
     }
-    await new Promise((r) => setTimeout(r, 200));
+
+    // Random pause between emails (not after the last one) — Gmail pacing
+    if (i < list.length - 1 && delayMaxSec > 0) {
+      const span = delayMaxSec - delayMinSec;
+      const waitSec =
+        delayMinSec + (span > 0 ? Math.random() * span : 0);
+      const waitMs = Math.max(0, Math.round(waitSec * 1000));
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
   }
 
   await supabase
@@ -515,5 +533,5 @@ export async function runEmailBroadcast(broadcastId: string): Promise<{
     })
     .eq("id", broadcastId);
 
-  return { sent, failed, total: (recipients || []).length };
+  return { sent, failed, total: list.length, delayMinSec, delayMaxSec };
 }

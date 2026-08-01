@@ -86,6 +86,9 @@ export async function createAndSendEmailBroadcast(options: {
   audienceKind: AudienceKind;
   manualEmails?: string[];
   createdBy?: string | null;
+  /** Random pause between each Gmail send (seconds). Default 4–12. */
+  delayMinSec?: number;
+  delayMaxSec?: number;
 }) {
   const orgId = options.orgId ?? ENERTECH_ORG_ID;
   const recipients = await resolveAudienceEmails(
@@ -94,6 +97,13 @@ export async function createAndSendEmailBroadcast(options: {
     options.manualEmails || [],
   );
   if (!recipients.length) throw new Error("No recipients with email found for this audience");
+
+  let delayMinSec = Math.round(Number(options.delayMinSec ?? 4));
+  let delayMaxSec = Math.round(Number(options.delayMaxSec ?? 12));
+  if (!Number.isFinite(delayMinSec) || delayMinSec < 0) delayMinSec = 0;
+  if (!Number.isFinite(delayMaxSec) || delayMaxSec < delayMinSec) delayMaxSec = delayMinSec;
+  if (delayMinSec > 120) delayMinSec = 120;
+  if (delayMaxSec > 300) delayMaxSec = 300;
 
   const supabase = getBrowserSupabase();
   const { data: broadcast, error } = await supabase
@@ -107,7 +117,11 @@ export async function createAndSendEmailBroadcast(options: {
       body_text: options.body,
       body_format: options.format,
       variable_values: [],
-      audience: { kind: options.audienceKind },
+      audience: {
+        kind: options.audienceKind,
+        delay_min_sec: delayMinSec,
+        delay_max_sec: delayMaxSec,
+      },
       total_count: recipients.length,
       created_by: options.createdBy || null,
     })

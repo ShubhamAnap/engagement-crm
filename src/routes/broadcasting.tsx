@@ -104,6 +104,8 @@ function Page() {
   const [emFormat, setEmFormat] = useState<"text" | "html">("text");
   const [emAudience, setEmAudience] = useState<AudienceKind>("leads_with_email");
   const [emManual, setEmManual] = useState("");
+  const [emDelayMin, setEmDelayMin] = useState("4");
+  const [emDelayMax, setEmDelayMax] = useState("12");
   const [composeSending, setComposeSending] = useState(false);
 
   const templatesQuery = useQuery({
@@ -215,6 +217,14 @@ function Page() {
       if (!gmailSetupQuery.data?.connected) {
         throw new Error("Connect Gmail under Channels first");
       }
+      const delayMinSec = Number(emDelayMin);
+      const delayMaxSec = Number(emDelayMax);
+      if (!Number.isFinite(delayMinSec) || delayMinSec < 0) {
+        throw new Error("Min delay must be 0 or more seconds");
+      }
+      if (!Number.isFinite(delayMaxSec) || delayMaxSec < delayMinSec) {
+        throw new Error("Max delay must be greater than or equal to min delay");
+      }
       return createAndSendEmailBroadcast({
         orgId,
         name: emName,
@@ -224,12 +234,16 @@ function Page() {
         audienceKind: emAudience,
         manualEmails: emManual.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean),
         createdBy: profile?.id,
+        delayMinSec,
+        delayMaxSec,
       });
     },
     onSuccess: async (r) => {
       await invalidate();
       setEmailBroadcastOpen(false);
-      toast.success(`Email campaign finished · sent ${r.sent}, failed ${r.failed}`);
+      toast.success(
+        `Email campaign finished · sent ${r.sent}, failed ${r.failed} (delay ${r.delayMinSec ?? "—"}–${r.delayMaxSec ?? "—"}s)`,
+      );
       setTab("campaigns");
       setChannel("email");
     },
@@ -244,6 +258,8 @@ function Page() {
       setEmFormat("text");
       setEmAudience("leads_with_email");
       setEmManual("");
+      setEmDelayMin("4");
+      setEmDelayMax("12");
       setEmailBroadcastOpen(true);
       return;
     }
@@ -788,6 +804,42 @@ function Page() {
                 />
               </div>
             ) : null}
+            <div className="rounded-lg border border-border bg-secondary/20 p-3 space-y-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">Send delay (Gmail pacing)</p>
+                <p className="text-xs text-muted-foreground">
+                  Wait a random time between each email so sends look natural and reduce Gmail rate limits.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="em-delay-min">Min seconds</Label>
+                  <Input
+                    id="em-delay-min"
+                    type="number"
+                    min={0}
+                    max={120}
+                    value={emDelayMin}
+                    onChange={(e) => setEmDelayMin(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="em-delay-max">Max seconds</Label>
+                  <Input
+                    id="em-delay-max"
+                    type="number"
+                    min={0}
+                    max={300}
+                    value={emDelayMax}
+                    onChange={(e) => setEmDelayMax(e.target.value)}
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Example: {emDelayMin || "4"}–{emDelayMax || "12"}s → each next email waits a random time in that range.
+                Large lists may take several minutes — keep this tab open until finished.
+              </p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEmailBroadcastOpen(false)}>

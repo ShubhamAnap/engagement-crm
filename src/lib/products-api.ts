@@ -16,7 +16,6 @@ export type ProductInput = {
   stockStatus?: StockStatus;
   quantity?: number;
   priceLabel?: string;
-  aiWeight?: number;
   batterySpec?: string;
   runtimeSpec?: string;
 };
@@ -41,7 +40,7 @@ function buildProductPayload(input: ProductInput) {
     quantity: input.quantity ?? 0,
     price_paise: parsePriceToPaise(input.priceLabel),
     price_label: input.priceLabel?.trim() || null,
-    ai_weight: input.aiWeight ?? 0.5,
+    ai_weight: 0.5,
     battery_spec: input.batterySpec?.trim() || null,
     runtime_spec: input.runtimeSpec?.trim() || null,
     specs: {},
@@ -259,7 +258,6 @@ export function downloadProductsCsv(products: DbProduct[], filename?: string) {
       "Price",
       "Battery",
       "Runtime",
-      "AI Weight",
       "Catalogue URL",
       "Created At",
       "ID",
@@ -275,7 +273,6 @@ export function downloadProductsCsv(products: DbProduct[], filename?: string) {
       p.price_label ?? "",
       p.battery_spec ?? "",
       p.runtime_spec ?? "",
-      String(p.ai_weight ?? ""),
       productCatalogueHref(p) ?? "",
       p.created_at ?? "",
       p.id,

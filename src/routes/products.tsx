@@ -32,7 +32,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { EmptyState, PageHeader, Panel, Pill, ScoreBar, TablePagination, Toolbar } from "@/components/shared/ui-kit";
+import { EmptyState, PageHeader, Panel, Pill, TablePagination, Toolbar } from "@/components/shared/ui-kit";
 import { useAuth } from "@/lib/auth";
 import type { DbProduct, StockStatus } from "@/lib/db-types";
 import {
@@ -60,7 +60,6 @@ type ProductFormState = {
   stockStatus: StockStatus;
   quantity: string;
   priceLabel: string;
-  aiWeight: string;
   batterySpec: string;
   runtimeSpec: string;
 };
@@ -73,7 +72,6 @@ const defaultForm: ProductFormState = {
   stockStatus: "In Stock",
   quantity: "0",
   priceLabel: "",
-  aiWeight: "0.50",
   batterySpec: "",
   runtimeSpec: "",
 };
@@ -82,9 +80,9 @@ export const Route = createFileRoute("/products")({
   head: () => ({
     meta: [
       { title: "Product Catalog — EnerTech Engage" },
-      { name: "description", content: "UPS systems, batteries and accessories with specifications, stock and AI recommendation weights." },
+      { name: "description", content: "UPS systems, batteries and accessories with specs, stock, images and catalogue PDFs." },
       { property: "og:title", content: "Product Catalog — EnerTech Engage" },
-      { property: "og:description", content: "UPS systems, batteries and accessories with specifications, stock and AI recommendation weights." },
+      { property: "og:description", content: "UPS systems, batteries and accessories with specs, stock, images and catalogue PDFs." },
     ],
   }),
   component: Page,
@@ -105,7 +103,6 @@ function formFromProduct(product: DbProduct): ProductFormState {
     stockStatus: product.stock_status,
     quantity: String(product.quantity),
     priceLabel: product.price_label || "",
-    aiWeight: Number(product.ai_weight).toFixed(2),
     batterySpec: product.battery_spec || "",
     runtimeSpec: product.runtime_spec || "",
   };
@@ -137,9 +134,7 @@ function Page() {
       if (!form.sku.trim()) throw new Error("SKU is required");
       if (!form.name.trim()) throw new Error("Product name is required");
       const quantity = Number(form.quantity);
-      const aiWeight = Number(form.aiWeight);
       if (!Number.isFinite(quantity) || quantity < 0) throw new Error("Quantity must be 0 or more");
-      if (!Number.isFinite(aiWeight) || aiWeight < 0 || aiWeight > 1) throw new Error("AI weight must be between 0 and 1");
       const payload = {
         orgId,
         sku: form.sku,
@@ -149,7 +144,6 @@ function Page() {
         stockStatus: form.stockStatus,
         quantity,
         priceLabel: form.priceLabel,
-        aiWeight,
         batterySpec: form.batterySpec,
         runtimeSpec: form.runtimeSpec,
       };
@@ -343,7 +337,7 @@ function Page() {
                 <table className="w-full text-sm">
                   <thead className="border-b border-border bg-secondary/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
                     <tr>
-                      {["SKU", "Product", "Category", "Batteries", "Runtime", "Stock", "Price", "Image", "Catalogue", "AI weight", "Actions"].map((h) => (
+                      {["SKU", "Product", "Category", "Batteries", "Runtime", "Stock", "Price", "Image", "Catalogue", "Actions"].map((h) => (
                         <th key={h} className="px-4 py-2.5 font-medium whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -383,7 +377,6 @@ function Page() {
                               <span className="text-muted-foreground">—</span>
                             )}
                           </td>
-                          <td className="px-4 py-3"><ScoreBar score={Math.round(Number(product.ai_weight) * 100)} /></td>
                           <td className="px-4 py-3">
                             <div className="flex gap-2">
                               <Button size="sm" variant="outline" onClick={() => openEdit(product)}>
@@ -442,7 +435,6 @@ function Page() {
             <div className="space-y-2"><Label>Stock status</Label><Select value={form.stockStatus} onValueChange={(value: StockStatus) => setForm((s) => ({ ...s, stockStatus: value }))}><SelectTrigger><SelectValue placeholder="Select stock status" /></SelectTrigger><SelectContent>{stockOptions.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent></Select></div>
             <div className="space-y-2"><Label htmlFor="product-quantity">Quantity</Label><Input id="product-quantity" type="number" min="0" value={form.quantity} onChange={(e) => setForm((s) => ({ ...s, quantity: e.target.value }))} /></div>
             <div className="space-y-2"><Label htmlFor="product-price">Price</Label><Input id="product-price" value={form.priceLabel} onChange={(e) => setForm((s) => ({ ...s, priceLabel: e.target.value }))} placeholder="₹52,900" /></div>
-            <div className="space-y-2"><Label htmlFor="product-weight">AI weight</Label><Input id="product-weight" type="number" min="0" max="1" step="0.01" value={form.aiWeight} onChange={(e) => setForm((s) => ({ ...s, aiWeight: e.target.value }))} /></div>
             <div className="space-y-2"><Label htmlFor="product-battery">Battery spec</Label><Input id="product-battery" value={form.batterySpec} onChange={(e) => setForm((s) => ({ ...s, batterySpec: e.target.value }))} placeholder="8 x 42Ah" /></div>
             <div className="space-y-2 sm:col-span-2"><Label htmlFor="product-runtime">Runtime spec</Label><Input id="product-runtime" value={form.runtimeSpec} onChange={(e) => setForm((s) => ({ ...s, runtimeSpec: e.target.value }))} placeholder="42–48 minutes at 60% load" /></div>
             <div className="space-y-2 sm:col-span-2"><Label htmlFor="product-description">Description</Label><Textarea id="product-description" value={form.description} onChange={(e) => setForm((s) => ({ ...s, description: e.target.value }))} placeholder="Product overview, positioning, or technical summary" /></div>

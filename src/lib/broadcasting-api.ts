@@ -194,31 +194,19 @@ export async function listWaTemplates(orgId: string = ENERTECH_ORG_ID): Promise<
     .select("*")
     .eq("org_id", orgId)
     .eq("channel_type", "whatsapp")
-    .order("updated_at", { ascending: false });
+    .order("created_at", { ascending: false });
   if (error) throw error;
   const rows = (data ?? []) as DbWaTemplate[];
 
-  const statusRank = (status: string) => {
-    const s = String(status).toUpperCase();
-    if (s === "APPROVED") return 0;
-    if (s === "PENDING" || s === "IN_APPEAL" || s === "IN_REVIEW") return 1;
-    if (s === "REJECTED" || s === "PAUSED" || s === "DISABLED") return 2;
-    return 3;
-  };
-
+  // Meta-style: newest created or newest status/content change on top.
+  // Do NOT use last_synced_at — Sync from Meta stamps every row and would scramble order.
   const activityMs = (t: DbWaTemplate) =>
     Math.max(
-      t.updated_at ? new Date(t.updated_at).getTime() : 0,
-      t.last_synced_at ? new Date(t.last_synced_at).getTime() : 0,
       t.created_at ? new Date(t.created_at).getTime() : 0,
+      t.updated_at ? new Date(t.updated_at).getTime() : 0,
     );
 
-  // Approved first, then latest updated / synced / created on top
-  return rows.slice().sort((a, b) => {
-    const byStatus = statusRank(a.status) - statusRank(b.status);
-    if (byStatus !== 0) return byStatus;
-    return activityMs(b) - activityMs(a);
-  });
+  return rows.slice().sort((a, b) => activityMs(b) - activityMs(a));
 }
 
 export async function listBroadcasts(orgId: string = ENERTECH_ORG_ID): Promise<DbBroadcast[]> {

@@ -257,7 +257,7 @@ Embed on EnerTech website — live AI chat, lead capture (name/email/phone requi
 | Knowledge Base | `/knowledge` | `mock.ts` | Live collections + upload/index (pgvector RAG) |
 | Products | `/products` | `mock.ts` | Real CRUD + **card image** + catalogue PDF (Storage) |
 | Customers | `/customers` | `mock.ts` (reuses leads) | Real list/create/update/delete via Supabase |
-| Leads | `/leads` | — | **Master sheet**: company, name, email, phone, source, requirement, sales person, status, note, tags, location |
+| Leads | `/leads` | — | **Master sheet** + bulk import CSV (template, skip duplicates, max 500) |
 | Pipeline | `/pipeline` | `mock.ts` | Live Kanban from `leads` + drag/select stage updates |
 | Analytics | `/analytics` | `mock.ts` | Live Insights: range filter + charts from Supabase |
 | Automation | `/automation` | — | Live A+B+C: Wait, If/Else, conditions, follow-up cron, WA/email/notify, canvas |
@@ -302,6 +302,7 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-08-01
+- **Leads bulk CSV import:** `/leads` → **Bulk import** downloads template, uploads CSV (max 500 rows). Requires name + email or phone; skips existing email/phone. Helper `src/lib/leads-import.ts`.
 - **Gmail campaign merge fields:** Subject/body support `{{name}}`, `{{company}}`, `{{email}}`, `{{phone}}`, `{{requirement}}`, `{{sales_person}}`, `{{location}}`, `{{source}}`, `{{status}}`, `{{notes}}` — filled per recipient from Leads/Customers at send time (`src/lib/email-merge.ts`).
 - **Gmail campaign send delay:** New email campaign can set min–max seconds (default 4–12). Between each recipient, wait a random time in that range. Stored on broadcast `audience.delay_min_sec` / `delay_max_sec`. WhatsApp broadcasts unchanged.
 - **IndiaMART / TradeIndia auto lead sync:** Channels panels have a prominent **Auto lead sync** toggle. ON → cron pulls on preset (every hour / every 6 hours / once a day at IST time). OFF → manual **Sync leads now** only. Settings stored on channel `config` (`auto_sync_*`). Cron `/api/cron/automations` runs `tickIndiaMartAutoSync` + `tickTradeIndiaAutoSync` (skips during backfill/cooldown). Helper `src/lib/marketplace-auto-sync.ts`.

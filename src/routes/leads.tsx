@@ -1,7 +1,7 @@
-﻿import { useMemo, useState } from "react";
+﻿import { useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Pencil, Plus, Trash2, UserPlus } from "lucide-react";
+import { Download, Pencil, Plus, Trash2, Upload, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -55,6 +55,11 @@ import {
   updateLead,
   type LeadRow,
 } from "@/lib/leads-api";
+import {
+  downloadLeadsImportTemplate,
+  importLeadsFromCsv,
+  MAX_IMPORT_ROWS,
+} from "@/lib/leads-import";
 
 const statusOptions: LeadStatus[] = [
   "New",
@@ -176,6 +181,10 @@ function Page() {
   const [assignOpen, setAssignOpen] = useState(false);
   const [bulkOwnerId, setBulkOwnerId] = useState("");
   const [bulkStatus, setBulkStatus] = useState<LeadStatus | "">("");
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFileName, setImportFileName] = useState<string | null>(null);
+  const [importCsvText, setImportCsvText] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const leadsQuery = useQuery({
     queryKey: ["leads", orgId],
@@ -283,6 +292,56 @@ function Page() {
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Bulk status update failed"),
   });
+
+  const importMutation = useMutation({
+    mutationFn: async (csvText: string) => {
+      if (!orgId) throw new Error("Your profile is still loading");
+      return importLeadsFromCsv({
+        orgId,
+        csvText,
+        ownerId: profile?.id ?? null,
+      });
+    },
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["leads", orgId] });
+      setImportOpen(false);
+      setImportFileName(null);
+      setImportCsvText(null);
+      if (importInputRef.current) importInputRef.current.value = "";
+      const parts = [
+        `${result.imported} imported`,
+        result.skippedDuplicate ? `${result.skippedDuplicate} skipped (duplicate)` : null,
+        result.skippedInvalid ? `${result.skippedInvalid} skipped (invalid)` : null,
+      ].filter(Boolean);
+      toast.success(parts.join(" · "));
+      if (result.errors.length > 0) {
+        toast.message(
+          `Notes: ${result.errors.slice(0, 3).join("; ")}${result.errors.length > 3 ? "…" : ""}`,
+        );
+      }
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Import failed"),
+  });
+
+  const onImportFile = (file: File | null) => {
+    if (!file) {
+      setImportFileName(null);
+      setImportCsvText(null);
+      return;
+    }
+    if (!file.name.toLowerCase().endsWith(".csv") && file.type !== "text/csv") {
+      toast.error("Please choose a .csv file");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setImportFileName(file.name);
+      setImportCsvText(String(reader.result ?? ""));
+    };
+    reader.onerror = () => toast.error("Could not read file");
+    reader.readAsText(file);
+  };
 
   const filteredLeads = useMemo(() => {
     let items = leadsQuery.data ?? [];
@@ -400,6 +459,9 @@ function Page() {
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" className="gap-1.5" onClick={exportSelectedOrFiltered}>
               <Download className="size-4" /> Export CSV
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setImportOpen(true)}>
+              <Upload className="size-4" /> Bulk import
             </Button>
             <Button size="sm" className="gap-1.5" onClick={openCreate}>
               <Plus className="size-4" /> Add lead
@@ -616,12 +678,74 @@ function Page() {
         </Panel>
 
         <p className="text-xs text-muted-foreground">
-          Tip: select rows for bulk assign / status. Export CSV uses selected rows, or the current
-          filter if nothing is selected. Run{" "}
+          Tip: use Bulk import for CSV (template download). Select rows for assign / status. Export uses
+          selected rows, or the current filter if nothing is selected. Run{" "}
           <code className="rounded bg-secondary px-1">010_leads_master.sql</code> once if columns are
           missing.
         </p>
       </div>
+
+      <Dialog
+        open={importOpen}
+        onOpenChange={(open) => {
+          setImportOpen(open);
+          if (!open) {
+            setImportFileName(null);
+            setImportCsvText(null);
+            if (importInputRef.current) importInputRef.current.value = "";
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Bulk import leads</DialogTitle>
+            <DialogDescription>
+              Download the CSV template, fill rows (max {MAX_IMPORT_ROWS}), then upload. Rows with an
+              existing email or phone are skipped.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full gap-1.5"
+              onClick={() => downloadLeadsImportTemplate()}
+            >
+              <Download className="size-4" />
+              Download CSV template
+            </Button>
+            <div className="space-y-2">
+              <Label htmlFor="leads-csv">Upload CSV</Label>
+              <input
+                ref={importInputRef}
+                id="leads-csv"
+                type="file"
+                accept=".csv,text/csv"
+                className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium"
+                onChange={(e) => onImportFile(e.target.files?.[0] ?? null)}
+              />
+              {importFileName ? (
+                <p className="text-xs text-muted-foreground">Selected: {importFileName}</p>
+              ) : null}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setImportOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={!importCsvText || importMutation.isPending}
+              onClick={() => {
+                if (!importCsvText) return;
+                importMutation.mutate(importCsvText);
+              }}
+            >
+              {importMutation.isPending ? "Importing…" : "Import"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={assignOpen}

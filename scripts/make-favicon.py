@@ -1,13 +1,12 @@
 from PIL import Image
 from pathlib import Path
 
-pub = Path(r"c:\Users\User\Desktop\New folder\enertechsupport\public")
-src_path = Path(
-    r"C:\Users\User\AppData\Roaming\Cursor\User\workspaceStorage\a9f48b68e2e0d80efa792c589006d10a\images\Gemini_Generated_Image_pqc9slpqc9slpqc9-c1d4afdb-70a0-4a62-b6bb-39a9fa07306d.png"
-)
+pub = Path(__file__).resolve().parents[1] / "public"
+src_path = pub / "enertech-mark.png"
+if not src_path.exists():
+    raise SystemExit(f"Missing source logo: {src_path}")
 
 src = Image.open(src_path).convert("RGBA")
-src.save(pub / "enertech-mark.png", optimize=True)
 
 pixels = src.load()
 w, h = src.size

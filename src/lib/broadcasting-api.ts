@@ -178,7 +178,7 @@ async function resolveAudienceEmails(
   if (kind === "customers_with_email") {
     const { data, error } = await supabase
       .from("customers")
-      .select("id, name, email")
+      .select("id, name, email, company, phone, notes")
       .eq("org_id", orgId)
       .not("email", "is", null)
       .limit(500);
@@ -189,7 +189,9 @@ async function resolveAudienceEmails(
 
   const { data, error } = await supabase
     .from("leads")
-    .select("id, name, email, source")
+    .select(
+      "id, name, email, company, phone, requirement, sales_person, location, source, status, notes",
+    )
     .eq("org_id", orgId)
     .not("email", "is", null)
     .limit(500);

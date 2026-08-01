@@ -41,6 +41,7 @@ import {
 } from "@/lib/broadcasting-api";
 import { getGmailSetupInfo, sendGmailCompose } from "@/server/gmail-api";
 import { SendEmailDialog } from "@/components/email/SendEmailDialog";
+import { EMAIL_MERGE_TOKEN_HELP } from "@/lib/email-merge";
 
 export const Route = createFileRoute("/broadcasting")({
   head: () => ({
@@ -100,7 +101,9 @@ function Page() {
   // Email broadcast form
   const [emName, setEmName] = useState("");
   const [emSubject, setEmSubject] = useState("");
-  const [emBody, setEmBody] = useState("Hello {{name}},\n\nThank you for your interest in EnerTech UPS.\n\nRegards,\nEnerTech");
+  const [emBody, setEmBody] = useState(
+    "Hello {{name}},\n\nThank you for your interest in {{requirement}}.\n{{sales_person}} from EnerTech will follow up with you.\n\nRegards,\nEnerTech",
+  );
   const [emFormat, setEmFormat] = useState<"text" | "html">("text");
   const [emAudience, setEmAudience] = useState<AudienceKind>("leads_with_email");
   const [emManual, setEmManual] = useState("");
@@ -254,7 +257,10 @@ function Page() {
     if (channel === "email") {
       setEmName("");
       setEmSubject("");
-      setEmBody("Hello {{name}},\n\nThank you for your interest in EnerTech UPS.\n\nRegards,\nEnerTech");
+      setEmBody(
+        "Hello {{name}},\n\nThank you for your interest in {{requirement}}.\n{{sales_person}} from EnerTech will follow up with you.\n\nRegards,\nEnerTech",
+      );
+      setEmSubject("Follow-up: {{requirement}}");
       setEmFormat("text");
       setEmAudience("leads_with_email");
       setEmManual("");
@@ -751,7 +757,7 @@ function Page() {
           <DialogHeader>
             <DialogTitle>New Gmail campaign</DialogTitle>
             <DialogDescription>
-              Send from your connected Gmail. Choose Text or HTML body (like n8n). Use {"{{name}}"} for personalization.
+              Send from your connected Gmail. Subject and body support per-recipient merge fields from Leads/Customers.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -761,7 +767,21 @@ function Page() {
             </div>
             <div className="space-y-2">
               <Label>Subject</Label>
-              <Input value={emSubject} onChange={(e) => setEmSubject(e.target.value)} placeholder="Follow-up from EnerTech" />
+              <Input
+                value={emSubject}
+                onChange={(e) => setEmSubject(e.target.value)}
+                placeholder="Follow-up: {{requirement}}"
+              />
+            </div>
+            <div className="rounded-lg border border-border bg-secondary/20 px-3 py-2">
+              <p className="text-xs font-medium text-foreground">Merge fields (filled per lead/customer)</p>
+              <p className="mt-1 font-mono text-[11px] leading-relaxed text-muted-foreground">
+                {EMAIL_MERGE_TOKEN_HELP.join(" · ")}
+              </p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Manual email lists only get {"{{email}}"} / {"{{name}}"} if known — use Leads/Customers audience for full
+                personalization.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Body format</Label>

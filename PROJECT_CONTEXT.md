@@ -302,6 +302,7 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-08-01
+- **Gmail campaign merge fields:** Subject/body support `{{name}}`, `{{company}}`, `{{email}}`, `{{phone}}`, `{{requirement}}`, `{{sales_person}}`, `{{location}}`, `{{source}}`, `{{status}}`, `{{notes}}` — filled per recipient from Leads/Customers at send time (`src/lib/email-merge.ts`).
 - **Gmail campaign send delay:** New email campaign can set min–max seconds (default 4–12). Between each recipient, wait a random time in that range. Stored on broadcast `audience.delay_min_sec` / `delay_max_sec`. WhatsApp broadcasts unchanged.
 - **IndiaMART / TradeIndia auto lead sync:** Channels panels have a prominent **Auto lead sync** toggle. ON → cron pulls on preset (every hour / every 6 hours / once a day at IST time). OFF → manual **Sync leads now** only. Settings stored on channel `config` (`auto_sync_*`). Cron `/api/cron/automations` runs `tickIndiaMartAutoSync` + `tickTradeIndiaAutoSync` (skips during backfill/cooldown). Helper `src/lib/marketplace-auto-sync.ts`.
 

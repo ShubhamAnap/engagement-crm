@@ -4,6 +4,12 @@
  * Client routes must import createServerFn wrappers from `gmail-api.ts` only.
  */
 import { createServiceSupabase } from "@/lib/supabase";
+import {
+  applyEmailMerge,
+  mergeFieldsFromCustomer,
+  mergeFieldsFromLead,
+  type EmailMergeFields,
+} from "@/lib/email-merge";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const GOOGLE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -469,6 +475,41 @@ export async function runEmailBroadcast(broadcastId: string): Promise<{
   if (delayMaxSec > 300) delayMaxSec = 300;
 
   const list = recipients || [];
+  const leadIds = [
+    ...new Set(list.map((r) => r.lead_id as string | null).filter((id): id is string => Boolean(id))),
+  ];
+  const customerIds = [
+    ...new Set(
+      list.map((r) => r.customer_id as string | null).filter((id): id is string => Boolean(id)),
+    ),
+  ];
+
+  const leadMap = new Map<string, EmailMergeFields>();
+  if (leadIds.length) {
+    const { data: leads } = await supabase
+      .from("leads")
+      .select(
+        "id, name, company, email, phone, requirement, sales_person, location, source, status, notes",
+      )
+      .eq("org_id", ORG_ID)
+      .in("id", leadIds);
+    for (const lead of leads || []) {
+      leadMap.set(lead.id as string, mergeFieldsFromLead(lead));
+    }
+  }
+
+  const customerMap = new Map<string, EmailMergeFields>();
+  if (customerIds.length) {
+    const { data: customers } = await supabase
+      .from("customers")
+      .select("id, name, company, email, phone, notes")
+      .eq("org_id", ORG_ID)
+      .in("id", customerIds);
+    for (const customer of customers || []) {
+      customerMap.set(customer.id as string, mergeFieldsFromCustomer(customer));
+    }
+  }
+
   for (let i = 0; i < list.length; i++) {
     const r = list[i];
     const email = String(r.email || "").trim();
@@ -480,15 +521,22 @@ export async function runEmailBroadcast(broadcastId: string): Promise<{
         .eq("id", r.id);
     } else {
       try {
-        let personalized = body;
-        if (r.name) {
-          personalized = personalized.replace(/\{\{name\}\}/gi, String(r.name));
-          personalized = personalized.replace(/\{\{1\}\}/g, String(r.name));
-        }
+        const fromLead = r.lead_id ? leadMap.get(String(r.lead_id)) : undefined;
+        const fromCustomer = r.customer_id ? customerMap.get(String(r.customer_id)) : undefined;
+        const fields: EmailMergeFields = {
+          ...(fromCustomer || {}),
+          ...(fromLead || {}),
+          name: fromLead?.name || fromCustomer?.name || (r.name as string) || null,
+          email: fromLead?.email || fromCustomer?.email || email,
+        };
+
+        const personalizedBody = applyEmailMerge(body, fields);
+        const personalizedSubject = applyEmailMerge(subject, fields);
+
         const result = await sendGmailMessage({
           to: email,
-          subject: subject.replace(/\{\{name\}\}/gi, String(r.name || "")),
-          body: personalized,
+          subject: personalizedSubject,
+          body: personalizedBody,
           format,
         });
         await supabase
@@ -516,8 +564,7 @@ export async function runEmailBroadcast(broadcastId: string): Promise<{
     // Random pause between emails (not after the last one) — Gmail pacing
     if (i < list.length - 1 && delayMaxSec > 0) {
       const span = delayMaxSec - delayMinSec;
-      const waitSec =
-        delayMinSec + (span > 0 ? Math.random() * span : 0);
+      const waitSec = delayMinSec + (span > 0 ? Math.random() * span : 0);
       const waitMs = Math.max(0, Math.round(waitSec * 1000));
       await new Promise((resolve) => setTimeout(resolve, waitMs));
     }

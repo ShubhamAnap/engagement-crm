@@ -350,15 +350,22 @@ function Page() {
     }
   }
 
-  async function onSendTemplate(template: DbWaTemplate, bodyParams: string[]) {
+  async function onSendTemplate(payload: {
+    template: DbWaTemplate;
+    bodyParams: string[];
+    headerMediaUrl?: string;
+    headerTextParams?: string[];
+  }) {
     if (!selected || !profile || !waPhone) return;
     setSendingTemplate(true);
     try {
       await sendInboxWhatsAppTemplate({
         data: {
           conversationId: selected.id,
-          templateId: template.id,
-          bodyParams,
+          templateId: payload.template.id,
+          bodyParams: payload.bodyParams,
+          headerMediaUrl: payload.headerMediaUrl,
+          headerTextParams: payload.headerTextParams,
           profileId: profile.id,
           assigneeLabel: profile.fullName || profile.email || "Human agent",
         },
@@ -366,7 +373,7 @@ function Page() {
       setTemplateModalOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["messages", selected.id] });
       await queryClient.invalidateQueries({ queryKey: ["conversations", orgId] });
-      toast.success(`Template “${template.name}” sent on WhatsApp`);
+      toast.success(`Template “${payload.template.name}” sent on WhatsApp`);
     } catch (err) {
       console.error(err);
       toast.error(err instanceof Error ? err.message : "Failed to send template");

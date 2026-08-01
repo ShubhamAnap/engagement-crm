@@ -5,6 +5,13 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import { loadWhatsAppConfig, type WhatsAppChannelConfig } from "@/server/whatsapp";
+import {
+  analyzeWaTemplateFromRow,
+  countTemplateVars,
+  isPublicHttpUrl,
+} from "@/lib/wa-template-params";
+
+export { countTemplateVars } from "@/lib/wa-template-params";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
@@ -48,11 +55,17 @@ function extractFooter(components: WaTemplateComponent[]): string | null {
   return footer?.text || null;
 }
 
-/** Count {{1}} {{2}} placeholders in body. */
-export function countTemplateVars(body: string): number {
-  const matches = body.match(/\{\{\d+\}\}/g) || [];
-  const nums = matches.map((m) => Number(m.replace(/\D/g, ""))).filter(Boolean);
-  return nums.length ? Math.max(...nums) : 0;
+function formatMetaError(json: {
+  error?: {
+    message?: string;
+    code?: number;
+    error_data?: { details?: string };
+  };
+}): string {
+  const msg = json.error?.message || "WhatsApp API error";
+  const details = json.error?.error_data?.details;
+  if (details && !msg.includes(details)) return `${msg} — ${details}`;
+  return msg;
 }
 
 export const syncWhatsAppTemplatesFromMeta = createServerFn({ method: "POST" }).handler(async () => {
@@ -226,20 +239,66 @@ export async function sendWhatsAppTemplateMessage(options: {
   templateName: string;
   language: string;
   bodyParams?: string[];
+  /** Labels for named body params ({{first_name}}); length must match bodyParams when named. */
+  bodyParamNames?: string[];
+  bodyParamFormat?: "positional" | "named";
+  headerFormat?: "IMAGE" | "VIDEO" | "DOCUMENT" | "TEXT" | "LOCATION" | null;
+  headerMediaUrl?: string | null;
+  headerTextParams?: string[];
   cfg?: WhatsAppChannelConfig;
 }) {
   const config = options.cfg || (await loadWhatsAppConfig());
   if (!config.phone_number_id || !config.access_token) {
     throw new Error("WhatsApp is not configured (phone number id / access token)");
   }
-  const to = (await import("@/lib/whatsapp-window")).normalizeWhatsAppDigits(options.toPhone) || options.toPhone.replace(/\D/g, "");
+  const to =
+    (await import("@/lib/whatsapp-window")).normalizeWhatsAppDigits(options.toPhone) ||
+    options.toPhone.replace(/\D/g, "");
   if (!to) throw new Error("Invalid recipient phone");
 
   const components: Array<Record<string, unknown>> = [];
+  const headerFormat = (options.headerFormat || "").toUpperCase();
+
+  if (headerFormat === "IMAGE" || headerFormat === "VIDEO" || headerFormat === "DOCUMENT") {
+    const link = (options.headerMediaUrl || "").trim();
+    if (!link || !isPublicHttpUrl(link)) {
+      throw new Error(
+        `Template “${options.templateName}” needs a public ${headerFormat.toLowerCase()} URL for the header (Meta error #132012 if missing).`,
+      );
+    }
+    const mediaKey = headerFormat.toLowerCase();
+    components.push({
+      type: "header",
+      parameters: [
+        {
+          type: mediaKey,
+          [mediaKey]: { link },
+        },
+      ],
+    });
+  } else if (headerFormat === "TEXT" && options.headerTextParams && options.headerTextParams.length > 0) {
+    components.push({
+      type: "header",
+      parameters: options.headerTextParams.map((text) => ({ type: "text", text })),
+    });
+  }
+
   if (options.bodyParams && options.bodyParams.length > 0) {
+    const named =
+      options.bodyParamFormat === "named" &&
+      options.bodyParamNames &&
+      options.bodyParamNames.length === options.bodyParams.length;
     components.push({
       type: "body",
-      parameters: options.bodyParams.map((text) => ({ type: "text", text })),
+      parameters: options.bodyParams.map((text, i) =>
+        named
+          ? {
+              type: "text",
+              parameter_name: options.bodyParamNames![i],
+              text,
+            }
+          : { type: "text", text },
+      ),
     });
   }
 
@@ -263,10 +322,10 @@ export async function sendWhatsAppTemplateMessage(options: {
 
   const json = (await res.json().catch(() => ({}))) as {
     messages?: Array<{ id?: string }>;
-    error?: { message?: string };
+    error?: { message?: string; code?: number; error_data?: { details?: string } };
   };
   if (!res.ok) {
-    throw new Error(json.error?.message || `WhatsApp template send failed (${res.status})`);
+    throw new Error(formatMetaError(json) || `WhatsApp template send failed (${res.status})`);
   }
   return json.messages?.[0]?.id || null;
 }
@@ -309,27 +368,54 @@ export const runWhatsAppBroadcast = createServerFn({ method: "POST" })
     const vars = Array.isArray(broadcast.variable_values)
       ? (broadcast.variable_values as string[])
       : [];
+    const aud = (broadcast.audience || {}) as Record<string, unknown>;
+    const headerMediaUrl =
+      typeof aud.header_media_url === "string" ? aud.header_media_url.trim() : "";
+    const headerTextParams = Array.isArray(aud.header_text_params)
+      ? (aud.header_text_params as string[])
+      : [];
 
     let sent = Number(broadcast.sent_count) || 0;
     let failed = Number(broadcast.failed_count) || 0;
 
-    let bodyText = "";
+    let tplRow: {
+      body_text?: string | null;
+      header_text?: string | null;
+      components?: unknown;
+    } | null = null;
     if (broadcast.template_id) {
       const { data: tpl } = await supabase
         .from("wa_message_templates")
-        .select("body_text")
+        .select("body_text, header_text, components")
         .eq("id", broadcast.template_id)
         .maybeSingle();
-      bodyText = (tpl?.body_text as string) || "";
+      tplRow = tpl;
     }
-    const templateVarCount = countTemplateVars(bodyText);
+    const spec = analyzeWaTemplateFromRow({
+      components: tplRow?.components,
+      body_text: tplRow?.body_text || "",
+      header_text: tplRow?.header_text,
+    });
+
+    if (spec.headerNeedsMedia && !isPublicHttpUrl(headerMediaUrl)) {
+      throw new Error(
+        `Template “${broadcast.template_name}” has a ${spec.headerFormat} header. Provide a public media URL before sending (fixes Meta #132012).`,
+      );
+    }
+    if (spec.bodyVarCount > 0 && vars.filter((v) => String(v || "").trim()).length < spec.bodyVarCount) {
+      throw new Error(
+        `Template “${broadcast.template_name}” needs ${spec.bodyVarCount} body variable(s): ${spec.bodyVarLabels
+          .map((l) => `{{${l}}}`)
+          .join(", ")}`,
+      );
+    }
 
     for (const recipient of recipients || []) {
       try {
         const bodyParams =
           vars.length > 0
-            ? vars
-            : templateVarCount === 1 && recipient.name
+            ? vars.slice(0, spec.bodyVarCount)
+            : spec.bodyVarCount === 1 && recipient.name
               ? [String(recipient.name).split(" ")[0] || "Customer"]
               : [];
 
@@ -338,6 +424,11 @@ export const runWhatsAppBroadcast = createServerFn({ method: "POST" })
           templateName: broadcast.template_name as string,
           language: (broadcast.template_language as string) || "en",
           bodyParams: bodyParams.length ? bodyParams : undefined,
+          bodyParamNames: spec.bodyParamFormat === "named" ? spec.bodyVarLabels : undefined,
+          bodyParamFormat: spec.bodyParamFormat,
+          headerFormat: spec.headerFormat,
+          headerMediaUrl: headerMediaUrl || null,
+          headerTextParams: headerTextParams.length ? headerTextParams : undefined,
           cfg,
         });
 
@@ -388,6 +479,8 @@ export const sendInboxWhatsAppTemplate = createServerFn({ method: "POST" })
       conversationId: z.string().uuid(),
       templateId: z.string().uuid(),
       bodyParams: z.array(z.string().max(500)).max(20).optional(),
+      headerMediaUrl: z.string().url().max(2000).optional(),
+      headerTextParams: z.array(z.string().max(500)).max(10).optional(),
       profileId: z.string().uuid().optional(),
       assigneeLabel: z.string().max(120).optional(),
     }),
@@ -433,10 +526,19 @@ export const sendInboxWhatsAppTemplate = createServerFn({ method: "POST" })
       normalizeWhatsAppDigits(String(convo.widget_session_id || "").replace(/^wa:/, ""));
     if (!phone) throw new Error("No phone number on this conversation for WhatsApp");
 
-    const varCount = countTemplateVars(String(tpl.body_text || ""));
-    const params = (data.bodyParams || []).slice(0, varCount);
-    if (varCount > 0 && params.length < varCount) {
-      throw new Error(`This template needs ${varCount} variable(s). Fill them before sending.`);
+    const spec = analyzeWaTemplateFromRow(tpl);
+    const params = (data.bodyParams || []).slice(0, spec.bodyVarCount);
+    if (spec.bodyVarCount > 0 && params.length < spec.bodyVarCount) {
+      throw new Error(
+        `This template needs ${spec.bodyVarCount} variable(s): ${spec.bodyVarLabels
+          .map((l) => `{{${l}}}`)
+          .join(", ")}`,
+      );
+    }
+    if (spec.headerNeedsMedia && !isPublicHttpUrl(data.headerMediaUrl || "")) {
+      throw new Error(
+        `Template “${tpl.name}” needs a public ${String(spec.headerFormat).toLowerCase()} URL for the header.`,
+      );
     }
 
     const waMessageId = await sendWhatsAppTemplateMessage({
@@ -444,12 +546,26 @@ export const sendInboxWhatsAppTemplate = createServerFn({ method: "POST" })
       templateName: tpl.name as string,
       language: (tpl.language as string) || "en",
       bodyParams: params,
+      bodyParamNames: spec.bodyParamFormat === "named" ? spec.bodyVarLabels : undefined,
+      bodyParamFormat: spec.bodyParamFormat,
+      headerFormat: spec.headerFormat,
+      headerMediaUrl: data.headerMediaUrl || null,
+      headerTextParams: data.headerTextParams,
     });
 
     let previewBody = String(tpl.body_text || tpl.name || "WhatsApp template");
-    params.forEach((val, i) => {
-      previewBody = previewBody.replace(new RegExp(`\\{\\{${i + 1}\\}\\}`, "g"), val);
-    });
+    if (spec.bodyParamFormat === "named") {
+      spec.bodyVarLabels.forEach((label, i) => {
+        previewBody = previewBody.replace(
+          new RegExp(`\\{\\{\\s*${label}\\s*\\}\\}`, "gi"),
+          params[i] || `{{${label}}}`,
+        );
+      });
+    } else {
+      params.forEach((val, i) => {
+        previewBody = previewBody.replace(new RegExp(`\\{\\{${i + 1}\\}\\}`, "g"), val);
+      });
+    }
 
     const now = new Date().toISOString();
     const { data: msg, error: mErr } = await supabase
@@ -467,6 +583,7 @@ export const sendInboxWhatsAppTemplate = createServerFn({ method: "POST" })
           template_language: tpl.language,
           wa_message_id: waMessageId,
           body_params: params,
+          header_media_url: data.headerMediaUrl || null,
         },
       })
       .select("id")

@@ -12,8 +12,19 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Pill } from "@/components/shared/ui-kit";
-import { countTemplateVars, type DbWaTemplate } from "@/lib/broadcasting-api";
+import {
+  analyzeWaTemplateFromRow,
+  isPublicHttpUrl,
+  type DbWaTemplate,
+} from "@/lib/broadcasting-api";
 import { cn } from "@/lib/utils";
+
+export type SendTemplatePayload = {
+  template: DbWaTemplate;
+  bodyParams: string[];
+  headerMediaUrl?: string;
+  headerTextParams?: string[];
+};
 
 type Props = {
   open: boolean;
@@ -23,14 +34,15 @@ type Props = {
   contactName?: string | null;
   contactPhone?: string | null;
   sending?: boolean;
-  onSend: (template: DbWaTemplate, bodyParams: string[]) => Promise<void> | void;
+  onSend: (payload: SendTemplatePayload) => Promise<void> | void;
   onManageTemplates?: () => void;
 };
 
-function previewBody(tpl: DbWaTemplate, vars: string[]): string {
+function previewBody(tpl: DbWaTemplate, vars: string[], labels: string[]): string {
   let text = tpl.body_text || "";
-  vars.forEach((val, i) => {
-    text = text.replace(new RegExp(`\\{\\{${i + 1}\\}\\}`, "g"), val || `{{${i + 1}}}`);
+  labels.forEach((label, i) => {
+    const val = vars[i] || `{{${label}}}`;
+    text = text.replace(new RegExp(`\\{\\{\\s*${label}\\s*\\}\\}`, "gi"), val);
   });
   return text || "No body preview";
 }
@@ -49,6 +61,8 @@ export function SendWhatsAppTemplateDialog({
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<DbWaTemplate | null>(null);
   const [vars, setVars] = useState<string[]>([]);
+  const [headerMediaUrl, setHeaderMediaUrl] = useState("");
+  const [headerTextParams, setHeaderTextParams] = useState<string[]>([]);
 
   const approved = useMemo(
     () => templates.filter((t) => String(t.status).toUpperCase() === "APPROVED"),
@@ -67,35 +81,53 @@ export function SendWhatsAppTemplateDialog({
     );
   }, [approved, query]);
 
-  const varCount = selected ? countTemplateVars(selected.body_text) : 0;
+  const spec = selected ? analyzeWaTemplateFromRow(selected) : null;
+  const varCount = spec?.bodyVarCount ?? 0;
 
   useEffect(() => {
     if (!open) {
       setQuery("");
       setSelected(null);
       setVars([]);
+      setHeaderMediaUrl("");
+      setHeaderTextParams([]);
     }
   }, [open]);
 
   useEffect(() => {
     if (!selected) {
       setVars([]);
+      setHeaderMediaUrl("");
+      setHeaderTextParams([]);
       return;
     }
-    const n = countTemplateVars(selected.body_text);
-    setVars(Array.from({ length: n }, (_, i) => (i === 0 && contactName ? contactName : "")));
+    const s = analyzeWaTemplateFromRow(selected);
+    setVars(
+      Array.from({ length: s.bodyVarCount }, (_, i) =>
+        i === 0 && contactName ? contactName : "",
+      ),
+    );
+    setHeaderMediaUrl("");
+    setHeaderTextParams(Array.from({ length: s.headerTextVarLabels.length }, () => ""));
   }, [selected?.id, contactName]);
 
   async function handleSend() {
-    if (!selected) return;
+    if (!selected || !spec) return;
     if (varCount > 0 && vars.slice(0, varCount).some((v) => !v.trim())) return;
-    await onSend(selected, vars.slice(0, varCount));
+    if (spec.headerNeedsMedia && !isPublicHttpUrl(headerMediaUrl)) return;
+    await onSend({
+      template: selected,
+      bodyParams: vars.slice(0, varCount),
+      headerMediaUrl: headerMediaUrl.trim() || undefined,
+      headerTextParams: headerTextParams.length ? headerTextParams : undefined,
+    });
   }
 
   const canSend =
     Boolean(selected) &&
     !sending &&
-    !(varCount > 0 && vars.slice(0, varCount).some((v) => !v.trim()));
+    !(varCount > 0 && vars.slice(0, varCount).some((v) => !v.trim())) &&
+    !(spec?.headerNeedsMedia && !isPublicHttpUrl(headerMediaUrl));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -153,33 +185,39 @@ export function SendWhatsAppTemplateDialog({
                 </div>
               ) : (
                 <ul className="divide-y divide-border">
-                  {filtered.map((t) => (
-                    <li key={t.id}>
-                      <button
-                        type="button"
-                        className="flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-secondary/60"
-                        onClick={() => setSelected(t)}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="truncate text-sm font-semibold text-foreground">
-                              {t.name}
-                            </span>
-                            <Pill tone="info" className="capitalize">
-                              {(t.category || "utility").toLowerCase()}
-                            </Pill>
-                            <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                              {(t.language || "en").replace(/_/g, "_")}
-                            </span>
+                  {filtered.map((t) => {
+                    const s = analyzeWaTemplateFromRow(t);
+                    return (
+                      <li key={t.id}>
+                        <button
+                          type="button"
+                          className="flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-secondary/60"
+                          onClick={() => setSelected(t)}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="truncate text-sm font-semibold text-foreground">
+                                {t.name}
+                              </span>
+                              <Pill tone="info" className="capitalize">
+                                {(t.category || "utility").toLowerCase()}
+                              </Pill>
+                              {s.headerNeedsMedia ? (
+                                <Pill tone="neutral">{s.headerFormat}</Pill>
+                              ) : null}
+                              <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                {(t.language || "en").replace(/_/g, "_")}
+                              </span>
+                            </div>
+                            <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
+                              {t.body_text || "No body preview"}
+                            </p>
                           </div>
-                          <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
-                            {t.body_text || "No body preview"}
-                          </p>
-                        </div>
-                        <ChevronRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
-                      </button>
-                    </li>
-                  ))}
+                          <ChevronRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
@@ -202,17 +240,48 @@ export function SendWhatsAppTemplateDialog({
                 </span>
               </div>
               <div className="rounded-lg border border-border bg-secondary/40 px-3 py-2.5 text-sm whitespace-pre-wrap">
-                {previewBody(selected, vars)}
+                {previewBody(selected, vars, spec?.bodyVarLabels || [])}
               </div>
-              {varCount > 0 ? (
-                <div className="space-y-3">
+              {spec?.headerNeedsMedia ? (
+                <div className="space-y-2">
                   <Label className="text-xs text-muted-foreground">
-                    Fill template variables
+                    Header {String(spec.headerFormat).toLowerCase()} URL (required)
                   </Label>
+                  <Input
+                    className="h-9"
+                    value={headerMediaUrl}
+                    onChange={(e) => setHeaderMediaUrl(e.target.value)}
+                    placeholder="https://… public media URL"
+                    disabled={sending}
+                  />
+                </div>
+              ) : null}
+              {spec && spec.headerTextVarLabels.length > 0 ? (
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Header text variables</Label>
+                  {spec.headerTextVarLabels.map((label, i) => (
+                    <Input
+                      key={label}
+                      className="h-9"
+                      value={headerTextParams[i] || ""}
+                      onChange={(e) => {
+                        const next = [...headerTextParams];
+                        next[i] = e.target.value;
+                        setHeaderTextParams(next);
+                      }}
+                      placeholder={`{{${label}}}`}
+                      disabled={sending}
+                    />
+                  ))}
+                </div>
+              ) : null}
+              {varCount > 0 && spec ? (
+                <div className="space-y-3">
+                  <Label className="text-xs text-muted-foreground">Fill template variables</Label>
                   <div className="grid gap-2.5 sm:grid-cols-2">
-                    {Array.from({ length: varCount }, (_, i) => (
-                      <div key={i} className="space-y-1">
-                        <Label className="text-[11px] text-muted-foreground">{`{{${i + 1}}}`}</Label>
+                    {spec.bodyVarLabels.map((label, i) => (
+                      <div key={label} className="space-y-1">
+                        <Label className="text-[11px] text-muted-foreground">{`{{${label}}}`}</Label>
                         <Input
                           className="h-9"
                           value={vars[i] || ""}
@@ -221,9 +290,9 @@ export function SendWhatsAppTemplateDialog({
                             next[i] = e.target.value;
                             setVars(next);
                           }}
-                          placeholder={`Value for {{${i + 1}}}`}
+                          placeholder={`Value for {{${label}}}`}
                           disabled={sending}
-                          autoFocus={i === 0}
+                          autoFocus={i === 0 && !spec.headerNeedsMedia}
                         />
                       </div>
                     ))}
@@ -231,7 +300,9 @@ export function SendWhatsAppTemplateDialog({
                 </div>
               ) : (
                 <p className="text-xs text-muted-foreground">
-                  This template has no variables — ready to send.
+                  {spec?.headerNeedsMedia
+                    ? "Add the header media URL, then send."
+                    : "This template has no variables — ready to send."}
                 </p>
               )}
             </div>
@@ -240,11 +311,7 @@ export function SendWhatsAppTemplateDialog({
                 "shrink-0 gap-2 border-t border-border px-4 py-3 sm:justify-between",
               )}
             >
-              <Button
-                variant="ghost"
-                disabled={sending}
-                onClick={() => setSelected(null)}
-              >
+              <Button variant="ghost" disabled={sending} onClick={() => setSelected(null)}>
                 Back
               </Button>
               <div className="flex gap-2">

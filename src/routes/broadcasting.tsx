@@ -26,7 +26,6 @@ import { EmptyState, PageHeader, Panel, Pill, StatCard } from "@/components/shar
 import { useAuth } from "@/lib/auth";
 import { ENERTECH_ORG_ID } from "@/lib/chat-api";
 import {
-  countTemplateVars,
   createAndSendBroadcast,
   createAndSendEmailBroadcast,
   listBroadcastRecipients,
@@ -38,6 +37,7 @@ import {
   type DbBroadcast,
   type DbWaTemplate,
   type WaTemplateStatus,
+  analyzeWaTemplateFromRow,
 } from "@/lib/broadcasting-api";
 import { getGmailSetupInfo, sendGmailCompose } from "@/server/gmail-api";
 import { SendEmailDialog } from "@/components/email/SendEmailDialog";
@@ -103,6 +103,8 @@ function Page() {
   const [bcAudience, setBcAudience] = useState<AudienceKind>("leads_with_phone");
   const [bcManual, setBcManual] = useState("");
   const [bcVars, setBcVars] = useState<string[]>([]);
+  const [bcHeaderMediaUrl, setBcHeaderMediaUrl] = useState("");
+  const [bcHeaderTextParams, setBcHeaderTextParams] = useState<string[]>([]);
 
   // Email broadcast form
   const [emName, setEmName] = useState("");
@@ -151,7 +153,8 @@ function Page() {
   );
 
   const selectedTpl = templates.find((t) => t.id === bcTemplateId) || null;
-  const varCount = selectedTpl ? countTemplateVars(selectedTpl.body_text) : 0;
+  const selectedSpec = selectedTpl ? analyzeWaTemplateFromRow(selectedTpl) : null;
+  const varCount = selectedSpec?.bodyVarCount ?? 0;
 
   const recipientsQuery = useQuery({
     queryKey: ["broadcast-recipients", selectedBroadcast?.id],
@@ -210,6 +213,8 @@ function Page() {
         variableValues: bcVars.slice(0, varCount),
         audienceKind: bcAudience,
         manualPhones: bcManual.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean),
+        headerMediaUrl: bcHeaderMediaUrl.trim() || null,
+        headerTextParams: bcHeaderTextParams,
         createdBy: profile?.id,
       });
     },
@@ -349,14 +354,21 @@ function Page() {
     setBcAudience("leads_with_phone");
     setBcManual("");
     setBcVars([]);
+    setBcHeaderMediaUrl("");
+    setBcHeaderTextParams([]);
     setBroadcastOpen(true);
   }
 
   function onPickTemplate(id: string) {
     setBcTemplateId(id);
     const t = templates.find((x) => x.id === id);
-    const n = t ? countTemplateVars(t.body_text) : 0;
+    const spec = t ? analyzeWaTemplateFromRow(t) : null;
+    const n = spec?.bodyVarCount ?? 0;
     setBcVars(Array.from({ length: n }, () => ""));
+    setBcHeaderMediaUrl("");
+    setBcHeaderTextParams(
+      Array.from({ length: spec?.headerTextVarLabels.length ?? 0 }, () => ""),
+    );
   }
 
   return (
@@ -621,7 +633,9 @@ function Page() {
                           {(r as { email?: string }).email || r.phone}
                         </p>
                         {r.error ? (
-                          <p className="truncate text-[11px] text-destructive">{r.error}</p>
+                          <p className="whitespace-normal break-words text-[11px] text-destructive">
+                            {r.error}
+                          </p>
                         ) : null}
                       </div>
                       <Pill tone={statusTone(r.status)}>{r.status}</Pill>
@@ -766,18 +780,56 @@ function Page() {
               </Select>
               {selectedTpl ? (
                 <p className="rounded-md bg-secondary p-2 text-xs text-muted-foreground">
-                  {selectedTpl.header_text ? `${selectedTpl.header_text} — ` : ""}
+                  {selectedSpec?.headerNeedsMedia
+                    ? `Header: ${selectedSpec.headerFormat} (media URL required) — `
+                    : selectedTpl.header_text
+                      ? `${selectedTpl.header_text} — `
+                      : ""}
                   {selectedTpl.body_text}
                 </p>
               ) : null}
             </div>
-            {varCount > 0 ? (
+            {selectedSpec?.headerNeedsMedia ? (
+              <div className="space-y-2">
+                <Label>
+                  Header {String(selectedSpec.headerFormat).toLowerCase()} URL (required)
+                </Label>
+                <Input
+                  value={bcHeaderMediaUrl}
+                  onChange={(e) => setBcHeaderMediaUrl(e.target.value)}
+                  placeholder="https://… public image/video/document URL"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Meta rejects sends without this (error #132012). URL must be publicly reachable.
+                </p>
+              </div>
+            ) : null}
+            {selectedSpec && selectedSpec.headerTextVarLabels.length > 0 ? (
+              <div className="space-y-2">
+                <Label>Header text variables</Label>
+                {selectedSpec.headerTextVarLabels.map((label, i) => (
+                  <Input
+                    key={label}
+                    placeholder={`{{${label}}}`}
+                    value={bcHeaderTextParams[i] || ""}
+                    onChange={(e) =>
+                      setBcHeaderTextParams((prev) => {
+                        const next = [...prev];
+                        next[i] = e.target.value;
+                        return next;
+                      })
+                    }
+                  />
+                ))}
+              </div>
+            ) : null}
+            {varCount > 0 && selectedSpec ? (
               <div className="space-y-2">
                 <Label>Template variables (same for all recipients)</Label>
-                {Array.from({ length: varCount }, (_, i) => (
+                {selectedSpec.bodyVarLabels.map((label, i) => (
                   <Input
-                    key={i}
-                    placeholder={`{{${i + 1}}}`}
+                    key={label}
+                    placeholder={`{{${label}}}`}
                     value={bcVars[i] || ""}
                     onChange={(e) =>
                       setBcVars((prev) => {

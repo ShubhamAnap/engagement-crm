@@ -7,6 +7,12 @@ import {
   countTemplateVars,
   sendInboxWhatsAppTemplate,
 } from "@/server/whatsapp-broadcast";
+import {
+  analyzeWaTemplateFromRow,
+  isPublicHttpUrl,
+} from "@/lib/wa-template-params";
+
+export { analyzeWaTemplateFromRow, isPublicHttpUrl } from "@/lib/wa-template-params";
 
 export type WaTemplateStatus =
   | "DRAFT"
@@ -370,11 +376,34 @@ export async function createAndSendBroadcast(options: {
   variableValues: string[];
   audienceKind: AudienceKind;
   manualPhones?: string[];
+  /** Public URL for IMAGE/VIDEO/DOCUMENT header templates */
+  headerMediaUrl?: string | null;
+  headerTextParams?: string[];
   createdBy?: string | null;
 }) {
   const orgId = options.orgId ?? ENERTECH_ORG_ID;
   if (options.template.status !== "APPROVED") {
     throw new Error("Only APPROVED templates can be used for broadcasting");
+  }
+
+  const spec = analyzeWaTemplateFromRow(options.template);
+  if (spec.headerNeedsMedia) {
+    const url = (options.headerMediaUrl || "").trim();
+    if (!isPublicHttpUrl(url)) {
+      throw new Error(
+        `Template “${options.template.name}” has a ${spec.headerFormat} header. Paste a public https URL for that media (required by Meta — error #132012 if missing).`,
+      );
+    }
+  }
+  if (
+    spec.bodyVarCount > 0 &&
+    options.variableValues.filter((v) => String(v || "").trim()).length < spec.bodyVarCount
+  ) {
+    throw new Error(
+      `Fill all ${spec.bodyVarCount} template variable(s): ${spec.bodyVarLabels
+        .map((l) => `{{${l}}}`)
+        .join(", ")}`,
+    );
   }
 
   const recipients = await resolveAudiencePhones(
@@ -396,7 +425,15 @@ export async function createAndSendBroadcast(options: {
       template_name: options.template.name,
       template_language: options.template.language,
       variable_values: options.variableValues,
-      audience: { kind: options.audienceKind },
+      audience: {
+        kind: options.audienceKind,
+        ...(options.headerMediaUrl?.trim()
+          ? { header_media_url: options.headerMediaUrl.trim() }
+          : {}),
+        ...(options.headerTextParams?.length
+          ? { header_text_params: options.headerTextParams }
+          : {}),
+      },
       total_count: recipients.length,
       created_by: options.createdBy || null,
     })

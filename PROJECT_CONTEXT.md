@@ -302,6 +302,7 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-08-01
+- **WhatsApp template #132012 fix:** Broadcasting + Inbox detect IMAGE/VIDEO/DOCUMENT headers from synced `components`, require a public media URL at send time, support named body params, and show full Meta error details. Helper `src/lib/wa-template-params.ts`.
 - **Gmail campaign fixes:** (1) UTF-8 bodies use base64 MIME (7bit broke Indian chars / ₹). (2) Recipient insert no longer hard-requires `merge_fields` column — falls back to `audience.merge_by_email`. (3) Delayed sends stop before proxy timeout (~55s) and **cron resumes** pending email campaigns (`tickPendingEmailBroadcasts`). Run `020_broadcast_recipient_merge.sql` when you can for per-row merge storage.
 - **Gmail campaign CSV audience:** New email campaign → Audience **Upload CSV (campaign only)**. Template includes merge columns; max 500. Rows stored on `broadcast_recipients.merge_fields` (migration `020_broadcast_recipient_merge.sql`) — **not** saved as leads. Helper `src/lib/email-audience-import.ts`.
 - **Leads bulk CSV import:** `/leads` → **Bulk import** downloads template, uploads CSV (max 500 rows). Requires name + email or phone; skips existing email/phone. Helper `src/lib/leads-import.ts`.

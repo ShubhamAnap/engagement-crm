@@ -15,7 +15,7 @@ import {
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Clock, ExternalLink, LayoutGrid, Package, Paperclip, RefreshCw, Send, Sparkles } from "lucide-react";
+import { Clock, ExternalLink, LayoutGrid, Package, Paperclip, RefreshCw, Send, Sparkles, ArrowLeft, User } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import {
@@ -48,6 +48,7 @@ import {
 } from "@/lib/whatsapp-window";
 import { RecommendProductDialog } from "@/components/inbox/RecommendProductDialog";
 import { SendWhatsAppTemplateDialog } from "@/components/inbox/SendWhatsAppTemplateDialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
 const filters = ["All", "Unread", "Assigned", "Website", "WhatsApp", "IndiaMART", "TradeIndia", "Instagram", "Facebook", "Email"];
 const leadStatuses: LeadStatus[] = ["New", "Contacted", "Qualified", "Proposal", "Negotiation", "Won", "Lost"];
@@ -122,6 +123,10 @@ function Page() {
   const orgId = profile?.org.id ?? ENERTECH_ORG_ID;
   const [selectedId, setSelectedId] = useState<string | null>(deepLinkId ?? null);
   const [channelFilter, setChannelFilter] = useState<string>("All");
+  const [listSearch, setListSearch] = useState("");
+  /** Mobile: list-first; open thread full-screen after tap (or deep link). */
+  const [mobileThreadOpen, setMobileThreadOpen] = useState(() => Boolean(deepLinkId));
+  const [profileSheetOpen, setProfileSheetOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -152,21 +157,65 @@ function Page() {
 
   const conversations = useMemo(() => {
     const all = conversationsQuery.data ?? [];
-    if (channelFilter === "All" || channelFilter === "Unread" || channelFilter === "Assigned") {
-      if (channelFilter === "Unread") return all.filter((c) => c.unread_count > 0);
-      if (channelFilter === "Assigned") return all.filter((c) => Boolean(c.assignee_id || c.assignee_label));
-      return all;
+    let rows = all;
+    if (channelFilter === "Unread") rows = all.filter((c) => c.unread_count > 0);
+    else if (channelFilter === "Assigned") {
+      rows = all.filter((c) => Boolean(c.assignee_id || c.assignee_label));
+    } else if (channelFilter !== "All") {
+      rows = all.filter((c) => c.channel === channelFilter.toLowerCase());
     }
-    return all.filter((c) => c.channel === channelFilter.toLowerCase());
-  }, [conversationsQuery.data, channelFilter]);
+    const q = listSearch.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((c) => {
+      const hay = [
+        c.customer?.name,
+        c.visitor_name,
+        c.visitor_email,
+        c.visitor_phone,
+        c.preview,
+        c.assignee_label,
+        c.lead?.name,
+        c.lead?.company,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [conversationsQuery.data, channelFilter, listSearch]);
 
   useEffect(() => {
-    if (deepLinkId) setSelectedId(deepLinkId);
+    if (deepLinkId) {
+      setSelectedId(deepLinkId);
+      setMobileThreadOpen(true);
+    }
   }, [deepLinkId]);
 
+  // Desktop only: auto-select first conversation so the middle pane isn't empty.
   useEffect(() => {
-    if (!selectedId && conversations.length > 0) setSelectedId(conversations[0].id);
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const pick = () => {
+      if (mq.matches && !selectedId && conversations.length > 0) {
+        setSelectedId(conversations[0].id);
+      }
+    };
+    pick();
+    mq.addEventListener("change", pick);
+    return () => mq.removeEventListener("change", pick);
   }, [conversations, selectedId]);
+
+  function openConversation(id: string) {
+    setSelectedId(id);
+    setMobileThreadOpen(true);
+    void navigate({ to: "/inbox", search: { c: id }, replace: true });
+  }
+
+  function backToMobileList() {
+    setMobileThreadOpen(false);
+    setProfileSheetOpen(false);
+    void navigate({ to: "/inbox", search: {}, replace: true });
+  }
 
   const selected = conversations.find((c) => c.id === selectedId) ?? null;
 
@@ -437,16 +486,26 @@ function Page() {
   const refreshing = conversationsQuery.isFetching || messagesQuery.isFetching;
 
   const conversationList = (
-    <CardPanel title="Conversations" className="flex h-full min-h-0 flex-col overflow-hidden rounded-none border-0 shadow-none" bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden p-0">
-      <Toolbar placeholder="Search conversations…" />
-      <div className="flex flex-wrap gap-1.5 border-b border-border px-3 py-2">
+    <CardPanel
+      title="Conversations"
+      className="flex h-full min-h-0 flex-col overflow-hidden rounded-none border-0 shadow-none"
+      bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden p-0"
+    >
+      <Toolbar
+        placeholder="Search name, phone, preview…"
+        value={listSearch}
+        onChange={setListSearch}
+        filter={null}
+        sort={null}
+      />
+      <div className="-mx-0 flex gap-1.5 overflow-x-auto border-b border-border px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {filters.map((f) => (
           <button
             key={f}
             type="button"
             onClick={() => setChannelFilter(f)}
             className={cn(
-              "rounded-md border px-2 py-0.5 text-[11px]",
+              "shrink-0 rounded-md border px-3 py-1.5 text-xs touch-manipulation",
               channelFilter === f
                 ? "border-primary/50 bg-primary/10 text-foreground"
                 : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground",
@@ -456,11 +515,18 @@ function Page() {
           </button>
         ))}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {conversationsQuery.isLoading ? (
-          <div className="p-3"><ListSkeleton rows={6} /></div>
+          <div className="p-3">
+            <ListSkeleton rows={6} />
+          </div>
         ) : conversations.length === 0 ? (
-          <div className="p-4"><EmptyState title="No conversations yet" description="Open Website chat and send a message — it will appear here." /></div>
+          <div className="p-4">
+            <EmptyState
+              title="No conversations yet"
+              description="Open Website chat and send a message — it will appear here."
+            />
+          </div>
         ) : (
           <ul className="divide-y divide-border">
             {conversations.map((c) => {
@@ -472,16 +538,31 @@ function Page() {
                 : null;
               return (
                 <li key={c.id}>
-                  <button type="button" onClick={() => setSelectedId(c.id)} className={cn("w-full px-3 py-3 text-left", active ? "bg-secondary/70" : "hover:bg-secondary/40")}>
+                  <button
+                    type="button"
+                    onClick={() => openConversation(c.id)}
+                    className={cn(
+                      "w-full px-3 py-3.5 text-left touch-manipulation active:bg-secondary/80 lg:py-3",
+                      active ? "bg-secondary/70" : "hover:bg-secondary/40",
+                    )}
+                  >
                     <div className="flex items-center gap-2">
-                      <ChannelIcon channel={(c.channel as ChannelType) || "website"} className="shrink-0 text-muted-foreground" />
+                      <ChannelIcon
+                        channel={(c.channel as ChannelType) || "website"}
+                        className="shrink-0 text-muted-foreground"
+                      />
                       <p className="min-w-0 flex-1 truncate text-sm font-medium">{name}</p>
-                      <span className="num shrink-0 text-[11px] text-muted-foreground">{formatRelativeTime(c.last_message_at || c.created_at)}</span>
+                      <span className="num shrink-0 text-[11px] text-muted-foreground">
+                        {formatRelativeTime(c.last_message_at || c.created_at)}
+                      </span>
                     </div>
-                    <p className="mt-1 truncate text-xs text-muted-foreground">{c.preview || "No messages yet"}</p>
+                    <p className="mt-1 truncate text-xs text-muted-foreground">
+                      {c.preview || "No messages yet"}
+                    </p>
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                       <Pill>{c.status}</Pill>
-                      {isMarketplaceLeadChannel(c.channel) && normalizeWhatsAppDigits(c.visitor_phone) ? (
+                      {isMarketplaceLeadChannel(c.channel) &&
+                      normalizeWhatsAppDigits(c.visitor_phone) ? (
                         <Pill tone="success">via WhatsApp</Pill>
                       ) : null}
                       {listWa ? (
@@ -490,8 +571,14 @@ function Page() {
                           {listWa.open ? listWa.label : "WA closed"}
                         </Pill>
                       ) : null}
-                      {(c.tags ?? []).slice(0, 2).map((t) => <Pill key={t}>{t}</Pill>)}
-                      {c.unread_count > 0 && <Pill tone="primary" className="ml-auto">{c.unread_count}</Pill>}
+                      {(c.tags ?? []).slice(0, 2).map((t) => (
+                        <Pill key={t}>{t}</Pill>
+                      ))}
+                      {c.unread_count > 0 && (
+                        <Pill tone="primary" className="ml-auto">
+                          {c.unread_count}
+                        </Pill>
+                      )}
                     </div>
                   </button>
                 </li>
@@ -505,9 +592,19 @@ function Page() {
 
   const conversationThread = (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-card">
-      <header className="shrink-0 border-b border-border px-4 py-3">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0">
+      <header className="shrink-0 border-b border-border px-3 py-2.5 sm:px-4 sm:py-3">
+        <div className="flex items-start gap-2">
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="mt-0.5 size-9 shrink-0 touch-manipulation lg:hidden"
+            onClick={backToMobileList}
+            aria-label="Back to conversations"
+          >
+            <ArrowLeft className="size-4" />
+          </Button>
+          <div className="min-w-0 flex-1">
             <h2 className="truncate text-sm font-semibold text-foreground">
               {selected
                 ? `${selected.customer?.name || selected.visitor_name || "Visitor"}${
@@ -525,9 +622,20 @@ function Page() {
                 : "Select a conversation"}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="size-9 touch-manipulation lg:hidden"
+              onClick={() => setProfileSheetOpen(true)}
+              disabled={!selected}
+              aria-label="Customer profile"
+            >
+              <User className="size-4" />
+            </Button>
             {marketplaceLead ? (
-              <Pill tone={waPhone ? "success" : "warning"} className="gap-1.5">
+              <Pill tone={waPhone ? "success" : "warning"} className="hidden gap-1.5 sm:inline-flex">
                 {waPhone ? `WhatsApp · +${waPhone}` : "No phone for WhatsApp"}
               </Pill>
             ) : null}
@@ -565,7 +673,7 @@ function Page() {
                       key={m.id}
                       className={isCustomer ? "flex justify-start" : "flex justify-end"}
                     >
-                      <div className="max-w-[min(78%,28rem)]">
+                      <div className="max-w-[min(88%,28rem)] sm:max-w-[min(78%,28rem)]">
                         <div
                           className={
                             isCustomer
@@ -615,7 +723,7 @@ function Page() {
             </div>
           </div>
 
-          <div className="shrink-0 border-t border-border bg-card p-3 shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
+          <div className="shrink-0 border-t border-border bg-card p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
             {marketplaceLead && !waPhone ? (
               <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
                 <p className="font-medium text-destructive">No mobile number on this lead</p>
@@ -691,7 +799,7 @@ function Page() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-9 shrink-0"
+                className="size-10 shrink-0 touch-manipulation sm:size-9"
                 aria-label="Attach"
                 disabled={uploading || sending || sendingTemplate || sendingProduct || !waCanFreeForm}
                 onClick={() => attachInputRef.current?.click()}
@@ -702,7 +810,7 @@ function Page() {
                 <Button
                   variant={needsTemplate ? "default" : "ghost"}
                   size="icon"
-                  className="size-9 shrink-0"
+                  className="size-10 shrink-0 touch-manipulation sm:size-9"
                   aria-label="Send WhatsApp template"
                   title="Send WhatsApp template"
                   disabled={sending || uploading || sendingTemplate || sendingProduct}
@@ -715,7 +823,7 @@ function Page() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="size-9 shrink-0"
+                  className="size-10 shrink-0 touch-manipulation sm:size-9"
                   aria-label="Recommend product"
                   title={
                     waCanCloudApi
@@ -729,7 +837,7 @@ function Page() {
                 </Button>
               ) : null}
               <Input
-                className="h-9 min-w-0 flex-1"
+                className="h-10 min-w-0 flex-1 text-base sm:h-9 sm:text-sm"
                 placeholder={
                   needsTemplate
                     ? "Free-form blocked — click Template…"
@@ -750,7 +858,7 @@ function Page() {
               />
               <Button
                 size="icon"
-                className="size-9 shrink-0"
+                className="size-10 shrink-0 touch-manipulation sm:size-9"
                 aria-label="Send"
                 onClick={() => void onSendReply()}
                 disabled={sending || uploading || sendingTemplate || sendingProduct || !draft.trim() || !waCanFreeForm}
@@ -827,7 +935,7 @@ function Page() {
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="shrink-0">
+      <div className={cn("shrink-0", mobileThreadOpen && "hidden lg:block")}>
         <PageHeader
           title="Omnichannel Inbox"
           description="Live conversations from website chat and other channels."
@@ -835,7 +943,7 @@ function Page() {
             <Button
               size="sm"
               variant="outline"
-              className="gap-1.5"
+              className="gap-1.5 touch-manipulation"
               onClick={() => void onRefreshInbox()}
               disabled={refreshing}
             >
@@ -845,7 +953,7 @@ function Page() {
         />
       </div>
 
-      {/* Desktop / tablet: fill remaining viewport; panel group is absolute so it cannot grow with messages */}
+      {/* Desktop: 3-pane workspace */}
       <div className="relative hidden min-h-0 flex-1 overflow-hidden p-3 md:p-4 lg:block">
         {layout ? (
           <div className="absolute inset-3 overflow-hidden rounded-xl border border-border bg-card md:inset-4">
@@ -896,15 +1004,27 @@ function Page() {
         )}
       </div>
 
-      {/* Mobile: stacked — chat column still pins the composer */}
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3 lg:hidden">
-        <div className="max-h-[28vh] min-h-[160px] shrink-0 overflow-hidden rounded-xl border border-border">
-          {conversationList}
-        </div>
-        <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border">
-          {conversationThread}
-        </div>
+      {/* Mobile / tablet: list OR full-screen thread (sales on the road) */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:hidden">
+        {!mobileThreadOpen ? (
+          <div className="min-h-0 flex-1 overflow-hidden border-t border-border bg-card">
+            {conversationList}
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-hidden border-t border-border bg-card">
+            {conversationThread}
+          </div>
+        )}
       </div>
+
+      <Sheet open={profileSheetOpen} onOpenChange={setProfileSheetOpen}>
+        <SheetContent side="bottom" className="flex max-h-[85dvh] flex-col gap-0 overflow-hidden p-0 lg:hidden">
+          <SheetHeader className="shrink-0 border-b border-border px-4 py-3 text-left">
+            <SheetTitle>Customer & lead</SheetTitle>
+          </SheetHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">{profileSidebar}</div>
+        </SheetContent>
+      </Sheet>
 
       <SendWhatsAppTemplateDialog
         open={templateModalOpen}

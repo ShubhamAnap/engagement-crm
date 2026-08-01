@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Megaphone, Plus, RefreshCw, Send } from "lucide-react";
+import { Megaphone, Pencil, Plus, RefreshCw, Send } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -77,6 +77,7 @@ function Page() {
   const [emailBroadcastOpen, setEmailBroadcastOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [selectedBroadcast, setSelectedBroadcast] = useState<DbBroadcast | null>(null);
+  const [viewTemplate, setViewTemplate] = useState<DbWaTemplate | null>(null);
 
   // Create template form
   const [tplName, setTplName] = useState("");
@@ -378,49 +379,71 @@ function Page() {
         </div>
 
         {tab === "templates" && channel !== "email" ? (
-          <Panel title="WhatsApp message templates" bodyClassName="p-0">
+          <Panel
+            title="Message templates"
+            description="Create templates and submit them to Meta for approval. Use Sync from Meta to pull templates approved elsewhere."
+            bodyClassName="p-4"
+          >
             {templatesQuery.isLoading ? (
-              <p className="p-4 text-sm text-muted-foreground">Loading templates…</p>
+              <p className="text-sm text-muted-foreground">Loading templates…</p>
             ) : templates.length === 0 ? (
-              <div className="p-4">
-                <EmptyState
-                  title="No templates yet"
-                  description="Click Sync from Meta to pull approved templates, or create a new one and submit it for Meta approval. Requires WhatsApp Business Account ID in Channels."
-                />
-              </div>
+              <EmptyState
+                title="No templates yet"
+                description="Click Sync from Meta to pull approved templates, or create a new one and submit it for Meta approval. Requires WhatsApp Business Account ID in Channels."
+              />
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="border-b border-border bg-secondary/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <tr>
-                      {["Name", "Language", "Category", "Status", "Body", "Synced"].map((h) => (
-                        <th key={h} className="whitespace-nowrap px-4 py-2.5 font-medium">
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {templates.map((t) => (
-                      <tr key={t.id} className="hover:bg-secondary/30">
-                        <td className="px-4 py-3 font-medium">{t.name}</td>
-                        <td className="px-4 py-3">{t.language}</td>
-                        <td className="px-4 py-3">{t.category}</td>
-                        <td className="px-4 py-3">
-                          <Pill tone={statusTone(t.status)}>{t.status}</Pill>
-                        </td>
-                        <td className="max-w-[280px] truncate px-4 py-3 text-muted-foreground">
-                          {t.body_text}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
-                          {t.last_synced_at
-                            ? new Date(t.last_synced_at).toLocaleString()
-                            : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {templates.map((t) => (
+                  <article
+                    key={t.id}
+                    className="flex flex-col rounded-xl border border-border bg-card p-4 shadow-sm transition-colors hover:border-border/80 hover:bg-secondary/20"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="truncate text-base font-semibold tracking-tight text-foreground">
+                            {t.name}
+                          </h3>
+                          <Pill tone="info">{String(t.category || "—").replace(/_/g, " ")}</Pill>
+                          <Pill tone={statusTone(t.status)}>
+                            {String(t.status).charAt(0) +
+                              String(t.status).slice(1).toLowerCase().replace(/_/g, " ")}
+                          </Pill>
+                          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            {t.language}
+                          </span>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 shrink-0 gap-1.5 px-2 text-muted-foreground"
+                        onClick={() => setViewTemplate(t)}
+                      >
+                        <Pencil className="size-3.5" />
+                        View
+                      </Button>
+                    </div>
+
+                    {t.header_text ? (
+                      <p className="mt-3 text-xs font-medium text-foreground/80">{t.header_text}</p>
+                    ) : null}
+
+                    <p className="mt-3 flex-1 whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
+                      {t.body_text || "No body preview"}
+                    </p>
+
+                    {t.footer_text ? (
+                      <p className="mt-4 border-t border-border/60 pt-3 text-xs text-muted-foreground">
+                        {t.footer_text}
+                      </p>
+                    ) : t.last_synced_at ? (
+                      <p className="mt-4 border-t border-border/60 pt-3 text-[11px] text-muted-foreground">
+                        Synced {new Date(t.last_synced_at).toLocaleString()}
+                      </p>
+                    ) : null}
+                  </article>
+                ))}
               </div>
             )}
           </Panel>
@@ -775,6 +798,49 @@ function Page() {
               onClick={() => sendEmailMutation.mutate()}
             >
               {sendEmailMutation.isPending ? "Sending…" : "Send email campaign"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(viewTemplate)} onOpenChange={(open) => !open && setViewTemplate(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex flex-wrap items-center gap-2">
+              {viewTemplate?.name}
+              {viewTemplate ? (
+                <>
+                  <Pill tone="info">{String(viewTemplate.category || "—")}</Pill>
+                  <Pill tone={statusTone(viewTemplate.status)}>{viewTemplate.status}</Pill>
+                  <span className="text-xs font-normal uppercase text-muted-foreground">
+                    {viewTemplate.language}
+                  </span>
+                </>
+              ) : null}
+            </DialogTitle>
+            <DialogDescription>
+              Meta-approved templates are managed in Meta Business Manager. Use Sync from Meta after changes there.
+            </DialogDescription>
+          </DialogHeader>
+          {viewTemplate ? (
+            <div className="space-y-3 rounded-lg border border-border bg-secondary/20 p-4">
+              {viewTemplate.header_text ? (
+                <p className="text-sm font-medium">{viewTemplate.header_text}</p>
+              ) : null}
+              <p className="whitespace-pre-wrap text-sm leading-relaxed">{viewTemplate.body_text}</p>
+              {viewTemplate.footer_text ? (
+                <p className="border-t border-border pt-3 text-xs text-muted-foreground">
+                  {viewTemplate.footer_text}
+                </p>
+              ) : null}
+              {viewTemplate.rejection_reason ? (
+                <p className="text-xs text-destructive">Rejected: {viewTemplate.rejection_reason}</p>
+              ) : null}
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewTemplate(null)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -84,21 +84,46 @@ export const syncWhatsAppTemplatesFromMeta = createServerFn({ method: "POST" }).
   for (const t of rows) {
     if (!t.name) continue;
     const components = (t.components || []) as WaTemplateComponent[];
+    const language = t.language || "en";
+    const status = mapMetaStatus(t.status);
+    const body_text = extractBody(components);
+    const header_text = extractHeader(components);
+    const footer_text = extractFooter(components);
+    const category = (t.category || "MARKETING").toUpperCase();
+    const now = new Date().toISOString();
+
+    const { data: existing } = await supabase
+      .from("wa_message_templates")
+      .select("id, status, body_text, header_text, footer_text, category, updated_at")
+      .eq("org_id", ORG_ID)
+      .eq("name", t.name)
+      .eq("language", language)
+      .maybeSingle();
+
+    const changed =
+      !existing ||
+      existing.status !== status ||
+      (existing.body_text || "") !== (body_text || "") ||
+      (existing.header_text || "") !== (header_text || "") ||
+      (existing.footer_text || "") !== (footer_text || "") ||
+      String(existing.category || "").toUpperCase() !== category;
+
     const payload = {
       org_id: ORG_ID,
       channel_type: "whatsapp",
       name: t.name,
-      language: t.language || "en",
-      category: (t.category || "MARKETING").toUpperCase(),
-      status: mapMetaStatus(t.status),
-      body_text: extractBody(components),
-      header_text: extractHeader(components),
-      footer_text: extractFooter(components),
+      language,
+      category,
+      status,
+      body_text,
+      header_text,
+      footer_text,
       components,
       meta_id: t.id || null,
       rejection_reason: t.rejected_reason || null,
-      last_synced_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      last_synced_at: now,
+      // Only bump updated_at when content/status changes (e.g. newly Approved → floats to top)
+      updated_at: changed ? now : (existing?.updated_at as string) || now,
     };
     const { error } = await supabase.from("wa_message_templates").upsert(payload, {
       onConflict: "org_id,name,language",

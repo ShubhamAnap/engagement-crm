@@ -849,7 +849,7 @@ function Page() {
               disabled={sendEmailMutation.isPending || !gmailSetupQuery.data?.connected}
               onClick={() => sendEmailMutation.mutate()}
             >
-              {sendEmailMutation.isPending ? "Sending…" : "Send email campaign"}
+              {sendEmailMutation.isPending ? "Sending with delay…" : "Send email campaign"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -261,7 +261,7 @@ Embed on EnerTech website — live AI chat, lead capture (name/email/phone requi
 | Pipeline | `/pipeline` | `mock.ts` | Live Kanban from `leads` + drag/select stage updates |
 | Analytics | `/analytics` | `mock.ts` | Live Insights: range filter + charts from Supabase |
 | Automation | `/automation` | — | Live A+B+C: Wait, If/Else, conditions, follow-up cron, WA/email/notify, canvas |
-| Channels | `/channels` | — | Live: Website + WA + Email + Meta + IndiaMART + TradeIndia + Brainmine |
+| Channels | `/channels` | — | Live: Website + WA + Email + Meta + IndiaMART/TradeIndia **auto sync toggle** + Brainmine |
 | Broadcasting | `/broadcasting` | — | WhatsApp templates + **Gmail OAuth campaigns** (Text/HTML) |
 | Human Support | `/human-support` | `mock.ts` | Live handoff queue: claim / resolve / return to AI |
 | Reports | `/reports` | — | Live catalog: 7 report types + CSV export |
@@ -300,6 +300,9 @@ Record decisions here so we don't re-debate.
 ## Session Log
 
 Brief notes from each working session — append, don't delete.
+
+### 2026-08-01
+- **IndiaMART / TradeIndia auto lead sync:** Channels panels have a prominent **Auto lead sync** toggle. ON → cron pulls on preset (every hour / every 6 hours / once a day at IST time). OFF → manual **Sync leads now** only. Settings stored on channel `config` (`auto_sync_*`). Cron `/api/cron/automations` runs `tickIndiaMartAutoSync` + `tickTradeIndiaAutoSync` (skips during backfill/cooldown). Helper `src/lib/marketplace-auto-sync.ts`.
 
 ### 2026-07-31
 - **WhatsApp product recommendation cards (Path B):** Products store `image_path` / `image_url` (`019_product_image.sql`). Upload image on Products edit. Inbox composer **Recommend** → searchable product picker → sends WhatsApp image+caption (name, price, features, catalogue link) when 24h window open; text-only fallback without image. Server `sendWhatsAppImage` + `sendWhatsAppProductRecommendation`. Meta Catalog (Path A) deferred.

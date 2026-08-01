@@ -54,6 +54,7 @@ import {
   cancelIndiaMartBackfillFn,
   ensureIndiaMartChannel,
   getIndiaMartSetupInfo,
+  saveIndiaMartAutoSync,
   saveIndiaMartChannelConfig,
   startIndiaMartBackfillFn,
   syncIndiaMartLeads,
@@ -62,10 +63,17 @@ import {
   cancelTradeIndiaBackfillFn,
   ensureTradeIndiaChannel,
   getTradeIndiaSetup,
+  saveTradeIndiaAutoSync,
   saveTradeIndiaChannelConfig,
   startTradeIndiaBackfillFn,
   syncTradeIndiaLeads,
 } from "@/server/tradeindia";
+import {
+  AUTO_SYNC_DAILY_TIME_OPTIONS,
+  AUTO_SYNC_SCHEDULE_OPTIONS,
+  describeAutoSync,
+  type AutoSyncSchedule,
+} from "@/lib/marketplace-auto-sync";
 import {
   ensureBrainmineChannel,
   getBrainmineSetup,
@@ -614,6 +622,21 @@ function Page() {
     },
   });
 
+  const imAutoSyncMutation = useMutation({
+    mutationFn: (payload: { enabled: boolean; schedule?: AutoSyncSchedule; dailyTime?: string }) =>
+      saveIndiaMartAutoSync({ data: payload }),
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["indiamart-setup"] });
+      toast.success(
+        result.autoSyncEnabled
+          ? "IndiaMART auto sync on"
+          : "IndiaMART auto sync off — use Sync leads now",
+      );
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not update auto sync"),
+  });
+
   const startImBackfillMutation = useMutation({
     mutationFn: () =>
       startIndiaMartBackfillFn({
@@ -686,6 +709,21 @@ function Page() {
       }
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "TradeIndia sync failed"),
+  });
+
+  const tiAutoSyncMutation = useMutation({
+    mutationFn: (payload: { enabled: boolean; schedule?: AutoSyncSchedule; dailyTime?: string }) =>
+      saveTradeIndiaAutoSync({ data: payload }),
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["tradeindia-setup"] });
+      toast.success(
+        result.autoSyncEnabled
+          ? "TradeIndia auto sync on"
+          : "TradeIndia auto sync off — use Sync leads now",
+      );
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not update auto sync"),
   });
 
   const startTiBackfillMutation = useMutation({
@@ -1330,6 +1368,101 @@ function Page() {
               <Link to="/leads">Open leads</Link>
             </Button>
           </div>
+          <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">Auto lead sync</p>
+                <p className="text-xs text-muted-foreground">
+                  {describeAutoSync({
+                    auto_sync_enabled: imSetupQuery.data?.autoSyncEnabled,
+                    auto_sync_schedule: imSetupQuery.data?.autoSyncSchedule,
+                    auto_sync_daily_time: imSetupQuery.data?.autoSyncDailyTime,
+                  })}
+                  {imSetupQuery.data?.lastAutoSyncAt
+                    ? ` · Last auto ${new Date(imSetupQuery.data.lastAutoSyncAt).toLocaleString()}`
+                    : ""}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="im-auto-sync" className="text-sm font-medium">
+                  {imSetupQuery.data?.autoSyncEnabled ? "On" : "Off"}
+                </Label>
+                <Switch
+                  id="im-auto-sync"
+                  checked={Boolean(imSetupQuery.data?.autoSyncEnabled)}
+                  disabled={
+                    !imSetupQuery.data?.configured || imAutoSyncMutation.isPending
+                  }
+                  onCheckedChange={(enabled) =>
+                    imAutoSyncMutation.mutate({
+                      enabled,
+                      schedule: imSetupQuery.data?.autoSyncSchedule || "every_6h",
+                      dailyTime: imSetupQuery.data?.autoSyncDailyTime || "18:00",
+                    })
+                  }
+                />
+              </div>
+            </div>
+            {imSetupQuery.data?.autoSyncEnabled ? (
+              <div className="mt-3 flex flex-wrap items-end gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Schedule</Label>
+                  <Select
+                    value={imSetupQuery.data?.autoSyncSchedule || "every_6h"}
+                    onValueChange={(value: AutoSyncSchedule) =>
+                      imAutoSyncMutation.mutate({
+                        enabled: true,
+                        schedule: value,
+                        dailyTime: imSetupQuery.data?.autoSyncDailyTime || "18:00",
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-[11rem]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {AUTO_SYNC_SCHEDULE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {(imSetupQuery.data?.autoSyncSchedule || "every_6h") === "daily_at" ? (
+                  <div className="space-y-1">
+                    <Label className="text-xs">Time (IST)</Label>
+                    <Select
+                      value={imSetupQuery.data?.autoSyncDailyTime || "18:00"}
+                      onValueChange={(dailyTime) =>
+                        imAutoSyncMutation.mutate({
+                          enabled: true,
+                          schedule: "daily_at",
+                          dailyTime,
+                        })
+                      }
+                    >
+                      <SelectTrigger className="w-[11rem]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {AUTO_SYNC_DAILY_TIME_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Toggle off = manual only. Use <span className="font-medium text-foreground">Sync leads now</span>{" "}
+                when you want to pull.
+              </p>
+            )}
+          </div>
           <p className="mt-2 text-xs text-muted-foreground">
             Status:{" "}
             {imSetupQuery.data?.channelError
@@ -1494,6 +1627,101 @@ function Page() {
             <Button size="sm" variant="outline" asChild>
               <Link to="/leads">Open leads</Link>
             </Button>
+          </div>
+          <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">Auto lead sync</p>
+                <p className="text-xs text-muted-foreground">
+                  {describeAutoSync({
+                    auto_sync_enabled: tiSetupQuery.data?.autoSyncEnabled,
+                    auto_sync_schedule: tiSetupQuery.data?.autoSyncSchedule,
+                    auto_sync_daily_time: tiSetupQuery.data?.autoSyncDailyTime,
+                  })}
+                  {tiSetupQuery.data?.lastAutoSyncAt
+                    ? ` · Last auto ${new Date(tiSetupQuery.data.lastAutoSyncAt).toLocaleString()}`
+                    : ""}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="ti-auto-sync" className="text-sm font-medium">
+                  {tiSetupQuery.data?.autoSyncEnabled ? "On" : "Off"}
+                </Label>
+                <Switch
+                  id="ti-auto-sync"
+                  checked={Boolean(tiSetupQuery.data?.autoSyncEnabled)}
+                  disabled={
+                    !tiSetupQuery.data?.configured || tiAutoSyncMutation.isPending
+                  }
+                  onCheckedChange={(enabled) =>
+                    tiAutoSyncMutation.mutate({
+                      enabled,
+                      schedule: tiSetupQuery.data?.autoSyncSchedule || "every_6h",
+                      dailyTime: tiSetupQuery.data?.autoSyncDailyTime || "18:00",
+                    })
+                  }
+                />
+              </div>
+            </div>
+            {tiSetupQuery.data?.autoSyncEnabled ? (
+              <div className="mt-3 flex flex-wrap items-end gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Schedule</Label>
+                  <Select
+                    value={tiSetupQuery.data?.autoSyncSchedule || "every_6h"}
+                    onValueChange={(value: AutoSyncSchedule) =>
+                      tiAutoSyncMutation.mutate({
+                        enabled: true,
+                        schedule: value,
+                        dailyTime: tiSetupQuery.data?.autoSyncDailyTime || "18:00",
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-[11rem]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {AUTO_SYNC_SCHEDULE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {(tiSetupQuery.data?.autoSyncSchedule || "every_6h") === "daily_at" ? (
+                  <div className="space-y-1">
+                    <Label className="text-xs">Time (IST)</Label>
+                    <Select
+                      value={tiSetupQuery.data?.autoSyncDailyTime || "18:00"}
+                      onValueChange={(dailyTime) =>
+                        tiAutoSyncMutation.mutate({
+                          enabled: true,
+                          schedule: "daily_at",
+                          dailyTime,
+                        })
+                      }
+                    >
+                      <SelectTrigger className="w-[11rem]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {AUTO_SYNC_DAILY_TIME_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Toggle off = manual only. Use <span className="font-medium text-foreground">Sync leads now</span>{" "}
+                when you want to pull.
+              </p>
+            )}
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
             Status:{" "}

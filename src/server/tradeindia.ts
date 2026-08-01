@@ -10,6 +10,12 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
+import {
+  isAutoSyncDue,
+  normalizeDailyTime,
+  type AutoSyncSchedule,
+  type MarketplaceAutoSyncFields,
+} from "@/lib/marketplace-auto-sync";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const PULL_URL = "https://www.tradeindia.com/utils/my_inquiry.html";
@@ -31,7 +37,7 @@ export type TradeIndiaBackfillState = {
   nextChunkAt?: string | null;
 };
 
-export type TradeIndiaChannelConfig = {
+export type TradeIndiaChannelConfig = MarketplaceAutoSyncFields & {
   userid?: string;
   profile_id?: string;
   key?: string;
@@ -100,6 +106,10 @@ export async function loadTradeIndiaConfig(): Promise<TradeIndiaChannelConfig> {
       last_sync_at: cfg.last_sync_at,
       last_api_hit_at: cfg.last_api_hit_at,
       backfill: cfg.backfill ?? null,
+      auto_sync_enabled: Boolean(cfg.auto_sync_enabled),
+      auto_sync_schedule: cfg.auto_sync_schedule || "every_6h",
+      auto_sync_daily_time: normalizeDailyTime(cfg.auto_sync_daily_time),
+      last_auto_sync_at: cfg.last_auto_sync_at,
     };
   } catch {
     return fromEnv;
@@ -942,6 +952,10 @@ export const saveTradeIndiaChannelConfig = createServerFn({ method: "POST" })
       last_sync_at: prev.last_sync_at,
       last_api_hit_at: prev.last_api_hit_at,
       backfill: prev.backfill,
+      auto_sync_enabled: prev.auto_sync_enabled,
+      auto_sync_schedule: prev.auto_sync_schedule,
+      auto_sync_daily_time: prev.auto_sync_daily_time,
+      last_auto_sync_at: prev.last_auto_sync_at,
     };
 
     const supabase = createServiceSupabase();
@@ -1003,8 +1017,83 @@ export const getTradeIndiaSetup = createServerFn({ method: "GET" }).handler(asyn
     backfill: cfg.backfill || null,
     backfillEarliestDate: earliest,
     backfillLatestDate: today,
+    autoSyncEnabled: Boolean(cfg.auto_sync_enabled),
+    autoSyncSchedule: (cfg.auto_sync_schedule || "every_6h") as AutoSyncSchedule,
+    autoSyncDailyTime: normalizeDailyTime(cfg.auto_sync_daily_time),
+    lastAutoSyncAt: cfg.last_auto_sync_at || null,
   };
 });
+
+export const saveTradeIndiaAutoSync = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      enabled: z.boolean(),
+      schedule: z.enum(["hourly", "every_6h", "daily_at"]).optional(),
+      dailyTime: z.string().max(8).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const cfg = await loadTradeIndiaConfig();
+    if (!tradeIndiaConfigReady(cfg)) {
+      throw new Error("Configure TradeIndia credentials before enabling auto sync");
+    }
+    const next: TradeIndiaChannelConfig = {
+      ...cfg,
+      auto_sync_enabled: data.enabled,
+      auto_sync_schedule: data.schedule || cfg.auto_sync_schedule || "every_6h",
+      auto_sync_daily_time: normalizeDailyTime(data.dailyTime ?? cfg.auto_sync_daily_time),
+    };
+    await saveTradeIndiaConfig(
+      next,
+      data.enabled
+        ? `TradeIndia auto sync on (${next.auto_sync_schedule})`
+        : "TradeIndia auto sync off — manual Sync only",
+    );
+    return {
+      ok: true,
+      autoSyncEnabled: Boolean(next.auto_sync_enabled),
+      autoSyncSchedule: next.auto_sync_schedule,
+      autoSyncDailyTime: next.auto_sync_daily_time,
+      lastAutoSyncAt: next.last_auto_sync_at || null,
+    };
+  });
+
+/** Cron: if auto sync enabled and due, pull last 24h window. */
+export async function tickTradeIndiaAutoSync(): Promise<{
+  ran: boolean;
+  skipped?: string;
+  created?: number;
+  fetched?: number;
+}> {
+  const cfg = await loadTradeIndiaConfig();
+  if (!tradeIndiaConfigReady(cfg)) return { ran: false, skipped: "not_configured" };
+  if (!isAutoSyncDue(cfg)) return { ran: false, skipped: "not_due" };
+  if (cfg.backfill?.status === "running" || cfg.backfill?.status === "waiting") {
+    return { ran: false, skipped: "backfill_active" };
+  }
+  if (tradeIndiaCooldownRemainingMs(cfg) > 0) {
+    return { ran: false, skipped: "cooldown" };
+  }
+
+  try {
+    const result = await syncTradeIndiaWindow({ hours: 24 });
+    const latest = await loadTradeIndiaConfig();
+    await saveTradeIndiaConfig({
+      ...latest,
+      last_auto_sync_at: new Date().toISOString(),
+    });
+    return {
+      ran: true,
+      created: result.created,
+      fetched: result.fetched,
+    };
+  } catch (err) {
+    return {
+      ran: false,
+      skipped: err instanceof Error ? err.message : "auto_sync_failed",
+    };
+  }
+}
 
 export const syncTradeIndiaLeads = createServerFn({ method: "POST" })
   .validator(z.object({ hours: z.number().int().min(1).max(24).optional() }).optional())

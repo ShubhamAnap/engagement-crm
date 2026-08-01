@@ -8,6 +8,12 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
+import {
+  isAutoSyncDue,
+  normalizeDailyTime,
+  type AutoSyncSchedule,
+  type MarketplaceAutoSyncFields,
+} from "@/lib/marketplace-auto-sync";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const PULL_URL = "https://mapi.indiamart.com/wservce/crm/crmListing/v2/";
@@ -29,7 +35,7 @@ export type IndiaMartBackfillState = {
   nextChunkAt?: string | null;
 };
 
-export type IndiaMartChannelConfig = {
+export type IndiaMartChannelConfig = MarketplaceAutoSyncFields & {
   crm_key?: string;
   last_sync_at?: string;
   /** Last Pull API call (success or rate-limit) — IndiaMART allows ~1 hit / 5 min */
@@ -88,6 +94,10 @@ export async function loadIndiaMartConfig(): Promise<IndiaMartChannelConfig> {
       last_api_hit_at: cfg.last_api_hit_at,
       push_secret: cfg.push_secret || fromEnv.push_secret,
       backfill: cfg.backfill ?? null,
+      auto_sync_enabled: Boolean(cfg.auto_sync_enabled),
+      auto_sync_schedule: cfg.auto_sync_schedule || "every_6h",
+      auto_sync_daily_time: normalizeDailyTime(cfg.auto_sync_daily_time),
+      last_auto_sync_at: cfg.last_auto_sync_at,
     };
   } catch {
     return fromEnv;
@@ -898,6 +908,10 @@ export const saveIndiaMartChannelConfig = createServerFn({ method: "POST" })
       last_sync_at: existing.last_sync_at,
       last_api_hit_at: existing.last_api_hit_at,
       backfill: existing.backfill,
+      auto_sync_enabled: existing.auto_sync_enabled,
+      auto_sync_schedule: existing.auto_sync_schedule,
+      auto_sync_daily_time: existing.auto_sync_daily_time,
+      last_auto_sync_at: existing.last_auto_sync_at,
     };
     const enable = data.enable ?? true;
     const { data: updated, error } = await supabase
@@ -959,8 +973,85 @@ export const getIndiaMartSetupInfo = createServerFn({ method: "GET" }).handler(a
     backfill: cfg.backfill || null,
     backfillEarliestDate: earliest,
     backfillLatestDate: today,
+    autoSyncEnabled: Boolean(cfg.auto_sync_enabled),
+    autoSyncSchedule: (cfg.auto_sync_schedule || "every_6h") as AutoSyncSchedule,
+    autoSyncDailyTime: normalizeDailyTime(cfg.auto_sync_daily_time),
+    lastAutoSyncAt: cfg.last_auto_sync_at || null,
   };
 });
+
+export const saveIndiaMartAutoSync = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      enabled: z.boolean(),
+      schedule: z.enum(["hourly", "every_6h", "daily_at"]).optional(),
+      dailyTime: z.string().max(8).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const cfg = await loadIndiaMartConfig();
+    if (!indiaMartConfigReady(cfg)) {
+      throw new Error("Configure IndiaMART CRM key before enabling auto sync");
+    }
+    const next: IndiaMartChannelConfig = {
+      ...cfg,
+      auto_sync_enabled: data.enabled,
+      auto_sync_schedule: data.schedule || cfg.auto_sync_schedule || "every_6h",
+      auto_sync_daily_time: normalizeDailyTime(data.dailyTime ?? cfg.auto_sync_daily_time),
+    };
+    await saveIndiaMartConfig(
+      next,
+      data.enabled
+        ? `IndiaMART auto sync on (${next.auto_sync_schedule})`
+        : "IndiaMART auto sync off — manual Sync only",
+    );
+    return {
+      ok: true,
+      autoSyncEnabled: Boolean(next.auto_sync_enabled),
+      autoSyncSchedule: next.auto_sync_schedule,
+      autoSyncDailyTime: next.auto_sync_daily_time,
+      lastAutoSyncAt: next.last_auto_sync_at || null,
+    };
+  });
+
+/**
+ * Cron: if auto sync enabled and due, pull latest window (respects cooldown / backfill).
+ */
+export async function tickIndiaMartAutoSync(): Promise<{
+  ran: boolean;
+  skipped?: string;
+  created?: number;
+  fetched?: number;
+}> {
+  const cfg = await loadIndiaMartConfig();
+  if (!indiaMartConfigReady(cfg)) return { ran: false, skipped: "not_configured" };
+  if (!isAutoSyncDue(cfg)) return { ran: false, skipped: "not_due" };
+  if (cfg.backfill?.status === "running" || cfg.backfill?.status === "waiting") {
+    return { ran: false, skipped: "backfill_active" };
+  }
+  if (indiaMartCooldownRemainingMs(cfg) > 0) {
+    return { ran: false, skipped: "cooldown" };
+  }
+
+  try {
+    const result = await syncIndiaMartWindow({ days: 1 });
+    const latest = await loadIndiaMartConfig();
+    await saveIndiaMartConfig({
+      ...latest,
+      last_auto_sync_at: new Date().toISOString(),
+    });
+    return {
+      ran: true,
+      created: result.created,
+      fetched: result.fetched,
+    };
+  } catch (err) {
+    return {
+      ran: false,
+      skipped: err instanceof Error ? err.message : "auto_sync_failed",
+    };
+  }
+}
 
 export const syncIndiaMartLeads = createServerFn({ method: "POST" })
   .validator(z.object({ days: z.number().int().min(1).max(7).optional() }))

@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Megaphone, Pencil, Plus, RefreshCw, Send } from "lucide-react";
+import { Download, Megaphone, Pencil, Plus, RefreshCw, Send, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,6 +42,12 @@ import {
 import { getGmailSetupInfo, sendGmailCompose } from "@/server/gmail-api";
 import { SendEmailDialog } from "@/components/email/SendEmailDialog";
 import { EMAIL_MERGE_TOKEN_HELP } from "@/lib/email-merge";
+import {
+  downloadEmailAudienceTemplate,
+  MAX_EMAIL_AUDIENCE_ROWS,
+  parseEmailAudienceCsv,
+  type EmailAudienceRecipient,
+} from "@/lib/email-audience-import";
 
 export const Route = createFileRoute("/broadcasting")({
   head: () => ({
@@ -107,6 +113,10 @@ function Page() {
   const [emFormat, setEmFormat] = useState<"text" | "html">("text");
   const [emAudience, setEmAudience] = useState<AudienceKind>("leads_with_email");
   const [emManual, setEmManual] = useState("");
+  const [emUploadRecipients, setEmUploadRecipients] = useState<EmailAudienceRecipient[]>([]);
+  const [emUploadFileName, setEmUploadFileName] = useState<string | null>(null);
+  const [emUploadSummary, setEmUploadSummary] = useState<string | null>(null);
+  const emUploadInputRef = useRef<HTMLInputElement>(null);
   const [emDelayMin, setEmDelayMin] = useState("4");
   const [emDelayMax, setEmDelayMax] = useState("12");
   const [composeSending, setComposeSending] = useState(false);
@@ -220,6 +230,9 @@ function Page() {
       if (!gmailSetupQuery.data?.connected) {
         throw new Error("Connect Gmail under Channels first");
       }
+      if (emAudience === "upload_csv" && emUploadRecipients.length === 0) {
+        throw new Error("Upload a CSV audience first (or download the template)");
+      }
       const delayMinSec = Number(emDelayMin);
       const delayMaxSec = Number(emDelayMax);
       if (!Number.isFinite(delayMinSec) || delayMinSec < 0) {
@@ -236,6 +249,14 @@ function Page() {
         format: emFormat,
         audienceKind: emAudience,
         manualEmails: emManual.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean),
+        uploadedRecipients:
+          emAudience === "upload_csv"
+            ? emUploadRecipients.map((r) => ({
+                email: r.email,
+                name: r.name,
+                mergeFields: r.mergeFields,
+              }))
+            : undefined,
         createdBy: profile?.id,
         delayMinSec,
         delayMaxSec,
@@ -253,6 +274,50 @@ function Page() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Email campaign failed"),
   });
 
+  const onEmailAudienceFile = (file: File | null) => {
+    if (!file) {
+      setEmUploadRecipients([]);
+      setEmUploadFileName(null);
+      setEmUploadSummary(null);
+      return;
+    }
+    if (!file.name.toLowerCase().endsWith(".csv") && file.type !== "text/csv") {
+      toast.error("Please choose a .csv file");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = parseEmailAudienceCsv(String(reader.result ?? ""));
+        setEmUploadFileName(file.name);
+        setEmUploadRecipients(parsed.recipients);
+        const parts = [
+          `${parsed.recipients.length} ready`,
+          parsed.skippedDuplicate ? `${parsed.skippedDuplicate} duplicate` : null,
+          parsed.skippedInvalid ? `${parsed.skippedInvalid} invalid` : null,
+        ].filter(Boolean);
+        setEmUploadSummary(parts.join(" · "));
+        if (parsed.recipients.length === 0) {
+          toast.error("No valid emails in this CSV");
+        } else {
+          toast.success(`Audience loaded · ${parts.join(" · ")}`);
+        }
+        if (parsed.errors.length > 0) {
+          toast.message(
+            `Notes: ${parsed.errors.slice(0, 3).join("; ")}${parsed.errors.length > 3 ? "…" : ""}`,
+          );
+        }
+      } catch (err) {
+        setEmUploadRecipients([]);
+        setEmUploadFileName(null);
+        setEmUploadSummary(null);
+        toast.error(err instanceof Error ? err.message : "Could not parse CSV");
+      }
+    };
+    reader.onerror = () => toast.error("Could not read file");
+    reader.readAsText(file);
+  };
+
   function openBroadcast() {
     if (channel === "email") {
       setEmName("");
@@ -264,6 +329,10 @@ function Page() {
       setEmFormat("text");
       setEmAudience("leads_with_email");
       setEmManual("");
+      setEmUploadRecipients([]);
+      setEmUploadFileName(null);
+      setEmUploadSummary(null);
+      if (emUploadInputRef.current) emUploadInputRef.current.value = "";
       setEmDelayMin("4");
       setEmDelayMax("12");
       setEmailBroadcastOpen(true);
@@ -779,8 +848,8 @@ function Page() {
                 {EMAIL_MERGE_TOKEN_HELP.join(" · ")}
               </p>
               <p className="mt-1 text-[11px] text-muted-foreground">
-                Manual email lists only get {"{{email}}"} / {"{{name}}"} if known — use Leads/Customers audience for full
-                personalization.
+                Leads/Customers and Upload CSV fill all merge fields. Manual email list only gets{" "}
+                {"{{email}}"} (and name if known). Upload is campaign-only — not saved as leads.
               </p>
             </div>
             <div className="space-y-2">
@@ -810,6 +879,7 @@ function Page() {
                   <SelectItem value="customers_with_email">All customers with email</SelectItem>
                   <SelectItem value="indiamart_leads">IndiaMART leads (with email)</SelectItem>
                   <SelectItem value="manual_emails">Manual email list</SelectItem>
+                  <SelectItem value="upload_csv">Upload CSV (campaign only)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -822,6 +892,42 @@ function Page() {
                   value={emManual}
                   onChange={(e) => setEmManual(e.target.value)}
                 />
+              </div>
+            ) : null}
+            {emAudience === "upload_csv" ? (
+              <div className="space-y-3 rounded-lg border border-border p-3">
+                <p className="text-xs text-muted-foreground">
+                  Download the template, fill merge-field columns (email required), then upload. Max{" "}
+                  {MAX_EMAIL_AUDIENCE_ROWS} rows. Used only for this campaign — not saved as leads.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full gap-1.5"
+                  onClick={() => downloadEmailAudienceTemplate()}
+                >
+                  <Download className="size-4" />
+                  Download CSV template
+                </Button>
+                <div className="space-y-2">
+                  <Label htmlFor="em-audience-csv">Upload CSV</Label>
+                  <input
+                    ref={emUploadInputRef}
+                    id="em-audience-csv"
+                    type="file"
+                    accept=".csv,text/csv"
+                    className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium"
+                    onChange={(e) => onEmailAudienceFile(e.target.files?.[0] ?? null)}
+                  />
+                  {emUploadFileName ? (
+                    <p className="text-xs text-muted-foreground">
+                      <Upload className="mr-1 inline size-3" />
+                      {emUploadFileName}
+                      {emUploadSummary ? ` · ${emUploadSummary}` : ""}
+                    </p>
+                  ) : null}
+                </div>
               </div>
             ) : null}
             <div className="rounded-lg border border-border bg-secondary/20 p-3 space-y-3">

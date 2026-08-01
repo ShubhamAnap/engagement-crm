@@ -262,7 +262,7 @@ Embed on EnerTech website — live AI chat, lead capture (name/email/phone requi
 | Analytics | `/analytics` | `mock.ts` | Live Insights: range filter + charts from Supabase |
 | Automation | `/automation` | — | Live A+B+C: Wait, If/Else, conditions, follow-up cron, WA/email/notify, canvas |
 | Channels | `/channels` | — | Live: Website + WA + Email + Meta + IndiaMART/TradeIndia **auto sync toggle** + Brainmine |
-| Broadcasting | `/broadcasting` | — | WhatsApp templates + **Gmail OAuth campaigns** (Text/HTML) |
+| Broadcasting | `/broadcasting` | — | WhatsApp templates + **Gmail campaigns** (CRM / manual / **CSV upload**) |
 | Human Support | `/human-support` | `mock.ts` | Live handoff queue: claim / resolve / return to AI |
 | Reports | `/reports` | — | Live catalog: 7 report types + CSV export |
 | Settings | `/settings` | — | Live: profile, company (Admin), password |
@@ -302,6 +302,7 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-08-01
+- **Gmail campaign CSV audience:** New email campaign → Audience **Upload CSV (campaign only)**. Template includes merge columns; max 500. Rows stored on `broadcast_recipients.merge_fields` (migration `020_broadcast_recipient_merge.sql`) — **not** saved as leads. Helper `src/lib/email-audience-import.ts`.
 - **Leads bulk CSV import:** `/leads` → **Bulk import** downloads template, uploads CSV (max 500 rows). Requires name + email or phone; skips existing email/phone. Helper `src/lib/leads-import.ts`.
 - **Gmail campaign merge fields:** Subject/body support `{{name}}`, `{{company}}`, `{{email}}`, `{{phone}}`, `{{requirement}}`, `{{sales_person}}`, `{{location}}`, `{{source}}`, `{{status}}`, `{{notes}}` — filled per recipient from Leads/Customers at send time (`src/lib/email-merge.ts`).
 - **Gmail campaign send delay:** New email campaign can set min–max seconds (default 4–12). Between each recipient, wait a random time in that range. Stored on broadcast `audience.delay_min_sec` / `delay_max_sec`. WhatsApp broadcasts unchanged.
@@ -403,6 +404,6 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 
 1. **Deploy on Render:** Blueprint/`render.yaml` → set env from `.env` → set `VITE_APP_URL` to the Render HTTPS URL → redeploy.
 2. **WhatsApp Meta:** Channels → Configure → Test connection → Meta webhook = `{VITE_APP_URL}/api/webhooks/whatsapp`.
-3. Run pending SQL if needed: `015`, `016`, **`017_whatsapp_session_window.sql`**, **`018_gmail_oauth_broadcast.sql`**, `009_broadcasting.sql` for templates.
+3. Run pending SQL if needed: `015`, `016`, **`017_whatsapp_session_window.sql`**, **`018_gmail_oauth_broadcast.sql`**, **`020_broadcast_recipient_merge.sql`**, `009_broadcasting.sql` for templates.
 4. Cron: `CRON_URL` + `CRON_SECRET` on the Render cron job (every 5 min).
 5. Still later: RBAC/audit logs, Brainmine field map.

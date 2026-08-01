@@ -73,9 +73,16 @@ export type AudienceKind =
   | "manual"
   | "customers_with_email"
   | "leads_with_email"
-  | "manual_emails";
+  | "manual_emails"
+  | "upload_csv";
 
 export { countTemplateVars, syncWhatsAppTemplatesFromMeta, submitWhatsAppTemplateToMeta, runWhatsAppBroadcast, sendInboxWhatsAppTemplate };
+
+export type EmailUploadRecipient = {
+  email: string;
+  name?: string | null;
+  mergeFields?: Record<string, string | null | undefined>;
+};
 
 export async function createAndSendEmailBroadcast(options: {
   orgId?: string;
@@ -85,17 +92,44 @@ export async function createAndSendEmailBroadcast(options: {
   format: "text" | "html";
   audienceKind: AudienceKind;
   manualEmails?: string[];
+  /** Campaign-only CSV rows (audienceKind = upload_csv). Not saved as leads. */
+  uploadedRecipients?: EmailUploadRecipient[];
   createdBy?: string | null;
   /** Random pause between each Gmail send (seconds). Default 4–12. */
   delayMinSec?: number;
   delayMaxSec?: number;
 }) {
   const orgId = options.orgId ?? ENERTECH_ORG_ID;
-  const recipients = await resolveAudienceEmails(
-    orgId,
-    options.audienceKind,
-    options.manualEmails || [],
-  );
+  type ResolvedEmail = {
+    email: string;
+    name: string | null;
+    customer_id?: string;
+    lead_id?: string;
+    merge_fields?: Record<string, string | null | undefined> | null;
+  };
+
+  let recipients: ResolvedEmail[];
+  if (options.audienceKind === "upload_csv") {
+    const uploaded = options.uploadedRecipients || [];
+    const seen = new Set<string>();
+    recipients = [];
+    for (const row of uploaded) {
+      const email = (row.email || "").trim().toLowerCase();
+      if (!email.includes("@") || seen.has(email)) continue;
+      seen.add(email);
+      recipients.push({
+        email,
+        name: row.name?.trim() || null,
+        merge_fields: row.mergeFields || { email, name: row.name || null },
+      });
+    }
+  } else {
+    recipients = await resolveAudienceEmails(
+      orgId,
+      options.audienceKind,
+      options.manualEmails || [],
+    );
+  }
   if (!recipients.length) throw new Error("No recipients with email found for this audience");
 
   let delayMinSec = Math.round(Number(options.delayMinSec ?? 4));
@@ -138,6 +172,7 @@ export async function createAndSendEmailBroadcast(options: {
       name: r.name,
       customer_id: r.customer_id || null,
       lead_id: r.lead_id || null,
+      merge_fields: r.merge_fields || null,
       status: "pending",
     })),
   );

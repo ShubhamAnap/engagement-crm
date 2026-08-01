@@ -523,11 +523,23 @@ export async function runEmailBroadcast(broadcastId: string): Promise<{
       try {
         const fromLead = r.lead_id ? leadMap.get(String(r.lead_id)) : undefined;
         const fromCustomer = r.customer_id ? customerMap.get(String(r.customer_id)) : undefined;
+        const rawMerge = r.merge_fields;
+        const fromUpload: EmailMergeFields | undefined =
+          rawMerge && typeof rawMerge === "object" && !Array.isArray(rawMerge)
+            ? (rawMerge as EmailMergeFields)
+            : undefined;
+        // Upload CSV fields win for campaign-only shortlists; else CRM lead/customer.
         const fields: EmailMergeFields = {
           ...(fromCustomer || {}),
           ...(fromLead || {}),
-          name: fromLead?.name || fromCustomer?.name || (r.name as string) || null,
-          email: fromLead?.email || fromCustomer?.email || email,
+          ...(fromUpload || {}),
+          name:
+            fromUpload?.name ||
+            fromLead?.name ||
+            fromCustomer?.name ||
+            (r.name as string) ||
+            null,
+          email: fromUpload?.email || fromLead?.email || fromCustomer?.email || email,
         };
 
         const personalizedBody = applyEmailMerge(body, fields);

@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Building2, Mail, MapPin, Phone, RefreshCw, Send, User, X } from "lucide-react";
+import { Building2, Mail, MapPin, Mic, Phone, RefreshCw, Send, User, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import {
+  createSpeechRecognition,
+  speechRecognitionSupported,
+  type SpeechRecognitionLike,
+} from "@/lib/speech-to-text";
 import {
   widgetGetOrCreateConversation,
   widgetListMessages,
@@ -119,12 +124,16 @@ function EmbedChat() {
   const [humanMode, setHumanMode] = useState(false);
   const [profile, setProfile] = useState<VisitorProfile>(stored);
   const [editingContact, setEditingContact] = useState(!isProfileComplete(stored));
+  const [listening, setListening] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef(profile);
   const lookedUpRef = useRef("");
   const busyRef = useRef(false);
   const conversationIdRef = useRef<string | null>(null);
   const startedRef = useRef(false);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const draftBeforeListenRef = useRef("");
+  const micSupported = speechRecognitionSupported();
 
   const profileReady = isProfileComplete(profile);
   const showContactForm = editingContact || !profileReady;
@@ -144,6 +153,73 @@ function EmbedChat() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [msgs, typing, open, showContactForm]);
+
+  useEffect(() => {
+    return () => {
+      try {
+        recognitionRef.current?.abort();
+      } catch {
+        /* ignore */
+      }
+      recognitionRef.current = null;
+    };
+  }, []);
+
+  function stopListening() {
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      /* ignore */
+    }
+    recognitionRef.current = null;
+    setListening(false);
+  }
+
+  function toggleMic() {
+    if (busy || !key) return;
+    if (listening) {
+      stopListening();
+      return;
+    }
+    if (!micSupported) {
+      setError("Voice input is not supported in this browser. Please type your message (Chrome works best).");
+      return;
+    }
+
+    draftBeforeListenRef.current = draft.trim();
+    const recognition = createSpeechRecognition({
+      lang: "EN",
+      onInterim: (text) => {
+        const prefix = draftBeforeListenRef.current;
+        setDraft(prefix ? `${prefix} ${text}` : text);
+      },
+      onFinal: (text) => {
+        const prefix = draftBeforeListenRef.current;
+        const next = prefix ? `${prefix} ${text}` : text;
+        setDraft(next);
+        draftBeforeListenRef.current = next;
+      },
+      onError: (message) => setError(message),
+      onEnd: () => {
+        recognitionRef.current = null;
+        setListening(false);
+      },
+    });
+    if (!recognition) {
+      setError("Voice input is not available in this browser.");
+      return;
+    }
+
+    recognitionRef.current = recognition;
+    setError(null);
+    setListening(true);
+    try {
+      recognition.start();
+    } catch {
+      setListening(false);
+      setError("Could not start the microphone. Check browser permissions.");
+    }
+  }
 
   async function syncConversationProfile(override?: VisitorProfile) {
     if (!key) return null;
@@ -539,13 +615,27 @@ function EmbedChat() {
               style={{ borderColor: `${BRAND}22`, backgroundColor: INK }}
               onSubmit={(e) => {
                 e.preventDefault();
+                if (listening) stopListening();
                 void send(draft);
               }}
             >
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-8 shrink-0"
+                style={{ color: listening ? "#DC2626" : BRAND }}
+                aria-label={listening ? "Stop listening" : "Speak message"}
+                title={listening ? "Stop listening" : "Speak — text appears for you to edit, then send"}
+                disabled={busy || !key}
+                onClick={() => toggleMic()}
+              >
+                <Mic className={cn("size-4", listening && "animate-pulse")} />
+              </Button>
               <Input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder="Type your message…"
+                placeholder={listening ? "Listening… speak now" : "Type your message…"}
                 className="h-9 border text-sm"
                 style={{ borderColor: `${BRAND}33`, color: BRAND }}
                 disabled={busy || !key}
@@ -555,7 +645,7 @@ function EmbedChat() {
                 size="icon"
                 className="size-8 shrink-0 text-white hover:opacity-95"
                 style={{ backgroundColor: BRAND }}
-                disabled={busy || !draft.trim()}
+                disabled={busy || !draft.trim() || listening}
               >
                 <Send className="size-4" />
               </Button>

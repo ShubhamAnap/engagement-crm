@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { Building2, Headphones, Languages, Mail, MapPin, Paperclip, Phone, RefreshCw, Send, User, X } from "lucide-react";
+import { Building2, Headphones, Languages, Mail, MapPin, Mic, Paperclip, Phone, RefreshCw, Send, User, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
+import {
+  createSpeechRecognition,
+  speechRecognitionSupported,
+  type SpeechRecognitionLike,
+} from "@/lib/speech-to-text";
 import {
   widgetGetOrCreateConversation,
   widgetListMessages,
@@ -113,15 +118,19 @@ export function ChatWidget() {
   const [humanMode, setHumanMode] = useState(false);
   const [profile, setProfile] = useState<VisitorProfile>(emptyProfile);
   const [editingContact, setEditingContact] = useState(true);
+  const [listening, setListening] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const profileRef = useRef(profile);
   const lookedUpRef = useRef("");
   const busyRef = useRef(false);
   const conversationIdRef = useRef<string | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const draftBeforeListenRef = useRef("");
   const widgetKey = (import.meta.env.VITE_WIDGET_PUBLIC_KEY as string) || "";
   const profileReady = isProfileComplete(profile);
   const showContactForm = editingContact || !profileReady;
+  const micSupported = speechRecognitionSupported();
 
   useEffect(() => {
     const initial = loadStoredProfile();
@@ -129,6 +138,72 @@ export function ChatWidget() {
     profileRef.current = initial;
     setEditingContact(!isProfileComplete(initial));
   }, []);
+
+  useEffect(() => {
+    return () => {
+      try {
+        recognitionRef.current?.abort();
+      } catch {
+        /* ignore */
+      }
+      recognitionRef.current = null;
+    };
+  }, []);
+
+  function stopListening() {
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      /* ignore */
+    }
+    recognitionRef.current = null;
+    setListening(false);
+  }
+
+  function toggleMic() {
+    if (busy) return;
+    if (listening) {
+      stopListening();
+      return;
+    }
+    if (!micSupported) {
+      toast.error("Voice input is not supported in this browser. Chrome works best.");
+      return;
+    }
+
+    draftBeforeListenRef.current = draft.trim();
+    const recognition = createSpeechRecognition({
+      lang,
+      onInterim: (text) => {
+        const prefix = draftBeforeListenRef.current;
+        setDraft(prefix ? `${prefix} ${text}` : text);
+      },
+      onFinal: (text) => {
+        const prefix = draftBeforeListenRef.current;
+        const next = prefix ? `${prefix} ${text}` : text;
+        setDraft(next);
+        draftBeforeListenRef.current = next;
+      },
+      onError: (message) => toast.error(message),
+      onEnd: () => {
+        recognitionRef.current = null;
+        setListening(false);
+      },
+    });
+    if (!recognition) {
+      toast.error("Voice input is not available in this browser.");
+      return;
+    }
+
+    recognitionRef.current = recognition;
+    setListening(true);
+    try {
+      recognition.start();
+    } catch {
+      setListening(false);
+      toast.error("Could not start the microphone. Check browser permissions.");
+    }
+  }
 
   useEffect(() => {
     profileRef.current = profile;
@@ -570,10 +645,11 @@ export function ChatWidget() {
                 style={{ borderColor: `${BRAND}22`, backgroundColor: INK }}
                 onSubmit={(e) => {
                   e.preventDefault();
+                  if (listening) stopListening();
                   void send(draft);
                 }}
               >
-                <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" style={{ color: BRAND }} aria-label="Attach file" disabled={busy} onClick={() => fileRef.current?.click()}>
+                <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" style={{ color: BRAND }} aria-label="Attach file" disabled={busy || listening} onClick={() => fileRef.current?.click()}>
                   <Paperclip className="size-4" />
                 </Button>
                 <input
@@ -587,11 +663,32 @@ export function ChatWidget() {
                     if (file) void uploadFile(file);
                   }}
                 />
-                <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Ask about products, service or pricing…" className="h-9 border text-sm" style={{ borderColor: `${BRAND}33`, color: BRAND }} aria-label="Message" disabled={busy} />
-                <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" style={{ color: BRAND }} aria-label="Talk to a human" disabled={busy} onClick={() => void send("Please connect me to a human support agent")}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  style={{ color: listening ? "#DC2626" : BRAND }}
+                  aria-label={listening ? "Stop listening" : "Speak message"}
+                  title={listening ? "Stop listening" : "Speak — text appears for you to edit, then send"}
+                  disabled={busy}
+                  onClick={() => toggleMic()}
+                >
+                  <Mic className={cn("size-4", listening && "animate-pulse")} />
+                </Button>
+                <Input
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  placeholder={listening ? "Listening… speak now" : "Ask about products, service or pricing…"}
+                  className="h-9 border text-sm"
+                  style={{ borderColor: `${BRAND}33`, color: BRAND }}
+                  aria-label="Message"
+                  disabled={busy}
+                />
+                <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" style={{ color: BRAND }} aria-label="Talk to a human" disabled={busy || listening} onClick={() => void send("Please connect me to a human support agent")}>
                   <Headphones className="size-4" />
                 </Button>
-                <Button type="submit" size="icon" className="size-8 shrink-0 text-white hover:opacity-95" style={{ backgroundColor: BRAND }} aria-label="Send" disabled={busy}>
+                <Button type="submit" size="icon" className="size-8 shrink-0 text-white hover:opacity-95" style={{ backgroundColor: BRAND }} aria-label="Send" disabled={busy || listening || !draft.trim()}>
                   <Send className="size-4" />
                 </Button>
               </form>

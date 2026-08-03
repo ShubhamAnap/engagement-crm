@@ -15,7 +15,7 @@ import {
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Clock, ExternalLink, LayoutGrid, Package, Paperclip, RefreshCw, Send, Sparkles, ArrowLeft, User } from "lucide-react";
+import { Clock, ExternalLink, LayoutGrid, Package, Paperclip, RefreshCw, Send, ArrowLeft, User } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import {
@@ -771,14 +771,6 @@ function Page() {
                 </div>
               </div>
             ) : null}
-            <div className="mb-2 hidden items-center gap-1.5 text-xs text-primary sm:flex">
-              <Sparkles className="size-3.5" />{" "}
-              {waOutbound && waPhone
-                ? waCanCloudApi
-                  ? `Reply via WhatsApp (+${waPhone}) — or send a template anytime`
-                  : `Reply via WhatsApp (+${waPhone}) — use Send template to start`
-                : `Reply as ${profile?.fullName || "agent"} — saved to this conversation`}
-            </div>
             <div className="flex items-center gap-1.5">
               <input
                 ref={attachInputRef}

@@ -50,6 +50,7 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
     "If you are uncertain, say so briefly and ask one clarifying question.",
     "Prefer facts from the provided Knowledge Base context when available. Do not invent exact technical specs.",
     "If download links are provided for catalogues/datasheets/PDFs/images, include them clearly in your reply as markdown links.",
+    "ONLY use the download URLs provided in “Available download links”. Never invent links and never paste raw supabase.co/storage URLs — those long storage links are forbidden.",
     "If the user asks for a human, confirm that a human support executive will take over.",
     `Visitor: ${input.visitorName}`,
   ];
@@ -106,7 +107,9 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
       throw new Error("OpenAI returned an empty reply");
     }
 
-    return { reply, source: "openai", model };
+    const { rewriteStorageUrlsInText } = await import("@/server/shorten-urls");
+    const shortened = await rewriteStorageUrlsInText(reply);
+    return { reply: shortened, source: "openai", model };
   } catch (error) {
     console.error("OpenAI request failed", error);
     let fallback = buildPlaceholderAiReply(input.latestUserMessage);
@@ -115,6 +118,8 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
         "\n\nDownloads:\n" +
         input.downloadLinks.map((l) => `• ${l.title}: ${l.url}`).join("\n");
     }
+    const { rewriteStorageUrlsInText } = await import("@/server/shorten-urls");
+    fallback = await rewriteStorageUrlsInText(fallback);
     return { reply: fallback, source: "fallback", model };
   } finally {
     clearTimeout(timer);

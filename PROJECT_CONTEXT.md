@@ -301,7 +301,7 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-08-03
-- **Short catalogue links:** Product catalogue PDFs shared as `https://<app>/c/{SKU}` (public redirect to Storage). Used in WhatsApp product cards, EnerBot catalogue replies, and Products UI. Route `src/routes/c.$sku.ts`.
+- **Short catalogue links:** Product catalogues use `https://<app>/c/{SKU}`; knowledge files use `/d/{id}`. AI replies now rewrite any leftover long Supabase Storage URLs before saving/sending.
 - **Broadcast lead filters:** WhatsApp broadcast audience (leads / IndiaMART) supports optional AND filters: sales person, status, source, location (e.g. Sales person = Ritesh). Helper `src/lib/broadcast-audience-filters.ts`.
 - **WhatsApp template field mapping:** Broadcasting + Automation can map each template variable (`{{1}}` / `{{name}}`) to a CRM column (name, requirement, sales person, …) or fixed text. Send fills values **per recipient/lead**. Helper `src/lib/wa-template-merge.ts`. Prefer Leads/Customers audience so merge fields are available.
 - **Retired mock dataset:** Confirmed zero imports of `src/data/mock.ts`; deleted the file. Updated `AGENTS.md` + module checklist so docs no longer describe routes as mock-backed.

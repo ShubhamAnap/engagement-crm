@@ -269,6 +269,8 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
       ]);
       const stack = await resolveAgentStack({ channel: type, message: text });
       const agentCfg = agentReplyConfig(stack);
+      const { rewriteStorageUrlsInText, shortenDownloadLinks } = await import("@/server/shorten-urls");
+      const downloadLinks = await shortenDownloadLinks(downloads);
       const generated = await generateOpenAiReply({
         visitorName: (convo.visitor_name as string) || "Customer",
         latestUserMessage: text,
@@ -278,13 +280,13 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
           created_at: m.created_at as string,
         })),
         knowledgeContext: chunks.map((c) => c.content).join("\n\n"),
-        downloadLinks: downloads,
+        downloadLinks,
         systemPrompt: agentCfg.systemPrompt,
         model: agentCfg.model,
         agentName: agentCfg.agentName,
         memoryEnabled: agentCfg.memoryEnabled,
       });
-      reply = generated.reply;
+      reply = await rewriteStorageUrlsInText(generated.reply);
       inspector = buildAnswerInspector({
         chunks,
         replySource: generated.source,
@@ -293,7 +295,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
         specialistKey: agentCfg.specialistKey,
         channel: type,
         visitorName: (convo.visitor_name as string) || "Customer",
-        downloadCount: downloads.length,
+        downloadCount: downloadLinks.length,
         memoryEnabled: agentCfg.memoryEnabled,
       });
       if (agentCfg.agentId) {

@@ -618,13 +618,17 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       .map((c, i) => `[${i + 1}] (${c.document_title}, relevance ${c.similarity.toFixed(2)})\n${c.content}`)
       .join("\n\n");
 
-    const downloadLinks = [
-      ...downloads,
-      ...chunks
-        .filter((c) => c.download_url)
-        .map((c) => ({ title: c.document_title, url: c.download_url as string })),
-    ].filter((link, index, arr) => arr.findIndex((x) => x.url === link.url) === index)
-      .slice(0, 5);
+    const { rewriteStorageUrlsInText, shortenDownloadLinks } = await import("@/server/shorten-urls");
+    let downloadLinks = await shortenDownloadLinks(
+      [
+        ...downloads,
+        ...chunks
+          .filter((c) => c.download_url)
+          .map((c) => ({ title: c.document_title, url: c.download_url as string })),
+      ]
+        .filter((link, index, arr) => arr.findIndex((x) => x.url === link.url) === index)
+        .slice(0, 5),
+    );
 
     const stack = await resolveAgentStack({
       channel: (convo.channel as string) || "website",
@@ -643,7 +647,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       agentName: agentCfg.agentName,
       memoryEnabled: agentCfg.memoryEnabled,
     });
-    let reply = ai.reply || buildPlaceholderAiReply(text);
+    let reply = await rewriteStorageUrlsInText(ai.reply || buildPlaceholderAiReply(text));
     if (downloadLinks.length > 0 && !/https?:\/\//i.test(reply)) {
       reply +=
         "\n\nDownloads:\n" +

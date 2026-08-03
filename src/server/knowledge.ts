@@ -2,7 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import { chunkText, embedQuery, embedTexts, estimateTokens } from "@/server/embeddings";
-import { shortProductCatalogueUrl } from "@/lib/short-links";
+import { shortKnowledgeDocumentUrl, shortProductCatalogueUrl } from "@/lib/short-links";
+import { shortenStorageUrl } from "@/server/shorten-urls";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const BUCKET = "knowledge";
@@ -504,16 +505,23 @@ export async function retrieveKnowledgeContext(query: string, limit = 6): Promis
       match_threshold: 0.55,
     });
     if (error) throw new Error(error.message);
-    return (data ?? []).map((row: Record<string, unknown>) => ({
-      content: String(row.content ?? ""),
-      similarity: Number(row.similarity ?? 0),
-      document_title: String(row.document_title ?? "Document"),
-      source_url: (row.source_url as string) || null,
-      storage_path: (row.storage_path as string) || null,
-      download_url: row.storage_path
+    const mapped: RetrievedChunk[] = [];
+    for (const row of (data ?? []) as Record<string, unknown>[]) {
+      const longUrl = row.storage_path
         ? publicFileUrl(String(row.storage_path))
-        : (row.source_url as string) || null,
-    }));
+        : (row.source_url as string) || null;
+      const docId = row.document_id ? String(row.document_id) : "";
+      const shortFromDoc = docId ? shortKnowledgeDocumentUrl(docId) : null;
+      mapped.push({
+        content: String(row.content ?? ""),
+        similarity: Number(row.similarity ?? 0),
+        document_title: String(row.document_title ?? "Document"),
+        source_url: (row.source_url as string) || null,
+        storage_path: (row.storage_path as string) || null,
+        download_url: shortFromDoc || (longUrl ? await shortenStorageUrl(longUrl) : null),
+      });
+    }
+    return mapped;
   } catch (err) {
     console.error("Knowledge retrieval failed", err);
     return [];
@@ -531,7 +539,7 @@ export async function findCatalogueDownloads(query: string): Promise<Array<{ tit
 
   const { data: docs } = await supabase
     .from("knowledge_documents")
-    .select("title, source_url, storage_path, mime_type, metadata, collection:knowledge_collections(name)")
+    .select("id, title, source_url, storage_path, mime_type, metadata, collection:knowledge_collections(name)")
     .eq("org_id", ORG_ID)
     .eq("status", "ready")
     .order("updated_at", { ascending: false })
@@ -562,10 +570,13 @@ export async function findCatalogueDownloads(query: string): Promise<Array<{ tit
       /photo|image|picture|gallery|pdf|catalogue|catalog|datasheet|brochure|manual|download/.test(q);
     if (!matchesTopic) continue;
 
-    const url = doc.storage_path
+    const longUrl = doc.storage_path
       ? publicFileUrl(doc.storage_path as string)
       : (doc.source_url as string | null);
-    if (url) {
+    if (longUrl) {
+      const url = doc.id
+        ? shortKnowledgeDocumentUrl(String(doc.id))
+        : await shortenStorageUrl(longUrl);
       const label = collectionName ? `${doc.title as string} (${collectionName})` : (doc.title as string);
       links.push({ title: label, url });
     }
@@ -574,7 +585,7 @@ export async function findCatalogueDownloads(query: string): Promise<Array<{ tit
   if (wantsPdf) {
     const { data: products } = await supabase
       .from("products")
-      .select("name, sku, catalog_pdf_url, catalog_pdf_path")
+      .select("id, name, sku, catalog_pdf_url, catalog_pdf_path")
       .eq("org_id", ORG_ID)
       .eq("is_active", true)
       .limit(50);
@@ -592,10 +603,10 @@ export async function findCatalogueDownloads(query: string): Promise<Array<{ tit
         hay.split(/\s+/).some((w) => w.length > 2 && q.includes(w))
       ) {
         const sku = String(product.sku || "").trim();
-        const url = sku
-          ? shortProductCatalogueUrl(sku)
-          : (product.catalog_pdf_url as string | null) ||
-            (product.catalog_pdf_path ? publicFileUrl(product.catalog_pdf_path as string) : null);
+        const long =
+          (product.catalog_pdf_url as string | null) ||
+          (product.catalog_pdf_path ? publicFileUrl(product.catalog_pdf_path as string) : null);
+        const url = (sku ? shortProductCatalogueUrl(sku) : null) || (long ? await shortenStorageUrl(long) : null);
         if (url) {
           links.push({ title: `${product.name} catalogue`, url });
         }

@@ -360,6 +360,8 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             message: text,
           });
           const agentCfg = agentReplyConfig(stack);
+          const { rewriteStorageUrlsInText, shortenDownloadLinks } = await import("@/server/shorten-urls");
+          const downloadLinks = await shortenDownloadLinks(downloads);
           const generated = await generateOpenAiReply({
             visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
             latestUserMessage: text,
@@ -369,13 +371,13 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               created_at: m.created_at as string,
             })),
             knowledgeContext,
-            downloadLinks: downloads,
+            downloadLinks,
             systemPrompt: agentCfg.systemPrompt,
             model: agentCfg.model,
             agentName: agentCfg.agentName,
             memoryEnabled: agentCfg.memoryEnabled,
           });
-          reply = generated.reply;
+          reply = await rewriteStorageUrlsInText(generated.reply);
           inspector = buildAnswerInspector({
             chunks,
             replySource: generated.source,
@@ -384,7 +386,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             specialistKey: agentCfg.specialistKey,
             channel: "whatsapp",
             visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
-            downloadCount: downloads.length,
+            downloadCount: downloadLinks.length,
             memoryEnabled: agentCfg.memoryEnabled,
           });
           if (agentCfg.agentId) {

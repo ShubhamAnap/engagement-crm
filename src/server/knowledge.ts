@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import { chunkText, embedQuery, embedTexts, estimateTokens } from "@/server/embeddings";
+import { shortProductCatalogueUrl } from "@/lib/short-links";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const BUCKET = "knowledge";
@@ -579,10 +580,10 @@ export async function findCatalogueDownloads(query: string): Promise<Array<{ tit
       .limit(50);
 
     for (const product of products ?? []) {
-      const url =
-        (product.catalog_pdf_url as string | null) ||
-        (product.catalog_pdf_path ? publicFileUrl(product.catalog_pdf_path as string) : null);
-      if (!url) continue;
+      const hasCatalog = Boolean(
+        (product.catalog_pdf_url as string | null) || (product.catalog_pdf_path as string | null),
+      );
+      if (!hasCatalog) continue;
       const hay = `${product.name} ${product.sku}`.toLowerCase();
       if (
         q.includes("catalog") ||
@@ -590,7 +591,14 @@ export async function findCatalogueDownloads(query: string): Promise<Array<{ tit
         q.includes("pdf") ||
         hay.split(/\s+/).some((w) => w.length > 2 && q.includes(w))
       ) {
-        links.push({ title: `${product.name} catalogue`, url });
+        const sku = String(product.sku || "").trim();
+        const url = sku
+          ? shortProductCatalogueUrl(sku)
+          : (product.catalog_pdf_url as string | null) ||
+            (product.catalog_pdf_path ? publicFileUrl(product.catalog_pdf_path as string) : null);
+        if (url) {
+          links.push({ title: `${product.name} catalogue`, url });
+        }
       }
     }
   }

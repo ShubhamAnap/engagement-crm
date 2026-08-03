@@ -2,6 +2,7 @@
 import type { DbProduct, StockStatus } from "@/lib/db-types";
 import { downloadCsv } from "@/lib/csv";
 import { formatProductRecommendationCaption, productImagePublicUrl } from "@/lib/product-card";
+import { shortProductCatalogueUrl } from "@/lib/short-links";
 
 export { formatProductRecommendationCaption, productImagePublicUrl };
 
@@ -265,6 +266,8 @@ export async function removeProductCataloguePdf(options: {
 }
 
 export function productCatalogueHref(product: DbProduct): string | null {
+  if (!product.catalog_pdf_url && !product.catalog_pdf_path) return null;
+  if (product.sku?.trim()) return shortProductCatalogueUrl(product.sku);
   return product.catalog_pdf_url || (product.catalog_pdf_path ? publicCatalogueUrl(product.catalog_pdf_path) : null);
 }
 

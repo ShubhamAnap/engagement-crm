@@ -178,7 +178,8 @@ function AuthenticatedShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const isLogin = pathname === "/login";
   const isEmbed = pathname === "/embed";
-  const isPublic = isLogin || isEmbed;
+  const isCatalogueShortLink = pathname.startsWith("/c/");
+  const isPublic = isLogin || isEmbed || isCatalogueShortLink;
 
   useEffect(() => {
     setMounted(true);

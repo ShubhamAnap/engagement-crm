@@ -28,6 +28,7 @@ import { Route as PipelineRouteImport } from './routes/pipeline'
 import { Route as ProductsRouteImport } from './routes/products'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as CSkuRouteImport } from './routes/c.$sku'
 import { Route as ApiCronAutomationsRouteImport } from './routes/api/cron/automations'
 import { Route as ApiWebhooksEmailRouteImport } from './routes/api/webhooks/email'
 import { Route as ApiWebhooksFacebookRouteImport } from './routes/api/webhooks/facebook'
@@ -131,6 +132,11 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CSkuRoute = CSkuRouteImport.update({
+  id: '/c/$sku',
+  path: '/c/$sku',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCronAutomationsRoute = ApiCronAutomationsRouteImport.update({
   id: '/api/cron/automations',
   path: '/api/cron/automations',
@@ -187,6 +193,7 @@ export interface FileRoutesByFullPath {
   '/products': typeof ProductsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
+  '/c/$sku': typeof CSkuRoute
   '/api/cron/automations': typeof ApiCronAutomationsRoute
   '/api/webhooks/email': typeof ApiWebhooksEmailRoute
   '/api/webhooks/facebook': typeof ApiWebhooksFacebookRoute
@@ -215,6 +222,7 @@ export interface FileRoutesByTo {
   '/products': typeof ProductsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
+  '/c/$sku': typeof CSkuRoute
   '/api/cron/automations': typeof ApiCronAutomationsRoute
   '/api/webhooks/email': typeof ApiWebhooksEmailRoute
   '/api/webhooks/facebook': typeof ApiWebhooksFacebookRoute
@@ -244,6 +252,7 @@ export interface FileRoutesById {
   '/products': typeof ProductsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
+  '/c/$sku': typeof CSkuRoute
   '/api/cron/automations': typeof ApiCronAutomationsRoute
   '/api/webhooks/email': typeof ApiWebhooksEmailRoute
   '/api/webhooks/facebook': typeof ApiWebhooksFacebookRoute
@@ -274,6 +283,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/reports'
     | '/settings'
+    | '/c/$sku'
     | '/api/cron/automations'
     | '/api/webhooks/email'
     | '/api/webhooks/facebook'
@@ -302,6 +312,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/reports'
     | '/settings'
+    | '/c/$sku'
     | '/api/cron/automations'
     | '/api/webhooks/email'
     | '/api/webhooks/facebook'
@@ -330,6 +341,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/reports'
     | '/settings'
+    | '/c/$sku'
     | '/api/cron/automations'
     | '/api/webhooks/email'
     | '/api/webhooks/facebook'
@@ -359,6 +371,7 @@ export interface RootRouteChildren {
   ProductsRoute: typeof ProductsRoute
   ReportsRoute: typeof ReportsRoute
   SettingsRoute: typeof SettingsRoute
+  CSkuRoute: typeof CSkuRoute
   ApiCronAutomationsRoute: typeof ApiCronAutomationsRoute
   ApiWebhooksEmailRoute: typeof ApiWebhooksEmailRoute
   ApiWebhooksFacebookRoute: typeof ApiWebhooksFacebookRoute
@@ -503,6 +516,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/c/$sku': {
+      id: '/c/$sku'
+      path: '/c/$sku'
+      fullPath: '/c/$sku'
+      preLoaderRoute: typeof CSkuRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/cron/automations': {
       id: '/api/cron/automations'
       path: '/api/cron/automations'
@@ -575,6 +595,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProductsRoute: ProductsRoute,
   ReportsRoute: ReportsRoute,
   SettingsRoute: SettingsRoute,
+  CSkuRoute: CSkuRoute,
   ApiCronAutomationsRoute: ApiCronAutomationsRoute,
   ApiWebhooksEmailRoute: ApiWebhooksEmailRoute,
   ApiWebhooksFacebookRoute: ApiWebhooksFacebookRoute,
@@ -586,13 +607,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

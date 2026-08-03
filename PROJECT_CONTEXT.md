@@ -253,7 +253,7 @@ Embed on EnerTech website — live AI chat, lead capture (name/email/phone requi
 | AI Chat Support | `/ai-chat` | Supabase | Live Answer Inspector (confidence, sources, reasoning) |
 | AI Agents | `/agents` | Supabase | Live: model/prompt/memory/status; keyword routing |
 | Knowledge Base | `/knowledge` | Supabase + Storage | Live collections + upload/index (pgvector RAG) |
-| Products | `/products` | Supabase + Storage | CRUD + **card image** + catalogue PDF |
+| Products | `/products` | Supabase + Storage | CRUD + card image + catalogue PDF (**short link** `/c/{SKU}`) |
 | Customers | `/customers` | Supabase | List/create/update/delete |
 | Leads | `/leads` | Supabase | **Master sheet** + bulk import CSV (template, skip duplicates, max 500) |
 | Pipeline | `/pipeline` | Supabase | Live Kanban from `leads` + drag/select stage updates |
@@ -301,6 +301,7 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-08-03
+- **Short catalogue links:** Product catalogue PDFs shared as `https://<app>/c/{SKU}` (public redirect to Storage). Used in WhatsApp product cards, EnerBot catalogue replies, and Products UI. Route `src/routes/c.$sku.ts`.
 - **Broadcast lead filters:** WhatsApp broadcast audience (leads / IndiaMART) supports optional AND filters: sales person, status, source, location (e.g. Sales person = Ritesh). Helper `src/lib/broadcast-audience-filters.ts`.
 - **WhatsApp template field mapping:** Broadcasting + Automation can map each template variable (`{{1}}` / `{{name}}`) to a CRM column (name, requirement, sales person, …) or fixed text. Send fills values **per recipient/lead**. Helper `src/lib/wa-template-merge.ts`. Prefer Leads/Customers audience so merge fields are available.
 - **Retired mock dataset:** Confirmed zero imports of `src/data/mock.ts`; deleted the file. Updated `AGENTS.md` + module checklist so docs no longer describe routes as mock-backed.

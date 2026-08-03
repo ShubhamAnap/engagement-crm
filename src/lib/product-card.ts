@@ -1,8 +1,10 @@
 import type { DbProduct } from "@/lib/db-types";
+import { shortProductCatalogueUrl } from "@/lib/short-links";
 
 function catalogueUrl(product: DbProduct): string | null {
-  if (product.catalog_pdf_url) return product.catalog_pdf_url;
-  return null;
+  if (!product.catalog_pdf_url && !product.catalog_pdf_path) return null;
+  if (product.sku?.trim()) return shortProductCatalogueUrl(product.sku);
+  return product.catalog_pdf_url || null;
 }
 
 /** Caption for WhatsApp product recommendation cards (Path B). Max ~1024 chars. */

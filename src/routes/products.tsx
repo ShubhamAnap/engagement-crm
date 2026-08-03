@@ -487,7 +487,8 @@ function Page() {
             <div className="space-y-2 sm:col-span-2 rounded-lg border border-border bg-secondary/20 p-3">
               <Label htmlFor="product-catalog">Catalogue PDF</Label>
               <p className="text-xs text-muted-foreground">
-                Stored in Supabase Storage. EnerBot can share this link when customers ask for a catalogue.
+                Stored in Supabase Storage. Shared as a short link like{" "}
+                <code className="rounded bg-secondary px-1">/c/YOUR-SKU</code> in WhatsApp and chat.
               </p>
               {currentCatalogUrl ? (
                 <div className="flex flex-wrap items-center gap-2 pt-1">

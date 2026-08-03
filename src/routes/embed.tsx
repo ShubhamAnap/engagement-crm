@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Bot, Building2, ChevronDown, Mail, MapPin, Phone, RefreshCw, Send, Sparkles, User, X } from "lucide-react";
+import { Bot, Building2, Mail, MapPin, Phone, RefreshCw, Send, Sparkles, User, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,9 @@ import {
 } from "@/server/widget-chat";
 
 const SESSION_KEY = "enertech-embed-session";
+const PROFILE_KEY = "enertech-embed-profile";
+const BRAND = "#0B2388";
+const INK = "#FFFFFF";
 
 type ServerMessage = { id: string; sender: string; body: string };
 type UiMsg = { id: string; from: "bot" | "user"; text: string; kind?: "ai" | "agent" };
@@ -46,8 +49,34 @@ function rotateSessionId() {
   return id;
 }
 
+function loadStoredProfile(): VisitorProfile {
+  try {
+    const raw = localStorage.getItem(PROFILE_KEY);
+    if (!raw) return emptyProfile;
+    const parsed = JSON.parse(raw) as Partial<VisitorProfile>;
+    return {
+      name: String(parsed.name || ""),
+      email: String(parsed.email || ""),
+      phone: String(parsed.phone || ""),
+      company: String(parsed.company || ""),
+      location: String(parsed.location || ""),
+    };
+  } catch {
+    return emptyProfile;
+  }
+}
+
+function persistProfile(profile: VisitorProfile) {
+  localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+}
+
 function isProfileComplete(profile: VisitorProfile) {
-  return Boolean(profile.name.trim() && profile.email.trim() && profile.phone.trim());
+  return Boolean(
+    profile.name.trim() &&
+      profile.email.trim() &&
+      profile.phone.trim() &&
+      profile.location.trim(),
+  );
 }
 
 function hasIdentity(profile: VisitorProfile) {
@@ -79,6 +108,7 @@ function applyHistory(messages: ServerMessage[]): UiMsg[] {
 
 function EmbedChat() {
   const { key } = Route.useSearch();
+  const stored = loadStoredProfile();
   const [open, setOpen] = useState(true);
   const [msgs, setMsgs] = useState<UiMsg[]>([welcome]);
   const [draft, setDraft] = useState("");
@@ -87,14 +117,17 @@ function EmbedChat() {
   const [error, setError] = useState<string | null>(null);
   const [typing, setTyping] = useState(false);
   const [humanMode, setHumanMode] = useState(false);
-  const [profile, setProfile] = useState<VisitorProfile>(emptyProfile);
-  const [detailsOpen, setDetailsOpen] = useState(true);
+  const [profile, setProfile] = useState<VisitorProfile>(stored);
+  const [editingContact, setEditingContact] = useState(!isProfileComplete(stored));
   const endRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef(profile);
   const lookedUpRef = useRef("");
   const busyRef = useRef(false);
   const conversationIdRef = useRef<string | null>(null);
   const startedRef = useRef(false);
+
+  const profileReady = isProfileComplete(profile);
+  const showContactForm = editingContact || !profileReady;
 
   useEffect(() => {
     profileRef.current = profile;
@@ -110,7 +143,7 @@ function EmbedChat() {
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
-  }, [msgs, typing, open]);
+  }, [msgs, typing, open, showContactForm]);
 
   async function syncConversationProfile(override?: VisitorProfile) {
     if (!key) return null;
@@ -146,23 +179,26 @@ function EmbedChat() {
     rotateSessionId();
     lookedUpRef.current = "";
     setHumanMode(false);
-    setProfile(emptyProfile);
-    profileRef.current = emptyProfile;
+    // Keep known contact for returning visitor; only clear chat thread.
+    const keep = isProfileComplete(profileRef.current) ? profileRef.current : emptyProfile;
+    setProfile(keep);
+    profileRef.current = keep;
     setConversationId(null);
     conversationIdRef.current = null;
     setMsgs([welcome]);
     setDraft("");
     setTyping(false);
-    setDetailsOpen(true);
-    await syncConversationProfile(emptyProfile);
+    setEditingContact(!isProfileComplete(keep));
+    await syncConversationProfile(keep);
   }
 
   async function resumeOrStartConversation() {
+    const initial = loadStoredProfile();
+    setProfile(initial);
+    profileRef.current = initial;
+    setEditingContact(!isProfileComplete(initial));
     lookedUpRef.current = "";
-    setProfile(emptyProfile);
-    profileRef.current = emptyProfile;
-    setDetailsOpen(true);
-    const convoId = await syncConversationProfile(emptyProfile);
+    const convoId = await syncConversationProfile(initial);
     if (!convoId || !key) return;
     const history = (await widgetListMessages({
       data: { key, conversationId: convoId },
@@ -195,7 +231,7 @@ function EmbedChat() {
   }, [key]);
 
   useEffect(() => {
-    if (!key || !open || !conversationId) return;
+    if (!key || !open || !conversationId || showContactForm) return;
 
     const poll = async () => {
       if (busyRef.current) return;
@@ -212,7 +248,7 @@ function EmbedChat() {
 
     const timer = window.setInterval(() => void poll(), 2500);
     return () => window.clearInterval(timer);
-  }, [key, open, conversationId]);
+  }, [key, open, conversationId, showContactForm]);
 
   useEffect(() => {
     if (!key || !open) return;
@@ -231,7 +267,8 @@ function EmbedChat() {
           const merged = mergeMissingFields(profileRef.current, known);
           setProfile(merged);
           profileRef.current = merged;
-          if (isProfileComplete(merged)) setDetailsOpen(false);
+          persistProfile(merged);
+          if (isProfileComplete(merged) && !editingContact) setEditingContact(false);
         } catch (err) {
           console.error(err);
         }
@@ -239,27 +276,27 @@ function EmbedChat() {
     }, 500);
 
     return () => window.clearTimeout(timer);
-  }, [profile.email, profile.phone, key, open]);
+  }, [profile.email, profile.phone, key, open, editingContact]);
 
-  useEffect(() => {
-    if (!key || !open) return;
-    if (!hasIdentity(profile)) return;
-
-    const timer = window.setTimeout(() => {
-      void (async () => {
-        try {
-          const current = profileRef.current;
-          await syncConversationProfile(current);
-          if (isProfileComplete(current)) setDetailsOpen(false);
-          setError(null);
-        } catch (err) {
-          console.error(err);
-        }
-      })();
-    }, 700);
-
-    return () => window.clearTimeout(timer);
-  }, [profile, key, open]);
+  async function saveContactAndContinue() {
+    if (!isProfileComplete(profile)) {
+      setError("Please fill Name, Email, Phone, and Location to continue.");
+      return;
+    }
+    setBusy(true);
+    try {
+      persistProfile(profile);
+      profileRef.current = profile;
+      await syncConversationProfile(profile);
+      setEditingContact(false);
+      setError(null);
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : "Could not save details");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function startNewConversation() {
     if (!key || busy) return;
@@ -278,8 +315,8 @@ function EmbedChat() {
   async function send(text: string) {
     if (!text.trim() || busy || !key) return;
     if (!isProfileComplete(profile)) {
-      setDetailsOpen(true);
-      setError("Please share your name, email, and phone so we can help you.");
+      setEditingContact(true);
+      setError("Please share your name, email, phone, and location so we can help you.");
       return;
     }
     setBusy(true);
@@ -289,6 +326,7 @@ function EmbedChat() {
     setMsgs((m) => [...m, { id: `local-${Date.now()}`, from: "user", text: userText }]);
 
     try {
+      persistProfile(profile);
       let convoId = conversationId;
       if (!convoId) convoId = await syncConversationProfile(profile);
       else await syncConversationProfile(profile);
@@ -296,7 +334,7 @@ function EmbedChat() {
       const result = await widgetSendMessage({ data: { key, conversationId: convoId, body: userText } });
       setMsgs(applyHistory(result.messages as ServerMessage[]));
       if (result.aiPaused || result.status === "human" || result.status === "escalated") setHumanMode(true);
-      setDetailsOpen(false);
+      setEditingContact(false);
       setError(null);
     } catch (err) {
       console.error(err);
@@ -311,12 +349,9 @@ function EmbedChat() {
     return (
       <div className="flex min-h-screen items-end justify-end bg-transparent p-3">
         <Button
-          onClick={() => {
-            setOpen(true);
-            void startNewConversation();
-          }}
-          className="h-[72px] w-[72px] flex-col gap-0.5 rounded-full border-2 border-white px-2 text-white shadow-lg"
-          style={{ backgroundColor: "#0B2388" }}
+          onClick={() => setOpen(true)}
+          className="h-[72px] w-[72px] flex-col gap-0.5 rounded-full border-2 border-white px-2 text-white shadow-lg hover:opacity-95"
+          style={{ backgroundColor: BRAND }}
           aria-label="ASK EnerTech"
         >
           <span className="text-[13px] font-extrabold tracking-wide leading-none">ASK</span>
@@ -328,23 +363,38 @@ function EmbedChat() {
 
   return (
     <div className="flex min-h-screen items-stretch justify-center bg-transparent p-0 sm:items-end sm:justify-end sm:p-3">
-      <div className="flex h-[100dvh] w-full flex-col overflow-hidden border border-border bg-card shadow-2xl sm:h-[640px] sm:w-[384px] sm:rounded-xl">
-        <header className="flex items-center gap-2.5 border-b border-border bg-secondary/50 px-3.5 py-3">
-          <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
+      <div
+        className="flex h-[100dvh] w-full flex-col overflow-hidden border shadow-2xl sm:h-[640px] sm:w-[384px] sm:rounded-xl"
+        style={{ borderColor: BRAND, backgroundColor: INK, color: BRAND }}
+      >
+        <header
+          className="flex items-center gap-2.5 px-3.5 py-3 text-white"
+          style={{ backgroundColor: BRAND }}
+        >
+          <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-white/15 text-white">
             <Sparkles className="size-4" />
           </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">EnerBot · EnerTech</p>
-            <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <span className={cn("size-1.5 rounded-full", humanMode ? "bg-warning" : "bg-success")} />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-white">EnerBot · EnerTech</p>
+            <p className="flex items-center gap-1.5 text-[11px] text-white/85">
+              <span className={cn("size-1.5 rounded-full", humanMode ? "bg-amber-300" : "bg-emerald-300")} />
               {humanMode ? "Connected with our support team" : "Online · usually replies instantly"}
             </p>
           </div>
           <div className="ml-auto flex items-center gap-0.5">
+            {profileReady && !showContactForm ? (
+              <button
+                type="button"
+                className="px-1 text-[10px] font-medium text-white/80 underline-offset-2 hover:text-white hover:underline"
+                onClick={() => setEditingContact(true)}
+              >
+                Edit
+              </button>
+            ) : null}
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 gap-1 px-1.5 text-[11px]"
+              className="h-7 gap-1 px-1.5 text-[11px] text-white hover:bg-white/15 hover:text-white"
               onClick={() => void startNewConversation()}
               disabled={busy}
               aria-label="Start new conversation"
@@ -352,96 +402,173 @@ function EmbedChat() {
             >
               <RefreshCw className={cn("size-3.5", busy && "animate-spin")} /> New
             </Button>
-            <Button variant="ghost" size="icon" className="size-7" onClick={() => setOpen(false)} aria-label="Minimize">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 text-white hover:bg-white/15 hover:text-white"
+              onClick={() => setOpen(false)}
+              aria-label="Minimize"
+            >
               <X className="size-4" />
             </Button>
           </div>
         </header>
 
-        {error && <div className="border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div>}
+        {error ? (
+          <div className="border-b px-3 py-2 text-xs" style={{ borderColor: `${BRAND}33`, backgroundColor: "#FEF2F2", color: "#B91C1C" }}>
+            {error}
+          </div>
+        ) : null}
 
-        <div className="border-b border-border bg-secondary/20 px-3.5 py-2">
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 text-left text-xs font-medium text-muted-foreground"
-            onClick={() => setDetailsOpen((o) => !o)}
-            aria-expanded={detailsOpen}
-          >
-            <User className="size-3.5 shrink-0" />
-            <span className="flex-1">
-              {isProfileComplete(profile) ? "Your contact details" : "Share your contact (name, email, phone)"}
-            </span>
-            <ChevronDown className={cn("size-3.5 transition-transform", detailsOpen && "rotate-180")} />
-          </button>
-          {detailsOpen ? (
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        {showContactForm ? (
+          <div className="flex flex-1 flex-col overflow-y-auto px-3.5 py-4">
+            <p className="text-sm font-semibold" style={{ color: BRAND }}>
+              {profileReady ? "Edit your contact" : "Share your contact to start"}
+            </p>
+            <p className="mt-1 text-xs" style={{ color: `${BRAND}B3` }}>
+              Name, email, phone, and location are required. Company is optional.
+            </p>
+            <div className="mt-3 grid gap-2">
               <div className="relative">
-                <User className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input value={profile.name} onChange={(e) => setProfile((s) => ({ ...s, name: e.target.value }))} placeholder="Name" className="h-8 pl-8 text-xs" />
+                <User className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" style={{ color: BRAND }} />
+                <Input
+                  value={profile.name}
+                  onChange={(e) => setProfile((s) => ({ ...s, name: e.target.value }))}
+                  placeholder="Name *"
+                  className="h-9 border pl-8 text-xs"
+                  style={{ borderColor: `${BRAND}44`, color: BRAND }}
+                />
               </div>
               <div className="relative">
-                <Mail className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input value={profile.email} onChange={(e) => setProfile((s) => ({ ...s, email: e.target.value }))} placeholder="Email" className="h-8 pl-8 text-xs" />
+                <Mail className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" style={{ color: BRAND }} />
+                <Input
+                  value={profile.email}
+                  onChange={(e) => setProfile((s) => ({ ...s, email: e.target.value }))}
+                  placeholder="Email *"
+                  className="h-9 border pl-8 text-xs"
+                  style={{ borderColor: `${BRAND}44`, color: BRAND }}
+                />
               </div>
               <div className="relative">
-                <Phone className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input value={profile.phone} onChange={(e) => setProfile((s) => ({ ...s, phone: e.target.value }))} placeholder="Phone" className="h-8 pl-8 text-xs" />
+                <Phone className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" style={{ color: BRAND }} />
+                <Input
+                  value={profile.phone}
+                  onChange={(e) => setProfile((s) => ({ ...s, phone: e.target.value }))}
+                  placeholder="Phone *"
+                  className="h-9 border pl-8 text-xs"
+                  style={{ borderColor: `${BRAND}44`, color: BRAND }}
+                />
               </div>
               <div className="relative">
-                <Building2 className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input value={profile.company} onChange={(e) => setProfile((s) => ({ ...s, company: e.target.value }))} placeholder="Company (optional)" className="h-8 pl-8 text-xs" />
+                <MapPin className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" style={{ color: BRAND }} />
+                <Input
+                  value={profile.location}
+                  onChange={(e) => setProfile((s) => ({ ...s, location: e.target.value }))}
+                  placeholder="Location *"
+                  className="h-9 border pl-8 text-xs"
+                  style={{ borderColor: `${BRAND}44`, color: BRAND }}
+                />
               </div>
-              <div className="relative sm:col-span-2">
-                <MapPin className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input value={profile.location} onChange={(e) => setProfile((s) => ({ ...s, location: e.target.value }))} placeholder="Location (optional)" className="h-8 pl-8 text-xs" />
+              <div className="relative">
+                <Building2 className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" style={{ color: BRAND }} />
+                <Input
+                  value={profile.company}
+                  onChange={(e) => setProfile((s) => ({ ...s, company: e.target.value }))}
+                  placeholder="Company (optional)"
+                  className="h-9 border pl-8 text-xs"
+                  style={{ borderColor: `${BRAND}44`, color: BRAND }}
+                />
               </div>
             </div>
-          ) : null}
-        </div>
-
-        <div className="flex-1 space-y-3 overflow-y-auto p-3.5">
-          {msgs.map((m) => (
-            <div key={m.id} className={cn("flex gap-2", m.from === "user" ? "justify-end" : "justify-start")}>
-              {m.from === "bot" && (
-                <div className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-primary/15 text-primary">
-                  <Bot className="size-3.5" />
+            <div className="mt-4 flex gap-2">
+              <Button
+                className="flex-1 text-white hover:opacity-95"
+                style={{ backgroundColor: BRAND }}
+                disabled={busy}
+                onClick={() => void saveContactAndContinue()}
+              >
+                {profileReady ? "Save" : "Continue to chat"}
+              </Button>
+              {profileReady ? (
+                <Button
+                  variant="outline"
+                  className="border"
+                  style={{ borderColor: BRAND, color: BRAND }}
+                  disabled={busy}
+                  onClick={() => {
+                    setEditingContact(false);
+                    setError(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex-1 space-y-3 overflow-y-auto p-3.5" style={{ backgroundColor: "#F7F8FC" }}>
+              {msgs.map((m) => (
+                <div key={m.id} className={cn("flex gap-2", m.from === "user" ? "justify-end" : "justify-start")}>
+                  {m.from === "bot" && (
+                    <div
+                      className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md text-white"
+                      style={{ backgroundColor: BRAND }}
+                    >
+                      <Bot className="size-3.5" />
+                    </div>
+                  )}
+                  <div
+                    className={cn("max-w-[80%] space-y-1 rounded-xl px-3 py-2 text-sm leading-relaxed")}
+                    style={
+                      m.from === "user"
+                        ? { backgroundColor: BRAND, color: INK }
+                        : m.kind === "agent"
+                          ? { backgroundColor: "#E8ECF8", color: BRAND, border: `1px solid ${BRAND}33` }
+                          : { backgroundColor: INK, color: BRAND, border: `1px solid ${BRAND}22` }
+                    }
+                  >
+                    {m.kind === "agent" ? <p className="mb-1 text-[10px] font-medium opacity-70">Support team</p> : null}
+                    {m.text}
+                  </div>
+                </div>
+              ))}
+              {typing && (
+                <div className="flex items-center gap-2 text-xs" style={{ color: `${BRAND}99` }}>
+                  <Bot className="size-3.5" /> EnerBot is typing…
                 </div>
               )}
-              <div
-                className={cn(
-                  "max-w-[80%] space-y-1 rounded-xl px-3 py-2 text-sm leading-relaxed",
-                  m.from === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : m.kind === "agent"
-                      ? "border border-primary/30 bg-primary/10 text-foreground"
-                      : "bg-secondary text-secondary-foreground",
-                )}
-              >
-                {m.kind === "agent" ? <p className="mb-1 text-[10px] font-medium opacity-70">Support team</p> : null}
-                {m.text}
-              </div>
+              <div ref={endRef} />
             </div>
-          ))}
-          {typing && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Bot className="size-3.5" /> EnerBot is typing…
-            </div>
-          )}
-          <div ref={endRef} />
-        </div>
 
-        <form
-          className="flex items-center gap-1.5 border-t border-border p-2.5"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void send(draft);
-          }}
-        >
-          <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Type your message…" className="h-9" disabled={busy || !key} />
-          <Button type="submit" size="icon" className="size-8 shrink-0" disabled={busy || !draft.trim()}>
-            <Send className="size-4" />
-          </Button>
-        </form>
+            <form
+              className="flex items-center gap-1.5 border-t p-2.5"
+              style={{ borderColor: `${BRAND}22`, backgroundColor: INK }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                void send(draft);
+              }}
+            >
+              <Input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="Type your message…"
+                className="h-9 border text-sm"
+                style={{ borderColor: `${BRAND}33`, color: BRAND }}
+                disabled={busy || !key}
+              />
+              <Button
+                type="submit"
+                size="icon"
+                className="size-8 shrink-0 text-white hover:opacity-95"
+                style={{ backgroundColor: BRAND }}
+                disabled={busy || !draft.trim()}
+              >
+                <Send className="size-4" />
+              </Button>
+            </form>
+          </>
+        )}
       </div>
     </div>
   );

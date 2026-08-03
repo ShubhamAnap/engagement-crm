@@ -26,16 +26,25 @@ export type AutomationContext = {
   leadName?: string | null;
   company?: string | null;
   salesPerson?: string | null;
+  requirement?: string | null;
+  location?: string | null;
+  notes?: string | null;
 };
 
 function fillVars(text: string, ctx: AutomationContext): string {
   return text
     .replace(/\{\{name\}\}/gi, ctx.leadName || "Customer")
+    .replace(/\{\{first_name\}\}/gi, (ctx.leadName || "Customer").split(/\s+/)[0] || "Customer")
     .replace(/\{\{company\}\}/gi, ctx.company || "")
     .replace(/\{\{phone\}\}/gi, ctx.phone || "")
     .replace(/\{\{email\}\}/gi, ctx.email || "")
     .replace(/\{\{source\}\}/gi, ctx.source || "")
-    .replace(/\{\{status\}\}/gi, ctx.toStatus || ctx.leadStatus || "");
+    .replace(/\{\{status\}\}/gi, ctx.toStatus || ctx.leadStatus || "")
+    .replace(/\{\{sales_person\}\}/gi, ctx.salesPerson || "")
+    .replace(/\{\{salesperson\}\}/gi, ctx.salesPerson || "")
+    .replace(/\{\{requirement\}\}/gi, ctx.requirement || "")
+    .replace(/\{\{location\}\}/gi, ctx.location || "")
+    .replace(/\{\{notes\}\}/gi, ctx.notes || "");
 }
 
 async function enrichContext(
@@ -64,7 +73,9 @@ async function enrichContext(
   if (out.leadId) {
     const { data: lead } = await supabase
       .from("leads")
-      .select("name, company, phone, email, source, priority, status, sales_person")
+      .select(
+        "name, company, phone, email, source, priority, status, sales_person, requirement, location, notes",
+      )
       .eq("id", out.leadId)
       .eq("org_id", ORG_ID)
       .maybeSingle();
@@ -77,6 +88,9 @@ async function enrichContext(
       out.priority = out.priority || (lead.priority as string) || null;
       out.leadStatus = out.leadStatus || (lead.status as string) || null;
       out.salesPerson = out.salesPerson || (lead.sales_person as string) || null;
+      out.requirement = out.requirement || (lead.requirement as string) || null;
+      out.location = out.location || (lead.location as string) || null;
+      out.notes = out.notes || (lead.notes as string) || null;
     }
   }
 
@@ -374,7 +388,26 @@ async function executeLeafAction(
       const phone = ctx.phone;
       if (!phone) return "skipped:send_whatsapp_template (no phone)";
       const { sendWhatsAppTemplateMessage } = await import("@/server/whatsapp-broadcast");
-      const bodyParams = (action.bodyParams || []).map((p) => fillVars(p, ctx));
+      const { resolveWaBodyParams, parseStoredBindings } = await import("@/lib/wa-template-merge");
+      const fields = {
+        name: ctx.leadName,
+        company: ctx.company,
+        email: ctx.email,
+        phone: ctx.phone,
+        requirement: ctx.requirement,
+        sales_person: ctx.salesPerson,
+        location: ctx.location,
+        source: ctx.source,
+        status: ctx.toStatus || ctx.leadStatus,
+        notes: ctx.notes,
+      };
+      let bodyParams: string[] = [];
+      if (action.bodyParamBindings && action.bodyParamBindings.length > 0) {
+        const bindings = parseStoredBindings(action.bodyParamBindings, []);
+        bodyParams = resolveWaBodyParams(bindings, fields);
+      } else {
+        bodyParams = (action.bodyParams || []).map((p) => fillVars(p, ctx));
+      }
       const waId = await sendWhatsAppTemplateMessage({
         toPhone: phone,
         templateName: action.templateName,

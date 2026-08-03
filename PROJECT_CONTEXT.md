@@ -260,7 +260,7 @@ Embed on EnerTech website — live AI chat, lead capture (name/email/phone requi
 | Analytics | `/analytics` | Supabase | Live Insights: range filter + charts |
 | Automation | `/automation` | Supabase | Live A+B+C: Wait, If/Else, conditions, follow-up cron, WA/email/notify, canvas |
 | Channels | `/channels` | Supabase | Website + WA + Email + Meta + IndiaMART/TradeIndia **auto sync** + Brainmine |
-| Broadcasting | `/broadcasting` | Supabase | WhatsApp templates + **Gmail campaigns** (CRM / manual / **CSV upload**) |
+| Broadcasting | `/broadcasting` | Supabase | WhatsApp templates + **per-recipient variable → CRM column mapping** + Gmail campaigns (CRM / manual / CSV) |
 | Human Support | `/human-support` | Supabase | Live handoff queue: claim / resolve / return to AI |
 | Reports | `/reports` | Supabase | Live catalog: 7 report types + CSV export |
 | Settings | `/settings` | Supabase Auth + org | Live: profile, company (Admin), password, branding |
@@ -301,6 +301,7 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-08-03
+- **WhatsApp template field mapping:** Broadcasting + Automation can map each template variable (`{{1}}` / `{{name}}`) to a CRM column (name, requirement, sales person, …) or fixed text. Send fills values **per recipient/lead**. Helper `src/lib/wa-template-merge.ts`. Prefer Leads/Customers audience so merge fields are available.
 - **Retired mock dataset:** Confirmed zero imports of `src/data/mock.ts`; deleted the file. Updated `AGENTS.md` + module checklist so docs no longer describe routes as mock-backed.
 
 ### 2026-08-01

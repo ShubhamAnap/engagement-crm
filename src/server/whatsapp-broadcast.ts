@@ -375,6 +375,16 @@ export const runWhatsAppBroadcast = createServerFn({ method: "POST" })
       ? (aud.header_text_params as string[])
       : [];
 
+    const {
+      parseStoredBindings,
+      resolveWaBodyParams,
+      bindingsAreComplete,
+      mergeFieldsFromLeadRow,
+      mergeFieldsFromCustomerRow,
+    } = await import("@/lib/wa-template-merge");
+    type WaMergeFields = import("@/lib/wa-template-merge").WaMergeFields;
+    type WaParamBinding = import("@/lib/wa-template-merge").WaParamBinding;
+
     let sent = Number(broadcast.sent_count) || 0;
     let failed = Number(broadcast.failed_count) || 0;
 
@@ -397,12 +407,25 @@ export const runWhatsAppBroadcast = createServerFn({ method: "POST" })
       header_text: tplRow?.header_text,
     });
 
+    const bindings: WaParamBinding[] = parseStoredBindings(
+      aud.body_param_bindings,
+      spec.bodyVarLabels,
+    ).slice(0, spec.bodyVarCount);
+    const useBindings =
+      Array.isArray(aud.body_param_bindings) &&
+      (aud.body_param_bindings as unknown[]).length > 0 &&
+      bindingsAreComplete(bindings, spec.bodyVarCount);
+
     if (spec.headerNeedsMedia && !isPublicHttpUrl(headerMediaUrl)) {
       throw new Error(
         `Template “${broadcast.template_name}” has a ${spec.headerFormat} header. Provide a public media URL before sending (fixes Meta #132012).`,
       );
     }
-    if (spec.bodyVarCount > 0 && vars.filter((v) => String(v || "").trim()).length < spec.bodyVarCount) {
+    if (
+      !useBindings &&
+      spec.bodyVarCount > 0 &&
+      vars.filter((v) => String(v || "").trim()).length < spec.bodyVarCount
+    ) {
       throw new Error(
         `Template “${broadcast.template_name}” needs ${spec.bodyVarCount} body variable(s): ${spec.bodyVarLabels
           .map((l) => `{{${l}}}`)
@@ -410,14 +433,66 @@ export const runWhatsAppBroadcast = createServerFn({ method: "POST" })
       );
     }
 
+    // Prefetch lead/customer rows when merge_fields missing (older campaigns / no 020)
+    const leadIds = [
+      ...new Set(
+        (recipients || [])
+          .map((r) => r.lead_id as string | null)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const customerIds = [
+      ...new Set(
+        (recipients || [])
+          .map((r) => r.customer_id as string | null)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const leadMap = new Map<string, WaMergeFields>();
+    const customerMap = new Map<string, WaMergeFields>();
+    if (useBindings && leadIds.length) {
+      const { data: leads } = await supabase
+        .from("leads")
+        .select(
+          "id, name, phone, email, company, requirement, sales_person, location, source, status, notes",
+        )
+        .in("id", leadIds);
+      for (const l of leads || []) {
+        leadMap.set(l.id as string, mergeFieldsFromLeadRow(l));
+      }
+    }
+    if (useBindings && customerIds.length) {
+      const { data: customers } = await supabase
+        .from("customers")
+        .select("id, name, phone, email, company, notes")
+        .in("id", customerIds);
+      for (const c of customers || []) {
+        customerMap.set(c.id as string, mergeFieldsFromCustomerRow(c));
+      }
+    }
+
     for (const recipient of recipients || []) {
       try {
-        const bodyParams =
-          vars.length > 0
-            ? vars.slice(0, spec.bodyVarCount)
-            : spec.bodyVarCount === 1 && recipient.name
-              ? [String(recipient.name).split(" ")[0] || "Customer"]
-              : [];
+        let bodyParams: string[] = [];
+        if (useBindings && spec.bodyVarCount > 0) {
+          const rawMerge = recipient.merge_fields;
+          let fields: WaMergeFields =
+            rawMerge && typeof rawMerge === "object" && !Array.isArray(rawMerge)
+              ? (rawMerge as WaMergeFields)
+              : {};
+          if (recipient.lead_id && leadMap.has(recipient.lead_id as string)) {
+            fields = { ...leadMap.get(recipient.lead_id as string)!, ...fields };
+          } else if (recipient.customer_id && customerMap.has(recipient.customer_id as string)) {
+            fields = { ...customerMap.get(recipient.customer_id as string)!, ...fields };
+          }
+          if (!fields.name && recipient.name) fields = { ...fields, name: recipient.name as string };
+          if (!fields.phone && recipient.phone) fields = { ...fields, phone: recipient.phone as string };
+          bodyParams = resolveWaBodyParams(bindings, fields);
+        } else if (vars.length > 0) {
+          bodyParams = vars.slice(0, spec.bodyVarCount);
+        } else if (spec.bodyVarCount === 1 && recipient.name) {
+          bodyParams = [String(recipient.name).split(" ")[0] || "Customer"];
+        }
 
         const waId = await sendWhatsAppTemplateMessage({
           toPhone: recipient.phone,

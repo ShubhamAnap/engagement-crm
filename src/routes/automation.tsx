@@ -54,6 +54,105 @@ import {
   type DbAutomation,
 } from "@/lib/automations-api";
 import type { LeadStatus, PriorityLevel } from "@/lib/db-types";
+import { WA_CRM_FIELD_OPTIONS, parseStoredBindings, type WaParamBinding } from "@/lib/wa-template-merge";
+
+function WaTemplateActionEditor({
+  action,
+  onChange,
+}: {
+  action: Extract<AutomationLeafAction, { type: "send_whatsapp_template" }>;
+  onChange: (next: AutomationLeafAction) => void;
+}) {
+  const bindings: WaParamBinding[] =
+    action.bodyParamBindings && action.bodyParamBindings.length > 0
+      ? action.bodyParamBindings
+      : parseStoredBindings(action.bodyParams || [], ["name"]);
+
+  const patch = (nextBindings: WaParamBinding[]) =>
+    onChange({ ...action, bodyParamBindings: nextBindings, bodyParams: undefined });
+
+  return (
+    <div className="space-y-2 sm:col-span-2">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Input
+          placeholder="Template name (Meta)"
+          value={action.templateName}
+          onChange={(e) => onChange({ ...action, templateName: e.target.value })}
+        />
+        <Input
+          placeholder="Language (en)"
+          value={action.language}
+          onChange={(e) => onChange({ ...action, language: e.target.value })}
+        />
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Map each template body variable (Meta order: {"{{1}}"}, {"{{2}}"}… or named) to a lead column.
+        Values are filled per lead when the automation runs.
+      </p>
+      {bindings.map((binding, i) => (
+        <div key={i} className="space-y-1.5 rounded-md border border-border/60 p-2">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-medium">Variable {i + 1}</p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => {
+                const next = [...bindings];
+                next.splice(i, 1);
+                patch(next);
+              }}
+            >
+              Remove
+            </Button>
+          </div>
+          <Select
+            value={binding.source}
+            onValueChange={(v) => {
+              const next = [...bindings];
+              next[i] = {
+                source: v as WaParamBinding["source"],
+                staticValue: v === "__static__" ? next[i]?.staticValue || "" : undefined,
+              };
+              patch(next);
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="CRM column" />
+            </SelectTrigger>
+            <SelectContent>
+              {WA_CRM_FIELD_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {binding.source === "__static__" ? (
+            <Input
+              placeholder="Fixed text for all runs"
+              value={binding.staticValue || ""}
+              onChange={(e) => {
+                const next = [...bindings];
+                next[i] = { source: "__static__", staticValue: e.target.value };
+                patch(next);
+              }}
+            />
+          ) : null}
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => patch([...bindings, { source: "name" }])}
+      >
+        Add variable mapping
+      </Button>
+    </div>
+  );
+}
 
 export const Route = createFileRoute("/automation")({
   head: () => ({
@@ -130,7 +229,12 @@ function defaultLeafAction(type: AutomationLeafAction["type"]): AutomationLeafAc
     case "add_system_message":
       return { type, body: "Automation ran." };
     case "send_whatsapp_template":
-      return { type, templateName: "followup_01", language: "en", bodyParams: ["{{name}}"] };
+      return {
+        type,
+        templateName: "followup_01",
+        language: "en",
+        bodyParamBindings: [{ source: "name" }],
+      };
     case "send_email":
       return {
         type,
@@ -287,32 +391,7 @@ function LeafActionFields({
         />
       ) : null}
       {action.type === "send_whatsapp_template" ? (
-        <div className="grid gap-2 sm:grid-cols-2">
-          <Input
-            placeholder="Template name (Meta)"
-            value={action.templateName}
-            onChange={(e) => onChange({ ...action, templateName: e.target.value })}
-          />
-          <Input
-            placeholder="Language (en)"
-            value={action.language}
-            onChange={(e) => onChange({ ...action, language: e.target.value })}
-          />
-          <Input
-            className="sm:col-span-2"
-            placeholder="Body params CSV — {{name}},{{company}}"
-            value={(action.bodyParams || []).join(",")}
-            onChange={(e) =>
-              onChange({
-                ...action,
-                bodyParams: e.target.value
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-              })
-            }
-          />
-        </div>
+        <WaTemplateActionEditor action={action} onChange={onChange} />
       ) : null}
       {action.type === "send_email" ? (
         <div className="space-y-2">

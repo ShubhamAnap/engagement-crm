@@ -43,6 +43,11 @@ import { getGmailSetupInfo, sendGmailCompose } from "@/server/gmail-api";
 import { SendEmailDialog } from "@/components/email/SendEmailDialog";
 import { EMAIL_MERGE_TOKEN_HELP } from "@/lib/email-merge";
 import {
+  WA_CRM_FIELD_OPTIONS,
+  defaultBindingsForLabels,
+  type WaParamBinding,
+} from "@/lib/wa-template-merge";
+import {
   downloadEmailAudienceTemplate,
   MAX_EMAIL_AUDIENCE_ROWS,
   parseEmailAudienceCsv,
@@ -102,7 +107,7 @@ function Page() {
   const [bcTemplateId, setBcTemplateId] = useState("");
   const [bcAudience, setBcAudience] = useState<AudienceKind>("leads_with_phone");
   const [bcManual, setBcManual] = useState("");
-  const [bcVars, setBcVars] = useState<string[]>([]);
+  const [bcBindings, setBcBindings] = useState<WaParamBinding[]>([]);
   const [bcHeaderMediaUrl, setBcHeaderMediaUrl] = useState("");
   const [bcHeaderTextParams, setBcHeaderTextParams] = useState<string[]>([]);
 
@@ -210,7 +215,7 @@ function Page() {
         orgId,
         name: bcName,
         template: selectedTpl,
-        variableValues: bcVars.slice(0, varCount),
+        bodyParamBindings: bcBindings.slice(0, varCount),
         audienceKind: bcAudience,
         manualPhones: bcManual.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean),
         headerMediaUrl: bcHeaderMediaUrl.trim() || null,
@@ -353,9 +358,15 @@ function Page() {
     setBcTemplateId(approved[0]?.id || "");
     setBcAudience("leads_with_phone");
     setBcManual("");
-    setBcVars([]);
+    {
+      const t = approved[0];
+      const spec = t ? analyzeWaTemplateFromRow(t) : null;
+      setBcBindings(defaultBindingsForLabels(spec?.bodyVarLabels || []));
+      setBcHeaderTextParams(
+        Array.from({ length: spec?.headerTextVarLabels.length ?? 0 }, () => ""),
+      );
+    }
     setBcHeaderMediaUrl("");
-    setBcHeaderTextParams([]);
     setBroadcastOpen(true);
   }
 
@@ -363,8 +374,7 @@ function Page() {
     setBcTemplateId(id);
     const t = templates.find((x) => x.id === id);
     const spec = t ? analyzeWaTemplateFromRow(t) : null;
-    const n = spec?.bodyVarCount ?? 0;
-    setBcVars(Array.from({ length: n }, () => ""));
+    setBcBindings(defaultBindingsForLabels(spec?.bodyVarLabels || []));
     setBcHeaderMediaUrl("");
     setBcHeaderTextParams(
       Array.from({ length: spec?.headerTextVarLabels.length ?? 0 }, () => ""),
@@ -659,7 +669,7 @@ function Page() {
               Only <strong>APPROVED</strong> templates can be broadcast.
             </li>
             <li>
-              New broadcast → pick channel WhatsApp → choose approved template → fill variables → pick audience
+              New broadcast → pick channel WhatsApp → choose approved template → map variables to CRM columns → pick audience
               (leads / customers / IndiaMART / manual phones) → send.
             </li>
           </ol>
@@ -825,21 +835,62 @@ function Page() {
             ) : null}
             {varCount > 0 && selectedSpec ? (
               <div className="space-y-2">
-                <Label>Template variables (same for all recipients)</Label>
-                {selectedSpec.bodyVarLabels.map((label, i) => (
-                  <Input
-                    key={label}
-                    placeholder={`{{${label}}}`}
-                    value={bcVars[i] || ""}
-                    onChange={(e) =>
-                      setBcVars((prev) => {
-                        const next = [...prev];
-                        next[i] = e.target.value;
-                        return next;
-                      })
-                    }
-                  />
-                ))}
+                <Label>Template variables (per recipient)</Label>
+                <p className="text-[11px] text-muted-foreground">
+                  Map each {"{{variable}}"} to a CRM column. Values are filled per lead/customer — not the same for everyone.
+                  Manual phone lists only have name if you typed it; prefer Leads/Customers audience for full fields.
+                </p>
+                {selectedSpec.bodyVarLabels.map((label, i) => {
+                  const binding = bcBindings[i] || { source: "name" as const };
+                  return (
+                    <div key={label} className="space-y-1.5 rounded-md border border-border/60 p-2.5">
+                      <p className="text-xs font-medium">
+                        {"{{"}
+                        {label}
+                        {"}}"}
+                      </p>
+                      <Select
+                        value={binding.source}
+                        onValueChange={(v) =>
+                          setBcBindings((prev) => {
+                            const next = [...prev];
+                            while (next.length <= i) next.push({ source: "name" });
+                            next[i] = {
+                              source: v as WaParamBinding["source"],
+                              staticValue: v === "__static__" ? next[i]?.staticValue || "" : undefined,
+                            };
+                            return next;
+                          })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Choose column" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {WA_CRM_FIELD_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {binding.source === "__static__" ? (
+                        <Input
+                          placeholder="Fixed text for all recipients"
+                          value={binding.staticValue || ""}
+                          onChange={(e) =>
+                            setBcBindings((prev) => {
+                              const next = [...prev];
+                              while (next.length <= i) next.push({ source: "__static__" });
+                              next[i] = { source: "__static__", staticValue: e.target.value };
+                              return next;
+                            })
+                          }
+                        />
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             ) : null}
             <div className="space-y-2">

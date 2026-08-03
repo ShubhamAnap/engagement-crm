@@ -322,20 +322,36 @@ export async function listBroadcastRecipients(broadcastId: string) {
   return data ?? [];
 }
 
+type PhoneAudienceRow = {
+  phone: string;
+  name: string | null;
+  customer_id?: string;
+  lead_id?: string;
+  merge_fields?: Record<string, string | null | undefined> | null;
+};
+
 async function resolveAudiencePhones(
   orgId: string,
   kind: AudienceKind,
   manualPhones: string[],
-): Promise<Array<{ phone: string; name: string | null; customer_id?: string; lead_id?: string }>> {
+): Promise<PhoneAudienceRow[]> {
   const supabase = getBrowserSupabase();
-  const out: Array<{ phone: string; name: string | null; customer_id?: string; lead_id?: string }> = [];
+  const { mergeFieldsFromCustomerRow, mergeFieldsFromLeadRow } = await import(
+    "@/lib/wa-template-merge"
+  );
+  const out: PhoneAudienceRow[] = [];
   const seen = new Set<string>();
 
-  const push = (phone: string | null | undefined, name: string | null, ids?: { customer_id?: string; lead_id?: string }) => {
+  const push = (
+    phone: string | null | undefined,
+    name: string | null,
+    ids?: { customer_id?: string; lead_id?: string },
+    merge_fields?: Record<string, string | null | undefined> | null,
+  ) => {
     const digits = (phone || "").replace(/\D/g, "");
     if (digits.length < 8 || seen.has(digits)) return;
     seen.add(digits);
-    out.push({ phone: digits, name, ...ids });
+    out.push({ phone: digits, name, ...ids, merge_fields: merge_fields || null });
   };
 
   if (kind === "manual") {
@@ -346,25 +362,29 @@ async function resolveAudiencePhones(
   if (kind === "customers_with_phone") {
     const { data, error } = await supabase
       .from("customers")
-      .select("id, name, phone")
+      .select("id, name, phone, email, company, notes")
       .eq("org_id", orgId)
       .not("phone", "is", null)
       .limit(500);
     if (error) throw error;
-    for (const c of data ?? []) push(c.phone as string, c.name as string, { customer_id: c.id as string });
+    for (const c of data ?? []) {
+      push(c.phone as string, c.name as string, { customer_id: c.id as string }, mergeFieldsFromCustomerRow(c));
+    }
     return out;
   }
 
   const { data, error } = await supabase
     .from("leads")
-    .select("id, name, phone, source")
+    .select(
+      "id, name, phone, email, company, requirement, sales_person, location, source, status, notes",
+    )
     .eq("org_id", orgId)
     .not("phone", "is", null)
     .limit(500);
   if (error) throw error;
   for (const l of data ?? []) {
     if (kind === "indiamart_leads" && l.source !== "indiamart") continue;
-    push(l.phone as string, l.name as string, { lead_id: l.id as string });
+    push(l.phone as string, l.name as string, { lead_id: l.id as string }, mergeFieldsFromLeadRow(l));
   }
   return out;
 }
@@ -373,7 +393,10 @@ export async function createAndSendBroadcast(options: {
   orgId?: string;
   name: string;
   template: DbWaTemplate;
-  variableValues: string[];
+  /** @deprecated Prefer bodyParamBindings — static values same for all */
+  variableValues?: string[];
+  /** Per template var: CRM column or fixed text */
+  bodyParamBindings?: import("@/lib/wa-template-merge").WaParamBinding[];
   audienceKind: AudienceKind;
   manualPhones?: string[];
   /** Public URL for IMAGE/VIDEO/DOCUMENT header templates */
@@ -386,6 +409,7 @@ export async function createAndSendBroadcast(options: {
     throw new Error("Only APPROVED templates can be used for broadcasting");
   }
 
+  const { bindingsAreComplete } = await import("@/lib/wa-template-merge");
   const spec = analyzeWaTemplateFromRow(options.template);
   if (spec.headerNeedsMedia) {
     const url = (options.headerMediaUrl || "").trim();
@@ -395,15 +419,27 @@ export async function createAndSendBroadcast(options: {
       );
     }
   }
-  if (
-    spec.bodyVarCount > 0 &&
-    options.variableValues.filter((v) => String(v || "").trim()).length < spec.bodyVarCount
-  ) {
-    throw new Error(
-      `Fill all ${spec.bodyVarCount} template variable(s): ${spec.bodyVarLabels
-        .map((l) => `{{${l}}}`)
-        .join(", ")}`,
-    );
+
+  const bindings = options.bodyParamBindings || [];
+  const usingBindings = bindings.length > 0;
+  if (spec.bodyVarCount > 0) {
+    if (usingBindings) {
+      if (!bindingsAreComplete(bindings, spec.bodyVarCount)) {
+        throw new Error(
+          `Map all ${spec.bodyVarCount} template variable(s) to a CRM field or fixed text: ${spec.bodyVarLabels
+            .map((l) => `{{${l}}}`)
+            .join(", ")}`,
+        );
+      }
+    } else if (
+      (options.variableValues || []).filter((v) => String(v || "").trim()).length < spec.bodyVarCount
+    ) {
+      throw new Error(
+        `Fill all ${spec.bodyVarCount} template variable(s): ${spec.bodyVarLabels
+          .map((l) => `{{${l}}}`)
+          .join(", ")}`,
+      );
+    }
   }
 
   const recipients = await resolveAudiencePhones(
@@ -424,7 +460,7 @@ export async function createAndSendBroadcast(options: {
       template_id: options.template.id,
       template_name: options.template.name,
       template_language: options.template.language,
-      variable_values: options.variableValues,
+      variable_values: options.variableValues || [],
       audience: {
         kind: options.audienceKind,
         ...(options.headerMediaUrl?.trim()
@@ -432,6 +468,9 @@ export async function createAndSendBroadcast(options: {
           : {}),
         ...(options.headerTextParams?.length
           ? { header_text_params: options.headerTextParams }
+          : {}),
+        ...(usingBindings
+          ? { body_param_bindings: bindings.slice(0, spec.bodyVarCount) }
           : {}),
       },
       total_count: recipients.length,
@@ -441,17 +480,23 @@ export async function createAndSendBroadcast(options: {
     .single();
   if (error) throw error;
 
-  const { error: recErr } = await supabase.from("broadcast_recipients").insert(
-    recipients.map((r) => ({
-      org_id: orgId,
-      broadcast_id: broadcast.id,
-      phone: r.phone,
-      name: r.name,
-      customer_id: r.customer_id || null,
-      lead_id: r.lead_id || null,
-      status: "pending",
-    })),
-  );
+  const rows = recipients.map((r) => ({
+    org_id: orgId,
+    broadcast_id: broadcast.id,
+    phone: r.phone,
+    name: r.name,
+    customer_id: r.customer_id || null,
+    lead_id: r.lead_id || null,
+    status: "pending",
+    merge_fields: r.merge_fields || null,
+  }));
+
+  let { error: recErr } = await supabase.from("broadcast_recipients").insert(rows);
+  if (recErr && /merge_fields/i.test(recErr.message || "")) {
+    ({ error: recErr } = await supabase.from("broadcast_recipients").insert(
+      rows.map(({ merge_fields: _mf, ...rest }) => rest),
+    ));
+  }
   if (recErr) throw recErr;
 
   const result = await runWhatsAppBroadcast({ data: { broadcastId: broadcast.id as string } });

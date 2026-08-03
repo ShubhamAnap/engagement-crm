@@ -45,7 +45,25 @@ export type AutomationLeafAction =
       type: "send_whatsapp_template";
       templateName: string;
       language: string;
+      /** @deprecated Prefer bodyParamBindings — tokens like {{name}} still work via fillVars */
       bodyParams?: string[];
+      /** Ordered map of each Meta body variable → CRM column or fixed text */
+      bodyParamBindings?: Array<{
+        source:
+          | "name"
+          | "first_name"
+          | "company"
+          | "email"
+          | "phone"
+          | "requirement"
+          | "sales_person"
+          | "location"
+          | "source"
+          | "status"
+          | "notes"
+          | "__static__";
+        staticValue?: string;
+      }>;
     }
   | { type: "send_email"; subject: string; body: string }
   | { type: "notify_team"; title: string; body: string; href?: string }

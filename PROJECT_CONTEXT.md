@@ -302,7 +302,8 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-08-03
-- **Website chat visitor UX:** Embed panel uses EnerTech `#0B2388` / white. Required contact = name, email, phone, location (company optional). After save / returning browser session → chat-only + tiny header **Edit**. Circular launcher remains **ASK EnerTech**.
+- **Website chat visitor UX:** Embed panel uses EnerTech `#0B2388` / white. Required contact = name, email, phone, location (company optional). After save / returning browser session → chat-only + tiny header **Edit**. Circular launcher remains **ASK EnerTech**. Mic = browser speech-to-text (edit then send).
+- **Products bulk CSV import:** `/products` → Bulk import template (sku, name, category, description, stock, qty, price, battery, runtime). Max 500; skip duplicate SKU. Images/PDFs still added one-by-one after import.
 - **AI Tools module:** Migration `021_ai_tools.sql` seeds Calculator (on) + Web search (off). Page `/tools` toggles global enable. Agents → Configure ticks allowed tools (`config.allowed_tools`). OpenAI chat loop runs function calls for allowed ∩ enabled tools (widget, WhatsApp, email, Meta). Web search needs `TAVILY_API_KEY` (or `WEB_SEARCH_API_KEY`) on Render.
 - **Short catalogue links:** Product catalogues use `https://<app>/c/{SKU}`; knowledge files use `/d/{id}`. AI replies now rewrite any leftover long Supabase Storage URLs before saving/sending.
 - **Broadcast lead filters:** WhatsApp broadcast audience (leads / IndiaMART) supports optional AND filters: sales person, status, source, location (e.g. Sales person = Ritesh). Helper `src/lib/broadcast-audience-filters.ts`.

@@ -1,7 +1,7 @@
 ﻿import { useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, Pencil, Plus, Trash2 } from "lucide-react";
+import { Download, FileText, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,6 +48,11 @@ import {
   uploadProductCataloguePdf,
   uploadProductImage,
 } from "@/lib/products-api";
+import {
+  downloadProductsImportTemplate,
+  importProductsFromCsv,
+  MAX_PRODUCT_IMPORT_ROWS,
+} from "@/lib/products-import";
 import { ensureKnowledgeStorage } from "@/server/knowledge";
 
 const stockOptions: StockStatus[] = ["In Stock", "Low Stock", "Made to Order", "Out of Stock"];
@@ -114,10 +119,14 @@ function Page() {
   const orgId = profile?.org.id;
   const catalogInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<DbProduct | null>(null);
   const [productToDelete, setProductToDelete] = useState<DbProduct | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFileName, setImportFileName] = useState<string | null>(null);
+  const [importCsvText, setImportCsvText] = useState<string | null>(null);
   const [form, setForm] = useState<ProductFormState>(defaultForm);
   const [pendingCatalogPdf, setPendingCatalogPdf] = useState<File | null>(null);
   const [pendingImage, setPendingImage] = useState<File | null>(null);
@@ -183,6 +192,51 @@ function Page() {
       toast.error(error instanceof Error ? error.message : "Could not save product");
     },
   });
+
+  const importMutation = useMutation({
+    mutationFn: async (csvText: string) => {
+      if (!orgId) throw new Error("Your profile is still loading");
+      return importProductsFromCsv({ orgId, csvText });
+    },
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["products", orgId] });
+      setImportOpen(false);
+      setImportFileName(null);
+      setImportCsvText(null);
+      if (importInputRef.current) importInputRef.current.value = "";
+      const parts = [
+        `${result.imported} imported`,
+        result.skippedDuplicate ? `${result.skippedDuplicate} skipped (duplicate SKU)` : null,
+        result.skippedInvalid ? `${result.skippedInvalid} skipped (invalid)` : null,
+      ].filter(Boolean);
+      toast.success(parts.join(" · "));
+      if (result.errors.length > 0) {
+        toast.message(
+          `Notes: ${result.errors.slice(0, 3).join("; ")}${result.errors.length > 3 ? "…" : ""}`,
+        );
+      }
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Import failed"),
+  });
+
+  const onImportFile = (file: File | null) => {
+    if (!file) {
+      setImportFileName(null);
+      setImportCsvText(null);
+      return;
+    }
+    if (!file.name.toLowerCase().endsWith(".csv") && file.type !== "text/csv") {
+      toast.error("Please choose a .csv file");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setImportFileName(file.name);
+      setImportCsvText(typeof reader.result === "string" ? reader.result : null);
+    };
+    reader.onerror = () => toast.error("Could not read CSV file");
+    reader.readAsText(file);
+  };
 
   const catalogMutation = useMutation({
     mutationFn: async (file: File) => {
@@ -301,7 +355,16 @@ function Page() {
       <PageHeader
         title="Product Catalog"
         description="UPS systems, batteries and accessories — attach an image for WhatsApp product cards and a PDF catalogue for EnerBot."
-        actions={<Button size="sm" onClick={openCreate}><Plus className="size-4" /> Add product</Button>}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setImportOpen(true)}>
+              <Upload className="size-4" /> Bulk import
+            </Button>
+            <Button size="sm" onClick={openCreate}>
+              <Plus className="size-4" /> Add product
+            </Button>
+          </div>
+        }
       />
       <div className="space-y-4 p-6">
         <Panel bodyClassName="p-0">
@@ -538,6 +601,69 @@ function Page() {
               disabled={saveMutation.isPending || catalogMutation.isPending || imageMutation.isPending}
             >
               {saveMutation.isPending ? "Saving…" : editingProduct ? "Update product" : "Create product"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={importOpen}
+        onOpenChange={(open) => {
+          setImportOpen(open);
+          if (!open) {
+            setImportFileName(null);
+            setImportCsvText(null);
+            if (importInputRef.current) importInputRef.current.value = "";
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Bulk import products</DialogTitle>
+            <DialogDescription>
+              Download the CSV template, fill product details (max {MAX_PRODUCT_IMPORT_ROWS} rows), then
+              upload. Images and catalogue PDFs are not in the CSV — add those later per product. Existing
+              SKUs are skipped.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full gap-1.5"
+              onClick={() => downloadProductsImportTemplate()}
+            >
+              <Download className="size-4" />
+              Download CSV template
+            </Button>
+            <div className="space-y-2">
+              <Label htmlFor="products-csv">Upload CSV</Label>
+              <input
+                ref={importInputRef}
+                id="products-csv"
+                type="file"
+                accept=".csv,text/csv"
+                className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium"
+                onChange={(e) => onImportFile(e.target.files?.[0] ?? null)}
+              />
+              {importFileName ? (
+                <p className="text-xs text-muted-foreground">Selected: {importFileName}</p>
+              ) : null}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setImportOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={!importCsvText || importMutation.isPending}
+              onClick={() => {
+                if (!importCsvText) return;
+                importMutation.mutate(importCsvText);
+              }}
+            >
+              {importMutation.isPending ? "Importing…" : "Import"}
             </Button>
           </DialogFooter>
         </DialogContent>

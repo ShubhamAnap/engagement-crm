@@ -4,7 +4,7 @@
 Product:     EnerTech Engage
 Company:     EnerTech UPS Pvt. Ltd.
 Document:    Full system documentation (text)
-Updated:     2026-08-01
+Updated:     2026-08-03
 Repo:        https://github.com/ShubhamAnapenertechsupport
 Live:        https://enertechups-ai.onrender.com/ (typical Render URL)
 Local:       http://localhost:8080/
@@ -18,8 +18,8 @@ UPS. It combines omnichannel inbox, CRM (leads/customers), product catalog,
 knowledge base (RAG), AI agents, automation workflows, broadcasting
 (WhatsApp + Gmail), analytics, and reports.
 
-Goal: Convert a UI prototype into a working multi-channel sales & support
-platform that can later become multi-tenant SaaS.
+Goal: Operate a working multi-channel sales & support platform (live data on
+Supabase) that can later become multi-tenant SaaS.
 
 Brand rules:
 - Product name is always "EnerTech Engage"

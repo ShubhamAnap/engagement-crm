@@ -1,16 +1,16 @@
 # EnerTech Engage — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
-> **Last updated:** 2026-08-01
+> **Last updated:** 2026-08-03
 
 ---
 
 ## Mission
 
-Turn **EnerTech Engage** from a UI/UX prototype into a **working enterprise AI customer engagement platform** for EnerTech UPS Pvt. Ltd., with architecture that can later become multi-tenant SaaS.
+Run **EnerTech Engage** as a **working enterprise AI customer engagement platform** for EnerTech UPS Pvt. Ltd., with architecture that can later become multi-tenant SaaS.
 
-**Current state:** foundation/auth/core schema are live; website chat is live with Supabase + OpenAI; many remaining routes still use mock/static data.
-**Approach:** Add real functionality **one module at a time**, in dependency order — foundation first, then features.
+**Current state:** Phases 0–9 are largely live (Supabase + OpenAI + Render). Remaining work is Settings polish (RBAC, encrypted secrets, audit), ops/migrations, and UX hardening — not mock-data migration.
+**Approach:** Prefer stabilize and ship focused improvements; new modules only when requested.
 
 ---
 
@@ -44,9 +44,9 @@ Turn **EnerTech Engage** from a UI/UX prototype into a **working enterprise AI c
 | AI | **OpenAI GPT-4o-mini** |
 | Deploy | GitHub → **Render** (one Web Service) |
 
-**Mock data:** `src/data/mock.ts` — replace imports module-by-module as each feature goes live.
+**Data:** Modules load from Supabase / server functions (no app-wide mock dataset). The old `src/data/mock.ts` was removed once every route used live APIs.
 
-**TanStack Query** is wired in `src/router.tsx` but unused — use it for all new data fetching.
+**TanStack Query** is wired in `src/router.tsx` — use it for client data fetching.
 
 ---
 
@@ -99,8 +99,6 @@ Implement in this order — each phase unlocks the next.
 
 **File:** `supabase/migrations/003_core_schema.sql`  
 **Types:** `src/lib/db-types.ts`
-
-**Next:** Continue replacing remaining mock-driven modules route by route.
 
 ---
 
@@ -247,27 +245,27 @@ Embed on EnerTech website — live AI chat, lead capture (name/email/phone requi
 
 ## Module Checklist (Quick Reference)
 
-| Module | Route | Mock source | Status |
-|--------|-------|-------------|--------|
-| Dashboard | `/` | `mock.ts` | Live KPIs + charts from Supabase |
-| AI Command Center | `/command-center` | — | Live sessions: pause/takeover/timeline |
-| Inbox | `/inbox` | `mock.ts` | Live + **mobile list→thread**; WA 24h; templates; Recommend product |
-| AI Chat Support | `/ai-chat` | — | Live Answer Inspector (confidence, sources, reasoning) |
-| AI Agents | `/agents` | — | Live: model/prompt/memory/status; keyword routing |
-| Knowledge Base | `/knowledge` | `mock.ts` | Live collections + upload/index (pgvector RAG) |
-| Products | `/products` | `mock.ts` | Real CRUD + **card image** + catalogue PDF (Storage) |
-| Customers | `/customers` | `mock.ts` (reuses leads) | Real list/create/update/delete via Supabase |
-| Leads | `/leads` | — | **Master sheet** + bulk import CSV (template, skip duplicates, max 500) |
-| Pipeline | `/pipeline` | `mock.ts` | Live Kanban from `leads` + drag/select stage updates |
-| Analytics | `/analytics` | `mock.ts` | Live Insights: range filter + charts from Supabase |
-| Automation | `/automation` | — | Live A+B+C: Wait, If/Else, conditions, follow-up cron, WA/email/notify, canvas |
-| Channels | `/channels` | — | Live: Website + WA + Email + Meta + IndiaMART/TradeIndia **auto sync toggle** + Brainmine |
-| Broadcasting | `/broadcasting` | — | WhatsApp templates + **Gmail campaigns** (CRM / manual / **CSV upload**) |
-| Human Support | `/human-support` | `mock.ts` | Live handoff queue: claim / resolve / return to AI |
-| Reports | `/reports` | — | Live catalog: 7 report types + CSV export |
-| Settings | `/settings` | — | Live: profile, company (Admin), password |
-| Chat Widget | global | — | Live chat + attachment upload + handoff banner |
-| Notifications | TopBar bell | mock list | Live feed: escalations, human queue, unread, new leads, failed automations/broadcasts, WA template status |
+| Module | Route | Data | Status |
+|--------|-------|------|--------|
+| Dashboard | `/` | Supabase | Live KPIs + charts |
+| AI Command Center | `/command-center` | Supabase | Live sessions: pause/takeover/timeline |
+| Inbox | `/inbox` | Supabase | Live + **mobile list→thread**; WA 24h; templates; Recommend product |
+| AI Chat Support | `/ai-chat` | Supabase | Live Answer Inspector (confidence, sources, reasoning) |
+| AI Agents | `/agents` | Supabase | Live: model/prompt/memory/status; keyword routing |
+| Knowledge Base | `/knowledge` | Supabase + Storage | Live collections + upload/index (pgvector RAG) |
+| Products | `/products` | Supabase + Storage | CRUD + **card image** + catalogue PDF |
+| Customers | `/customers` | Supabase | List/create/update/delete |
+| Leads | `/leads` | Supabase | **Master sheet** + bulk import CSV (template, skip duplicates, max 500) |
+| Pipeline | `/pipeline` | Supabase | Live Kanban from `leads` + drag/select stage updates |
+| Analytics | `/analytics` | Supabase | Live Insights: range filter + charts |
+| Automation | `/automation` | Supabase | Live A+B+C: Wait, If/Else, conditions, follow-up cron, WA/email/notify, canvas |
+| Channels | `/channels` | Supabase | Website + WA + Email + Meta + IndiaMART/TradeIndia **auto sync** + Brainmine |
+| Broadcasting | `/broadcasting` | Supabase | WhatsApp templates + **Gmail campaigns** (CRM / manual / **CSV upload**) |
+| Human Support | `/human-support` | Supabase | Live handoff queue: claim / resolve / return to AI |
+| Reports | `/reports` | Supabase | Live catalog: 7 report types + CSV export |
+| Settings | `/settings` | Supabase Auth + org | Live: profile, company (Admin), password, branding |
+| Chat Widget | global | Server + Supabase | Live chat + attachment upload + handoff banner |
+| Notifications | TopBar bell | Supabase | Live feed: escalations, human queue, unread, new leads, failed automations/broadcasts, WA template status |
 
 **Legend:** `NOT STARTED` → `IN PROGRESS` → `DONE` (update Status column as we go)
 
@@ -279,7 +277,8 @@ Record decisions here so we don't re-debate.
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
-| 2026-07-30 | Build module-by-module, foundation first | Avoids rework; mock.ts replaced incrementally |
+| 2026-07-30 | Build module-by-module, foundation first | Avoids rework; mock data replaced incrementally |
+| 2026-08-03 | Removed unused `src/data/mock.ts` | All modules on live APIs; avoid reintroducing app-wide mocks |
 | 2026-07-30 | Keep TanStack Start (don't migrate to Next.js) | Already built on this stack |
 | 2026-07-30 | Database = **Supabase Postgres** | User choice; hosted, Auth + storage bundled |
 | 2026-07-30 | Auth = **Email/password** (Supabase Auth) | User choice |
@@ -300,6 +299,9 @@ Record decisions here so we don't re-debate.
 ## Session Log
 
 Brief notes from each working session — append, don't delete.
+
+### 2026-08-03
+- **Retired mock dataset:** Confirmed zero imports of `src/data/mock.ts`; deleted the file. Updated `AGENTS.md` + module checklist so docs no longer describe routes as mock-backed.
 
 ### 2026-08-01
 - **Product image/PDF upload fix:** Client Storage upload now remove+retries, then falls back to service-role server fn `uploadProductMediaServer` (`src/server/product-media.ts`) — same pattern as Knowledge Base. Clearer errors if `019_product_image.sql` / `005_knowledge_storage_fix.sql` missing. Extension-based MIME when `file.type` is empty.
@@ -387,12 +389,11 @@ Brief notes from each working session — append, don't delete.
 
 1. **Read this file first** at the start of every session.
 2. **Update this file** after completing any phase task (status, decisions, session log).
-3. **One module at a time** — finish Phase 0 before Phase 5 inbox, etc.
-4. **Don't rewrite mock.ts all at once** — migrate each route when its backend is ready.
-5. **Match existing UI patterns** — use `ui-kit.tsx`, shadcn components, TanStack Query.
-6. Prefer clean git history on `main`; avoid force-push unless the user explicitly requests it.
-7. Ask user before major infra choices (DB, auth, AI provider) if not logged in Architecture Decisions.
-8. Keep product branding as **EnerTech Engage** — no third-party builder names, links, or telemetry.
+3. **Prefer focused changes** — stabilize live modules; do not reintroduce app-wide mock datasets.
+4. **Match existing UI patterns** — use `ui-kit.tsx`, shadcn components, TanStack Query.
+5. Prefer clean git history on `main`; avoid force-push unless the user explicitly requests it.
+6. Ask user before major infra choices (DB, auth, AI provider) if not logged in Architecture Decisions.
+7. Keep product branding as **EnerTech Engage** — no third-party builder names, links, or telemetry.
 
 ---
 
@@ -406,8 +407,7 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 
 ## Next Immediate Step
 
-1. **Deploy on Render:** Blueprint/`render.yaml` → set env from `.env` → set `VITE_APP_URL` to the Render HTTPS URL → redeploy.
-2. **WhatsApp Meta:** Channels → Configure → Test connection → Meta webhook = `{VITE_APP_URL}/api/webhooks/whatsapp`.
-3. Run pending SQL if needed: `015`, `016`, **`017_whatsapp_session_window.sql`**, **`018_gmail_oauth_broadcast.sql`**, **`020_broadcast_recipient_merge.sql`**, `009_broadcasting.sql` for templates.
-4. Cron: `CRON_URL` + `CRON_SECRET` on the Render cron job (every 5 min).
-5. Still later: RBAC/audit logs, Brainmine field map.
+1. Confirm product image/PDF uploads after `005` + `019` SQL (if not already run).
+2. Run any pending SQL: `015`–`020` as needed for branding, automation wait, WA session, Gmail, merge fields.
+3. Cron: `CRON_URL` + `CRON_SECRET` on the Render cron job (every 5 min).
+4. Later: Settings RBAC / encrypted AI keys / audit logs; Brainmine field map.

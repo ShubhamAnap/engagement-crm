@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Bot, Building2, Mail, MapPin, Phone, RefreshCw, Send, Sparkles, User, X } from "lucide-react";
+import { Building2, Mail, MapPin, Phone, RefreshCw, Send, User, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -371,8 +371,8 @@ function EmbedChat() {
           className="flex items-center gap-2.5 px-3.5 py-3 text-white"
           style={{ backgroundColor: BRAND }}
         >
-          <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-white/15 text-white">
-            <Sparkles className="size-4" />
+          <div className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg bg-white">
+            <img src="/favicon-32.png" alt="" className="size-7 object-contain" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-white">EnerTech</p>
@@ -507,11 +507,8 @@ function EmbedChat() {
               {msgs.map((m) => (
                 <div key={m.id} className={cn("flex gap-2", m.from === "user" ? "justify-end" : "justify-start")}>
                   {m.from === "bot" && (
-                    <div
-                      className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md text-white"
-                      style={{ backgroundColor: BRAND }}
-                    >
-                      <Bot className="size-3.5" />
+                    <div className="mt-0.5 grid size-6 shrink-0 place-items-center overflow-hidden rounded-md bg-white">
+                      <img src="/favicon-32.png" alt="" className="size-5 object-contain" />
                     </div>
                   )}
                   <div

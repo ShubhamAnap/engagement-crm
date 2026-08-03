@@ -771,13 +771,6 @@ function Page() {
                 </div>
               </div>
             ) : null}
-            {waCanCloudApi ? (
-              <div className="mb-2 hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
-                <Clock className="size-3.5 text-primary" />
-                Session open · <span className="font-medium text-foreground">{waWindow?.label}</span> to
-                reply freely on WhatsApp
-              </div>
-            ) : null}
             <div className="mb-2 hidden items-center gap-1.5 text-xs text-primary sm:flex">
               <Sparkles className="size-3.5" />{" "}
               {waOutbound && waPhone

@@ -375,11 +375,7 @@ function EmbedChat() {
             <Sparkles className="size-4" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold text-white">EnerBot · EnerTech</p>
-            <p className="flex items-center gap-1.5 text-[11px] text-white/85">
-              <span className={cn("size-1.5 rounded-full", humanMode ? "bg-amber-300" : "bg-emerald-300")} />
-              {humanMode ? "Connected with our support team" : "Online · usually replies instantly"}
-            </p>
+            <p className="truncate text-sm font-semibold text-white">EnerTech</p>
           </div>
           <div className="ml-auto flex items-center gap-0.5">
             {profileReady && !showContactForm ? (
@@ -535,7 +531,7 @@ function EmbedChat() {
               ))}
               {typing && (
                 <div className="flex items-center gap-2 text-xs" style={{ color: `${BRAND}99` }}>
-                  <Bot className="size-3.5" /> EnerBot is typing…
+                  typing...
                 </div>
               )}
               <div ref={endRef} />

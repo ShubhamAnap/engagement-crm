@@ -1,19 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Building2, Headphones, Languages, Mail, MapPin, MessageSquare, Paperclip, Palette, Phone, RefreshCw, Send, Sparkles, User, X } from "lucide-react";
+import { Bot, Building2, ChevronDown, Headphones, Languages, Mail, MapPin, MessageSquare, Paperclip, Phone, RefreshCw, Send, Sparkles, User, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
-import { COLOR_PALETTES, useTheme } from "@/lib/theme";
 import {
   widgetGetOrCreateConversation,
   widgetListMessages,
@@ -84,7 +75,6 @@ function applyHistory(messages: ServerMessage[]): UiMsg[] {
 
 export function ChatWidget() {
   const { session } = useAuth();
-  const { palette, setPalette } = useTheme();
   const [open, setOpen] = useState(false);
   const [lang, setLang] = useState("EN");
   const [msgs, setMsgs] = useState<UiMsg[]>([welcome]);
@@ -94,7 +84,7 @@ export function ChatWidget() {
   const [busy, setBusy] = useState(false);
   const [humanMode, setHumanMode] = useState(false);
   const [profile, setProfile] = useState<VisitorProfile>(emptyProfile);
-  const [saveHint, setSaveHint] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(true);
   const endRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const profileRef = useRef(profile);
@@ -161,7 +151,7 @@ export function ChatWidget() {
     setMsgs([welcome]);
     setDraft("");
     setTyping(false);
-    setSaveHint(null);
+    setDetailsOpen(true);
     await syncConversationProfile(emptyProfile);
   }
 
@@ -169,7 +159,7 @@ export function ChatWidget() {
     lookedUpRef.current = "";
     setProfile(emptyProfile);
     profileRef.current = emptyProfile;
-    setSaveHint(null);
+    setDetailsOpen(true);
     const convoId = await syncConversationProfile(emptyProfile);
     const history = (await widgetListMessages({
       data: { key: widgetKey, conversationId: convoId },
@@ -239,8 +229,8 @@ export function ChatWidget() {
           const merged = mergeMissingFields(profileRef.current, known);
           setProfile(merged);
           profileRef.current = merged;
-          setSaveHint("Known contact found — only missing fields needed");
-          toast.message("Existing contact found. Fill any missing fields.");
+          if (isProfileComplete(merged)) setDetailsOpen(false);
+          toast.message("Welcome back — we filled known details.");
         } catch (err) {
           console.error(err);
         }
@@ -259,7 +249,7 @@ export function ChatWidget() {
         try {
           const current = profileRef.current;
           await syncConversationProfile(current);
-          setSaveHint(isProfileComplete(current) ? "Details saved" : "Partial details auto-saved");
+          if (isProfileComplete(current)) setDetailsOpen(false);
         } catch (err) {
           console.error(err);
         }
@@ -283,7 +273,8 @@ export function ChatWidget() {
     setBusy(true);
     try {
       await beginFreshConversation();
-      toast.success("New chat started — enter contact details");
+      toast.success("New chat started");
+      setDetailsOpen(true);
     } catch (err) {
       console.error(err);
       toast.error(err instanceof Error ? err.message : "Could not start a new chat");
@@ -355,7 +346,8 @@ export function ChatWidget() {
       return;
     }
     if (!isProfileComplete(profile)) {
-      toast.error("Please fill Name, Email, and Phone before chatting (company & location optional)");
+      setDetailsOpen(true);
+      toast.error("Please share your name, email, and phone so we can help you.");
       return;
     }
 
@@ -372,7 +364,7 @@ export function ChatWidget() {
       const result = await widgetSendMessage({ data: { key: widgetKey, conversationId: convoId, body: userText } });
       setMsgs(applyHistory(result.messages as ServerMessage[]));
       if (result.aiPaused || result.status === "human" || result.status === "escalated") setHumanMode(true);
-      setSaveHint("Details saved");
+      setDetailsOpen(false);
     } catch (err) {
       console.error(err);
       toast.error(err instanceof Error ? err.message : "Failed to send message");
@@ -391,31 +383,13 @@ export function ChatWidget() {
               <Sparkles className="size-4" />
             </div>
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">EnerBot Assistant</p>
+              <p className="truncate text-sm font-semibold">EnerBot · EnerTech</p>
               <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 <span className={cn("size-1.5 rounded-full", humanMode ? "bg-warning" : "bg-success")} />
-                {humanMode ? "Human agent connected · AI paused" : "GPT-4o-mini · saves to Inbox"}
+                {humanMode ? "Connected with our support team" : "Online · usually replies instantly"}
               </p>
             </div>
             <div className="ml-auto flex items-center gap-0.5">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="size-7" aria-label="Choose color theme" title="Color theme">
-                    <Palette className="size-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-52">
-                  <DropdownMenuLabel>Color theme</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {COLOR_PALETTES.map((item) => (
-                    <DropdownMenuItem key={item.id} onSelect={() => setPalette(item.id)}>
-                      <span className="size-3.5 shrink-0 rounded-full border border-border" style={{ backgroundColor: item.swatch }} aria-hidden />
-                      <span className="flex-1">{item.label}</span>
-                      {palette === item.id ? <span className="text-[10px] text-muted-foreground">Active</span> : null}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
               <Button
                 variant="ghost"
                 size="sm"
@@ -442,39 +416,48 @@ export function ChatWidget() {
             </div>
           </header>
 
-          <div className="border-b border-border bg-secondary/20 px-3.5 py-3">
-            <p className="mb-2 text-xs font-medium text-muted-foreground">Enter contact details (auto-saved)</p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <div className="relative">
-                <User className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input value={profile.name} onChange={(e) => setProfile((s) => ({ ...s, name: e.target.value }))} placeholder="Name" className="h-8 pl-8 text-xs" />
+          <div className="border-b border-border bg-secondary/20 px-3.5 py-2">
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 text-left text-xs font-medium text-muted-foreground"
+              onClick={() => setDetailsOpen((o) => !o)}
+              aria-expanded={detailsOpen}
+            >
+              <User className="size-3.5 shrink-0" />
+              <span className="flex-1">
+                {isProfileComplete(profile) ? "Your contact details" : "Share your contact (name, email, phone)"}
+              </span>
+              <ChevronDown className={cn("size-3.5 transition-transform", detailsOpen && "rotate-180")} />
+            </button>
+            {detailsOpen ? (
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <div className="relative">
+                  <User className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input value={profile.name} onChange={(e) => setProfile((s) => ({ ...s, name: e.target.value }))} placeholder="Name" className="h-8 pl-8 text-xs" />
+                </div>
+                <div className="relative">
+                  <Mail className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input value={profile.email} onChange={(e) => setProfile((s) => ({ ...s, email: e.target.value }))} placeholder="Email" className="h-8 pl-8 text-xs" />
+                </div>
+                <div className="relative">
+                  <Phone className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input value={profile.phone} onChange={(e) => setProfile((s) => ({ ...s, phone: e.target.value }))} placeholder="Phone" className="h-8 pl-8 text-xs" />
+                </div>
+                <div className="relative">
+                  <Building2 className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input value={profile.company} onChange={(e) => setProfile((s) => ({ ...s, company: e.target.value }))} placeholder="Company (optional)" className="h-8 pl-8 text-xs" />
+                </div>
+                <div className="relative sm:col-span-2">
+                  <MapPin className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input value={profile.location} onChange={(e) => setProfile((s) => ({ ...s, location: e.target.value }))} placeholder="Location (optional)" className="h-8 pl-8 text-xs" />
+                </div>
               </div>
-              <div className="relative">
-                <Mail className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input value={profile.email} onChange={(e) => setProfile((s) => ({ ...s, email: e.target.value }))} placeholder="Email" className="h-8 pl-8 text-xs" />
-              </div>
-              <div className="relative">
-                <Phone className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input value={profile.phone} onChange={(e) => setProfile((s) => ({ ...s, phone: e.target.value }))} placeholder="Phone Number" className="h-8 pl-8 text-xs" />
-              </div>
-              <div className="relative">
-                <Building2 className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input value={profile.company} onChange={(e) => setProfile((s) => ({ ...s, company: e.target.value }))} placeholder="Company (optional)" className="h-8 pl-8 text-xs" />
-              </div>
-              <div className="relative sm:col-span-2">
-                <MapPin className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input value={profile.location} onChange={(e) => setProfile((s) => ({ ...s, location: e.target.value }))} placeholder="Location (optional)" className="h-8 pl-8 text-xs" />
-              </div>
-            </div>
-            {saveHint ? <p className="mt-2 text-[11px] text-muted-foreground">{saveHint}</p> : null}
-            {!isProfileComplete(profile) ? (
-              <p className="mt-1 text-[11px] text-muted-foreground">Name, email &amp; phone required to chat.</p>
             ) : null}
           </div>
 
           {humanMode ? (
             <div className="border-b border-amber-500/30 bg-amber-500/10 px-3.5 py-2 text-xs text-amber-950 dark:text-amber-100">
-              A human support agent is handling this chat. You can keep messaging — replies appear here live.
+              You’re chatting with our support team — keep messaging here.
             </div>
           ) : null}
 
@@ -487,7 +470,7 @@ export function ChatWidget() {
                   </div>
                 )}
                 <div className={cn("max-w-[80%] space-y-1", m.from === "user" && "items-end")}>
-                  {m.kind === "agent" ? <p className="px-1 text-[10px] font-medium text-muted-foreground">Human agent</p> : null}
+                  {m.kind === "agent" ? <p className="px-1 text-[10px] font-medium text-muted-foreground">Support team</p> : null}
                   <div
                     className={cn(
                       "rounded-xl px-3 py-2 text-sm leading-relaxed",

@@ -1,18 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Bot, Building2, Mail, MapPin, MessageSquare, Phone, RefreshCw, Palette, Send, Sparkles, User, X } from "lucide-react";
+import { Bot, Building2, ChevronDown, Mail, MapPin, MessageSquare, Phone, RefreshCw, Send, Sparkles, User, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { COLOR_PALETTES, useTheme } from "@/lib/theme";
 import {
   widgetGetOrCreateConversation,
   widgetListMessages,
@@ -56,13 +47,7 @@ function rotateSessionId() {
 }
 
 function isProfileComplete(profile: VisitorProfile) {
-  return Boolean(
-    profile.name.trim() &&
-      profile.email.trim() &&
-      profile.phone.trim() &&
-      profile.company.trim() &&
-      profile.location.trim(),
-  );
+  return Boolean(profile.name.trim() && profile.email.trim() && profile.phone.trim());
 }
 
 function hasIdentity(profile: VisitorProfile) {
@@ -94,7 +79,6 @@ function applyHistory(messages: ServerMessage[]): UiMsg[] {
 
 function EmbedChat() {
   const { key } = Route.useSearch();
-  const { palette, setPalette } = useTheme();
   const [open, setOpen] = useState(true);
   const [msgs, setMsgs] = useState<UiMsg[]>([welcome]);
   const [draft, setDraft] = useState("");
@@ -104,7 +88,7 @@ function EmbedChat() {
   const [typing, setTyping] = useState(false);
   const [humanMode, setHumanMode] = useState(false);
   const [profile, setProfile] = useState<VisitorProfile>(emptyProfile);
-  const [saveHint, setSaveHint] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(true);
   const endRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef(profile);
   const lookedUpRef = useRef("");
@@ -169,7 +153,7 @@ function EmbedChat() {
     setMsgs([welcome]);
     setDraft("");
     setTyping(false);
-    setSaveHint(null);
+    setDetailsOpen(true);
     await syncConversationProfile(emptyProfile);
   }
 
@@ -177,7 +161,7 @@ function EmbedChat() {
     lookedUpRef.current = "";
     setProfile(emptyProfile);
     profileRef.current = emptyProfile;
-    setSaveHint(null);
+    setDetailsOpen(true);
     const convoId = await syncConversationProfile(emptyProfile);
     if (!convoId || !key) return;
     const history = (await widgetListMessages({
@@ -247,7 +231,7 @@ function EmbedChat() {
           const merged = mergeMissingFields(profileRef.current, known);
           setProfile(merged);
           profileRef.current = merged;
-          setSaveHint("Known contact found — only missing fields needed");
+          if (isProfileComplete(merged)) setDetailsOpen(false);
         } catch (err) {
           console.error(err);
         }
@@ -266,7 +250,7 @@ function EmbedChat() {
         try {
           const current = profileRef.current;
           await syncConversationProfile(current);
-          setSaveHint(isProfileComplete(current) ? "Details saved" : "Partial details auto-saved");
+          if (isProfileComplete(current)) setDetailsOpen(false);
           setError(null);
         } catch (err) {
           console.error(err);
@@ -294,7 +278,8 @@ function EmbedChat() {
   async function send(text: string) {
     if (!text.trim() || busy || !key) return;
     if (!isProfileComplete(profile)) {
-      setError("Please fill Name, Email, Phone, Company, and Location before chatting");
+      setDetailsOpen(true);
+      setError("Please share your name, email, and phone so we can help you.");
       return;
     }
     setBusy(true);
@@ -311,7 +296,7 @@ function EmbedChat() {
       const result = await widgetSendMessage({ data: { key, conversationId: convoId, body: userText } });
       setMsgs(applyHistory(result.messages as ServerMessage[]));
       if (result.aiPaused || result.status === "human" || result.status === "escalated") setHumanMode(true);
-      setSaveHint("Details saved");
+      setDetailsOpen(false);
       setError(null);
     } catch (err) {
       console.error(err);
@@ -349,29 +334,12 @@ function EmbedChat() {
           </div>
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">EnerBot · EnerTech</p>
-            <p className="text-[11px] text-muted-foreground">
-              {humanMode ? "Human agent connected · AI paused" : "We typically reply instantly"}
+            <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <span className={cn("size-1.5 rounded-full", humanMode ? "bg-warning" : "bg-success")} />
+              {humanMode ? "Connected with our support team" : "Online · usually replies instantly"}
             </p>
           </div>
           <div className="ml-auto flex items-center gap-0.5">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="size-7" aria-label="Choose color theme" title="Color theme">
-                  <Palette className="size-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
-                <DropdownMenuLabel>Color theme</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {COLOR_PALETTES.map((item) => (
-                  <DropdownMenuItem key={item.id} onSelect={() => setPalette(item.id)}>
-                    <span className="size-3.5 shrink-0 rounded-full border border-border" style={{ backgroundColor: item.swatch }} aria-hidden />
-                    <span className="flex-1">{item.label}</span>
-                    {palette === item.id ? <span className="text-[10px] text-muted-foreground">Active</span> : null}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
             <Button
               variant="ghost"
               size="sm"
@@ -391,31 +359,43 @@ function EmbedChat() {
 
         {error && <div className="border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div>}
 
-        <div className="border-b border-border bg-secondary/20 px-3.5 py-3">
-          <p className="mb-2 text-xs font-medium text-muted-foreground">Enter contact details (auto-saved)</p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <div className="relative">
-              <User className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input value={profile.name} onChange={(e) => setProfile((s) => ({ ...s, name: e.target.value }))} placeholder="Name" className="h-8 pl-8 text-xs" />
+        <div className="border-b border-border bg-secondary/20 px-3.5 py-2">
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 text-left text-xs font-medium text-muted-foreground"
+            onClick={() => setDetailsOpen((o) => !o)}
+            aria-expanded={detailsOpen}
+          >
+            <User className="size-3.5 shrink-0" />
+            <span className="flex-1">
+              {isProfileComplete(profile) ? "Your contact details" : "Share your contact (name, email, phone)"}
+            </span>
+            <ChevronDown className={cn("size-3.5 transition-transform", detailsOpen && "rotate-180")} />
+          </button>
+          {detailsOpen ? (
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <div className="relative">
+                <User className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input value={profile.name} onChange={(e) => setProfile((s) => ({ ...s, name: e.target.value }))} placeholder="Name" className="h-8 pl-8 text-xs" />
+              </div>
+              <div className="relative">
+                <Mail className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input value={profile.email} onChange={(e) => setProfile((s) => ({ ...s, email: e.target.value }))} placeholder="Email" className="h-8 pl-8 text-xs" />
+              </div>
+              <div className="relative">
+                <Phone className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input value={profile.phone} onChange={(e) => setProfile((s) => ({ ...s, phone: e.target.value }))} placeholder="Phone" className="h-8 pl-8 text-xs" />
+              </div>
+              <div className="relative">
+                <Building2 className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input value={profile.company} onChange={(e) => setProfile((s) => ({ ...s, company: e.target.value }))} placeholder="Company (optional)" className="h-8 pl-8 text-xs" />
+              </div>
+              <div className="relative sm:col-span-2">
+                <MapPin className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input value={profile.location} onChange={(e) => setProfile((s) => ({ ...s, location: e.target.value }))} placeholder="Location (optional)" className="h-8 pl-8 text-xs" />
+              </div>
             </div>
-            <div className="relative">
-              <Mail className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input value={profile.email} onChange={(e) => setProfile((s) => ({ ...s, email: e.target.value }))} placeholder="Email" className="h-8 pl-8 text-xs" />
-            </div>
-            <div className="relative">
-              <Phone className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input value={profile.phone} onChange={(e) => setProfile((s) => ({ ...s, phone: e.target.value }))} placeholder="Phone Number" className="h-8 pl-8 text-xs" />
-            </div>
-            <div className="relative">
-              <Building2 className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input value={profile.company} onChange={(e) => setProfile((s) => ({ ...s, company: e.target.value }))} placeholder="Company name" className="h-8 pl-8 text-xs" />
-            </div>
-            <div className="relative sm:col-span-2">
-              <MapPin className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input value={profile.location} onChange={(e) => setProfile((s) => ({ ...s, location: e.target.value }))} placeholder="Location" className="h-8 pl-8 text-xs" />
-            </div>
-          </div>
-          {saveHint ? <p className="mt-2 text-[11px] text-muted-foreground">{saveHint}</p> : null}
+          ) : null}
         </div>
 
         <div className="flex-1 space-y-3 overflow-y-auto p-3.5">
@@ -436,7 +416,7 @@ function EmbedChat() {
                       : "bg-secondary text-secondary-foreground",
                 )}
               >
-                {m.kind === "agent" ? <p className="mb-1 text-[10px] font-medium opacity-70">Human agent</p> : null}
+                {m.kind === "agent" ? <p className="mb-1 text-[10px] font-medium opacity-70">Support team</p> : null}
                 {m.text}
               </div>
             </div>

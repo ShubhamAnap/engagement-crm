@@ -334,11 +334,13 @@ async function resolveAudiencePhones(
   orgId: string,
   kind: AudienceKind,
   manualPhones: string[],
+  leadFilters?: import("@/lib/broadcast-audience-filters").BroadcastLeadFilter[],
 ): Promise<PhoneAudienceRow[]> {
   const supabase = getBrowserSupabase();
   const { mergeFieldsFromCustomerRow, mergeFieldsFromLeadRow } = await import(
     "@/lib/wa-template-merge"
   );
+  const { leadMatchesBroadcastFilters } = await import("@/lib/broadcast-audience-filters");
   const out: PhoneAudienceRow[] = [];
   const seen = new Set<string>();
 
@@ -380,10 +382,11 @@ async function resolveAudiencePhones(
     )
     .eq("org_id", orgId)
     .not("phone", "is", null)
-    .limit(500);
+    .limit(2000);
   if (error) throw error;
   for (const l of data ?? []) {
     if (kind === "indiamart_leads" && l.source !== "indiamart") continue;
+    if (!leadMatchesBroadcastFilters(l as Record<string, unknown>, leadFilters)) continue;
     push(l.phone as string, l.name as string, { lead_id: l.id as string }, mergeFieldsFromLeadRow(l));
   }
   return out;
@@ -399,6 +402,8 @@ export async function createAndSendBroadcast(options: {
   bodyParamBindings?: import("@/lib/wa-template-merge").WaParamBinding[];
   audienceKind: AudienceKind;
   manualPhones?: string[];
+  /** AND filters for lead audiences (sales person, status, source, location) */
+  leadFilters?: import("@/lib/broadcast-audience-filters").BroadcastLeadFilter[];
   /** Public URL for IMAGE/VIDEO/DOCUMENT header templates */
   headerMediaUrl?: string | null;
   headerTextParams?: string[];
@@ -410,6 +415,12 @@ export async function createAndSendBroadcast(options: {
   }
 
   const { bindingsAreComplete } = await import("@/lib/wa-template-merge");
+  const { normalizeBroadcastLeadFilters, audienceSupportsLeadFilters } = await import(
+    "@/lib/broadcast-audience-filters"
+  );
+  const leadFilters = audienceSupportsLeadFilters(options.audienceKind)
+    ? normalizeBroadcastLeadFilters(options.leadFilters)
+    : [];
   const spec = analyzeWaTemplateFromRow(options.template);
   if (spec.headerNeedsMedia) {
     const url = (options.headerMediaUrl || "").trim();
@@ -446,8 +457,15 @@ export async function createAndSendBroadcast(options: {
     orgId,
     options.audienceKind,
     options.manualPhones || [],
+    leadFilters,
   );
-  if (!recipients.length) throw new Error("No recipients with phone numbers found for this audience");
+  if (!recipients.length) {
+    throw new Error(
+      leadFilters.length
+        ? "No leads with phone match these filters. Check sales person / status / source / location."
+        : "No recipients with phone numbers found for this audience",
+    );
+  }
 
   const supabase = getBrowserSupabase();
   const { data: broadcast, error } = await supabase
@@ -472,6 +490,7 @@ export async function createAndSendBroadcast(options: {
         ...(usingBindings
           ? { body_param_bindings: bindings.slice(0, spec.bodyVarCount) }
           : {}),
+        ...(leadFilters.length ? { lead_filters: leadFilters } : {}),
       },
       total_count: recipients.length,
       created_by: options.createdBy || null,

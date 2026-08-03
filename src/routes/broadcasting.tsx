@@ -48,11 +48,28 @@ import {
   type WaParamBinding,
 } from "@/lib/wa-template-merge";
 import {
+  BROADCAST_LEAD_FILTER_FIELDS,
+  audienceSupportsLeadFilters,
+  type BroadcastLeadFilter,
+  type BroadcastLeadFilterField,
+} from "@/lib/broadcast-audience-filters";
+import type { LeadStatus } from "@/lib/db-types";
+import {
   downloadEmailAudienceTemplate,
   MAX_EMAIL_AUDIENCE_ROWS,
   parseEmailAudienceCsv,
   type EmailAudienceRecipient,
 } from "@/lib/email-audience-import";
+
+const LEAD_STATUS_FILTER_OPTIONS: LeadStatus[] = [
+  "New",
+  "Contacted",
+  "Qualified",
+  "Proposal",
+  "Negotiation",
+  "Won",
+  "Lost",
+];
 
 export const Route = createFileRoute("/broadcasting")({
   head: () => ({
@@ -107,6 +124,7 @@ function Page() {
   const [bcTemplateId, setBcTemplateId] = useState("");
   const [bcAudience, setBcAudience] = useState<AudienceKind>("leads_with_phone");
   const [bcManual, setBcManual] = useState("");
+  const [bcLeadFilters, setBcLeadFilters] = useState<BroadcastLeadFilter[]>([]);
   const [bcBindings, setBcBindings] = useState<WaParamBinding[]>([]);
   const [bcHeaderMediaUrl, setBcHeaderMediaUrl] = useState("");
   const [bcHeaderTextParams, setBcHeaderTextParams] = useState<string[]>([]);
@@ -218,6 +236,7 @@ function Page() {
         bodyParamBindings: bcBindings.slice(0, varCount),
         audienceKind: bcAudience,
         manualPhones: bcManual.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean),
+        leadFilters: bcLeadFilters,
         headerMediaUrl: bcHeaderMediaUrl.trim() || null,
         headerTextParams: bcHeaderTextParams,
         createdBy: profile?.id,
@@ -358,6 +377,7 @@ function Page() {
     setBcTemplateId(approved[0]?.id || "");
     setBcAudience("leads_with_phone");
     setBcManual("");
+    setBcLeadFilters([]);
     {
       const t = approved[0];
       const spec = t ? analyzeWaTemplateFromRow(t) : null;
@@ -895,7 +915,13 @@ function Page() {
             ) : null}
             <div className="space-y-2">
               <Label>Audience</Label>
-              <Select value={bcAudience} onValueChange={(v: AudienceKind) => setBcAudience(v)}>
+              <Select
+                value={bcAudience}
+                onValueChange={(v: AudienceKind) => {
+                  setBcAudience(v);
+                  if (!audienceSupportsLeadFilters(v)) setBcLeadFilters([]);
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -907,6 +933,106 @@ function Page() {
                 </SelectContent>
               </Select>
             </div>
+            {audienceSupportsLeadFilters(bcAudience) ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Lead filters (optional)</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() =>
+                      setBcLeadFilters((prev) => [
+                        ...prev,
+                        { field: "sales_person", value: "" },
+                      ])
+                    }
+                  >
+                    Add filter
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  All filters apply together (AND). Example: Sales person = Ritesh and Status = Qualified.
+                </p>
+                {bcLeadFilters.map((filter, i) => (
+                  <div key={i} className="grid gap-2 rounded-md border border-border/60 p-2 sm:grid-cols-[1fr_1fr_auto]">
+                    <Select
+                      value={filter.field}
+                      onValueChange={(v) =>
+                        setBcLeadFilters((prev) => {
+                          const next = [...prev];
+                          next[i] = { ...next[i], field: v as BroadcastLeadFilterField, value: "" };
+                          return next;
+                        })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {BROADCAST_LEAD_FILTER_FIELDS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {filter.field === "status" ? (
+                      <Select
+                        value={filter.value || undefined}
+                        onValueChange={(v) =>
+                          setBcLeadFilters((prev) => {
+                            const next = [...prev];
+                            next[i] = { ...next[i], value: v };
+                            return next;
+                          })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Equals…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {LEAD_STATUS_FILTER_OPTIONS.map((s) => (
+                            <SelectItem key={s} value={s}>
+                              {s}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        placeholder={
+                          filter.field === "sales_person"
+                            ? "e.g. Ritesh"
+                            : filter.field === "source"
+                              ? "e.g. indiamart"
+                              : "e.g. Pune"
+                        }
+                        value={filter.value}
+                        onChange={(e) =>
+                          setBcLeadFilters((prev) => {
+                            const next = [...prev];
+                            next[i] = { ...next[i], value: e.target.value };
+                            return next;
+                          })
+                        }
+                      />
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        setBcLeadFilters((prev) => prev.filter((_, idx) => idx !== i))
+                      }
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             {bcAudience === "manual" ? (
               <div className="space-y-2">
                 <Label>Phones (one per line, with country code)</Label>

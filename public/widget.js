@@ -24,39 +24,73 @@
     return;
   }
 
+  var BRAND = "#0B2388";
+  var INK = "#FFFFFF";
+
   var open = false;
   var btn = document.createElement("button");
   btn.type = "button";
-  btn.setAttribute("aria-label", "Open EnerTech chat");
-  btn.textContent = "Chat with EnerTech";
+  btn.setAttribute("aria-label", "ASK EnerTech");
   btn.style.cssText = [
     "position:fixed",
     "right:16px",
     "bottom:16px",
     "z-index:2147483000",
-    "height:48px",
-    "padding:0 20px 0 16px",
-    "border:none",
-    "border-radius:999px",
-    "background:#0f766e",
-    "color:#fff",
-    "font:600 14px/1 system-ui,sans-serif",
-    "box-shadow:0 10px 30px rgba(0,0,0,.25)",
+    "width:72px",
+    "height:72px",
+    "padding:8px",
+    "border:2px solid " + INK,
+    "border-radius:50%",
+    "background:" + BRAND,
+    "color:" + INK,
+    "font:700 11px/1.15 system-ui,sans-serif",
+    "letter-spacing:0.02em",
+    "text-align:center",
+    "box-shadow:0 12px 28px rgba(11,35,136,.45)",
     "cursor:pointer",
+    "display:flex",
+    "align-items:center",
+    "justify-content:center",
   ].join(";");
+
+  function renderLabel(isOpen) {
+    btn.innerHTML = "";
+    if (isOpen) {
+      btn.setAttribute("aria-label", "Close chat");
+      var close = document.createElement("span");
+      close.textContent = "Close";
+      close.style.cssText = "font:700 12px/1 system-ui,sans-serif";
+      btn.appendChild(close);
+      return;
+    }
+    btn.setAttribute("aria-label", "ASK EnerTech");
+    var stack = document.createElement("span");
+    stack.style.cssText = "display:flex;flex-direction:column;align-items:center;gap:2px";
+    var ask = document.createElement("span");
+    ask.textContent = "ASK";
+    ask.style.cssText = "font-size:13px;font-weight:800;letter-spacing:0.06em";
+    var brand = document.createElement("span");
+    brand.textContent = "EnerTech";
+    brand.style.cssText = "font-size:9px;font-weight:600;opacity:.95";
+    stack.appendChild(ask);
+    stack.appendChild(brand);
+    btn.appendChild(stack);
+  }
+
+  renderLabel(false);
 
   var frameWrap = document.createElement("div");
   frameWrap.style.cssText = [
     "position:fixed",
     "right:16px",
-    "bottom:76px",
+    "bottom:100px",
     "z-index:2147483000",
     "width:min(384px,calc(100vw - 24px))",
-    "height:min(560px,calc(100vh - 100px))",
+    "height:min(560px,calc(100vh - 120px))",
     "display:none",
     "border-radius:12px",
     "overflow:hidden",
-    "box-shadow:0 20px 50px rgba(0,0,0,.3)",
+    "box-shadow:0 20px 50px rgba(11,35,136,.35)",
     "background:transparent",
   ].join(";");
 
@@ -70,7 +104,7 @@
   btn.addEventListener("click", function () {
     open = !open;
     frameWrap.style.display = open ? "block" : "none";
-    btn.textContent = open ? "Close chat" : "Chat with EnerTech";
+    renderLabel(open);
   });
 
   document.body.appendChild(frameWrap);

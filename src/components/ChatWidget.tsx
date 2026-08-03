@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Building2, ChevronDown, Headphones, Languages, Mail, MapPin, MessageSquare, Paperclip, Phone, RefreshCw, Send, Sparkles, User, X } from "lucide-react";
+import { Bot, Building2, ChevronDown, Headphones, Languages, Mail, MapPin, Paperclip, Phone, RefreshCw, Send, Sparkles, User, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -564,11 +564,18 @@ export function ChatWidget() {
 
       <Button
         onClick={() => setOpen((v) => !v)}
-        className="fixed right-2 bottom-3 z-50 h-11 gap-2 rounded-full pr-4 shadow-lg sm:right-4 sm:bottom-4 sm:h-12 sm:pr-5"
-        aria-label="Open customer chat widget"
+        className="fixed right-2 bottom-3 z-50 h-[72px] w-[72px] flex-col gap-0.5 rounded-full border-2 border-white px-2 text-white shadow-lg sm:right-4 sm:bottom-4"
+        style={{ backgroundColor: "#0B2388" }}
+        aria-label={open ? "Close chat" : "ASK EnerTech"}
       >
-        {open ? <X className="size-5" /> : <MessageSquare className="size-5" />}
-        <span className="text-sm">{open ? "Close" : "Website chat"}</span>
+        {open ? (
+          <span className="text-xs font-bold">Close</span>
+        ) : (
+          <>
+            <span className="text-[13px] font-extrabold tracking-wide leading-none">ASK</span>
+            <span className="text-[9px] font-semibold leading-none opacity-95">EnerTech</span>
+          </>
+        )}
       </Button>
     </>
   );

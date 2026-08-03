@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Bot, Building2, ChevronDown, Mail, MapPin, MessageSquare, Phone, RefreshCw, Send, Sparkles, User, X } from "lucide-react";
+import { Bot, Building2, ChevronDown, Mail, MapPin, Phone, RefreshCw, Send, Sparkles, User, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -315,11 +315,12 @@ function EmbedChat() {
             setOpen(true);
             void startNewConversation();
           }}
-          className="h-12 gap-2 rounded-full pr-5 shadow-lg"
-          aria-label="Open chat"
+          className="h-[72px] w-[72px] flex-col gap-0.5 rounded-full border-2 border-white px-2 text-white shadow-lg"
+          style={{ backgroundColor: "#0B2388" }}
+          aria-label="ASK EnerTech"
         >
-          <MessageSquare className="size-5" />
-          Chat with EnerTech
+          <span className="text-[13px] font-extrabold tracking-wide leading-none">ASK</span>
+          <span className="text-[9px] font-semibold leading-none opacity-95">EnerTech</span>
         </Button>
       </div>
     );

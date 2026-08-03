@@ -42,6 +42,7 @@ const groups: { label: string; items: Item[] }[] = [
     label: "Intelligence",
     items: [
       { to: "/agents", label: "AI Agents", icon: Bot },
+      { to: "/tools", label: "Tools", icon: Cpu },
       { to: "/knowledge", label: "Knowledge Base", icon: BookOpen },
       { to: "/automation", label: "Automation", icon: Workflow },
       { to: "/broadcasting", label: "Broadcasting", icon: Megaphone },

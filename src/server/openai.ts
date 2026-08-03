@@ -1,10 +1,28 @@
 ﻿import { buildPlaceholderAiReply } from "@/lib/chat-replies";
+import {
+  openAiToolDefinitions,
+  runAiTool,
+  type OpenAiToolDef,
+} from "@/server/ai-tools";
 
 type HistoryMessage = {
   sender: string;
   body: string;
   created_at: string;
 };
+
+type ChatMessage =
+  | { role: "system" | "user" | "assistant"; content: string }
+  | {
+      role: "assistant";
+      content: string | null;
+      tool_calls: Array<{
+        id: string;
+        type: "function";
+        function: { name: string; arguments: string };
+      }>;
+    }
+  | { role: "tool"; tool_call_id: string; content: string };
 
 type GenerateReplyInput = {
   visitorName: string;
@@ -17,7 +35,11 @@ type GenerateReplyInput = {
   model?: string;
   agentName?: string;
   memoryEnabled?: boolean;
+  /** Globally enabled ∩ agent-allowed tool keys */
+  toolKeys?: string[];
 };
+
+const MAX_TOOL_ROUNDS = 3;
 
 export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
   reply: string;
@@ -27,6 +49,8 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
   const apiKey = process.env.OPENAI_API_KEY;
   const model = input.model || process.env.OPENAI_MODEL || "gpt-4o-mini";
   const agentLabel = input.agentName || "EnerBot";
+  const toolKeys = (input.toolKeys || []).filter(Boolean);
+  const tools: OpenAiToolDef[] = openAiToolDefinitions(toolKeys);
 
   if (!apiKey) {
     return {
@@ -55,6 +79,12 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
     `Visitor: ${input.visitorName}`,
   ];
 
+  if (tools.length > 0) {
+    systemParts.push(
+      "You may call tools when they improve accuracy (e.g. calculator for runtime math). Prefer Knowledge Base over web search for EnerTech product facts.",
+    );
+  }
+
   if (input.knowledgeContext?.trim()) {
     systemParts.push(`Knowledge Base context:\n${input.knowledgeContext.trim()}`);
   }
@@ -66,42 +96,98 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
 
   const historySlice = input.memoryEnabled === false ? [] : input.history.slice(-12);
 
-  const messages = [
+  const messages: ChatMessage[] = [
     { role: "system", content: systemParts.join("\n\n") },
     ...historySlice.map((m) => ({
-      role: m.sender === "customer" ? "user" : "assistant",
+      role: (m.sender === "customer" ? "user" : "assistant") as "user" | "assistant",
       content: m.body,
     })),
     { role: "user", content: input.latestUserMessage },
   ];
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25000);
+  const timer = setTimeout(() => controller.abort(), 45000);
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    let reply = "";
+
+    for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+      const body: Record<string, unknown> = {
         model,
         temperature: 0.35,
-        max_tokens: 320,
+        max_tokens: 480,
         messages,
-      }),
-      signal: controller.signal,
-    });
+      };
+      if (tools.length > 0 && round < MAX_TOOL_ROUNDS) {
+        body.tools = tools;
+        body.tool_choice = "auto";
+      }
 
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`OpenAI API error ${response.status}: ${text}`);
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`OpenAI API error ${response.status}: ${text}`);
+      }
+
+      const json = await response.json();
+      const message = json?.choices?.[0]?.message as
+        | {
+            content?: string | null;
+            tool_calls?: Array<{
+              id: string;
+              type: "function";
+              function: { name: string; arguments: string };
+            }>;
+          }
+        | undefined;
+
+      const toolCalls = message?.tool_calls?.filter((c) => c?.function?.name) || [];
+      if (toolCalls.length > 0 && tools.length > 0) {
+        messages.push({
+          role: "assistant",
+          content: message?.content ?? null,
+          tool_calls: toolCalls.map((c) => ({
+            id: c.id,
+            type: "function",
+            function: {
+              name: c.function.name,
+              arguments: c.function.arguments || "{}",
+            },
+          })),
+        });
+
+        for (const call of toolCalls) {
+          const name = call.function.name;
+          if (!toolKeys.includes(name)) {
+            messages.push({
+              role: "tool",
+              tool_call_id: call.id,
+              content: JSON.stringify({ ok: false, error: `Tool ${name} is not allowed` }),
+            });
+            continue;
+          }
+          const result = await runAiTool(name, call.function.arguments || "{}");
+          messages.push({
+            role: "tool",
+            tool_call_id: call.id,
+            content: result,
+          });
+        }
+        continue;
+      }
+
+      reply = typeof message?.content === "string" ? message.content.trim() : "";
+      break;
     }
-
-    const json = await response.json();
-    const content = json?.choices?.[0]?.message?.content;
-    const reply = typeof content === "string" ? content.trim() : "";
 
     if (!reply) {
       throw new Error("OpenAI returned an empty reply");

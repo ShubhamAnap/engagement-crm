@@ -4,6 +4,7 @@ import { createServiceSupabase } from "@/lib/supabase";
 import { buildPlaceholderAiReply } from "@/lib/chat-replies";
 import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
+import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
 import { findCatalogueDownloads, retrieveKnowledgeContext } from "@/server/knowledge";
 
@@ -646,6 +647,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       model: agentCfg.model,
       agentName: agentCfg.agentName,
       memoryEnabled: agentCfg.memoryEnabled,
+      toolKeys: await resolveAgentToolKeys({ allowedOnAgent: agentCfg.allowedTools }),
     });
     let reply = await rewriteStorageUrlsInText(ai.reply || buildPlaceholderAiReply(text));
     if (downloadLinks.length > 0 && !/https?:\/\//i.test(reply)) {

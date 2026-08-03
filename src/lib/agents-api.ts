@@ -9,6 +9,8 @@ export type AgentUpdateInput = {
   model: string;
   memoryEnabled: boolean;
   systemPrompt?: string;
+  /** Tool keys this agent may use (must also be enabled on /tools). */
+  allowedTools?: string[];
 };
 
 export {
@@ -82,6 +84,22 @@ export async function listAgentsWithStats(orgId: string = ENERTECH_ORG_ID): Prom
 
 export async function updateAgent(agentId: string, input: AgentUpdateInput): Promise<DbAgent> {
   const supabase = getBrowserSupabase();
+
+  const { data: current, error: curErr } = await supabase
+    .from("agents")
+    .select("config")
+    .eq("id", agentId)
+    .maybeSingle();
+  if (curErr) throw curErr;
+
+  const prevConfig =
+    current?.config && typeof current.config === "object" && !Array.isArray(current.config)
+      ? ({ ...(current.config as Record<string, unknown>) } as Record<string, unknown>)
+      : {};
+  if (input.allowedTools) {
+    prevConfig.allowed_tools = input.allowedTools.map((t) => t.trim()).filter(Boolean);
+  }
+
   const { data, error } = await supabase
     .from("agents")
     .update({
@@ -91,6 +109,7 @@ export async function updateAgent(agentId: string, input: AgentUpdateInput): Pro
       model: input.model.trim() || "gpt-4o-mini",
       memory_enabled: input.memoryEnabled,
       system_prompt: input.systemPrompt?.trim() || null,
+      config: prevConfig,
     })
     .eq("id", agentId)
     .select("*")

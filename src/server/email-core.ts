@@ -6,6 +6,7 @@ import nodemailer from "nodemailer";
 import { createServiceSupabase } from "@/lib/supabase";
 import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
+import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
 import { findCatalogueDownloads, retrieveKnowledgeContext } from "@/server/knowledge";
 
@@ -330,6 +331,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
       model: agentCfg.model,
       agentName: agentCfg.agentName,
       memoryEnabled: agentCfg.memoryEnabled,
+      toolKeys: await resolveAgentToolKeys({ allowedOnAgent: agentCfg.allowedTools }),
     });
     reply = await rewriteStorageUrlsInText(generated.reply);
     inspector = buildAnswerInspector({

@@ -28,6 +28,7 @@ import { Route as PipelineRouteImport } from './routes/pipeline'
 import { Route as ProductsRouteImport } from './routes/products'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as ToolsRouteImport } from './routes/tools'
 import { Route as CSkuRouteImport } from './routes/c.$sku'
 import { Route as DDocumentIdRouteImport } from './routes/d.$documentId'
 import { Route as ApiCronAutomationsRouteImport } from './routes/api/cron/automations'
@@ -133,6 +134,11 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ToolsRoute = ToolsRouteImport.update({
+  id: '/tools',
+  path: '/tools',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CSkuRoute = CSkuRouteImport.update({
   id: '/c/$sku',
   path: '/c/$sku',
@@ -199,6 +205,7 @@ export interface FileRoutesByFullPath {
   '/products': typeof ProductsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
+  '/tools': typeof ToolsRoute
   '/c/$sku': typeof CSkuRoute
   '/d/$documentId': typeof DDocumentIdRoute
   '/api/cron/automations': typeof ApiCronAutomationsRoute
@@ -229,6 +236,7 @@ export interface FileRoutesByTo {
   '/products': typeof ProductsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
+  '/tools': typeof ToolsRoute
   '/c/$sku': typeof CSkuRoute
   '/d/$documentId': typeof DDocumentIdRoute
   '/api/cron/automations': typeof ApiCronAutomationsRoute
@@ -260,6 +268,7 @@ export interface FileRoutesById {
   '/products': typeof ProductsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
+  '/tools': typeof ToolsRoute
   '/c/$sku': typeof CSkuRoute
   '/d/$documentId': typeof DDocumentIdRoute
   '/api/cron/automations': typeof ApiCronAutomationsRoute
@@ -292,6 +301,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/reports'
     | '/settings'
+    | '/tools'
     | '/c/$sku'
     | '/d/$documentId'
     | '/api/cron/automations'
@@ -322,6 +332,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/reports'
     | '/settings'
+    | '/tools'
     | '/c/$sku'
     | '/d/$documentId'
     | '/api/cron/automations'
@@ -352,6 +363,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/reports'
     | '/settings'
+    | '/tools'
     | '/c/$sku'
     | '/d/$documentId'
     | '/api/cron/automations'
@@ -383,6 +395,7 @@ export interface RootRouteChildren {
   ProductsRoute: typeof ProductsRoute
   ReportsRoute: typeof ReportsRoute
   SettingsRoute: typeof SettingsRoute
+  ToolsRoute: typeof ToolsRoute
   CSkuRoute: typeof CSkuRoute
   DDocumentIdRoute: typeof DDocumentIdRoute
   ApiCronAutomationsRoute: typeof ApiCronAutomationsRoute
@@ -529,6 +542,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/tools': {
+      id: '/tools'
+      path: '/tools'
+      fullPath: '/tools'
+      preLoaderRoute: typeof ToolsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/c/$sku': {
       id: '/c/$sku'
       path: '/c/$sku'
@@ -615,6 +635,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProductsRoute: ProductsRoute,
   ReportsRoute: ReportsRoute,
   SettingsRoute: SettingsRoute,
+  ToolsRoute: ToolsRoute,
   CSkuRoute: CSkuRoute,
   DDocumentIdRoute: DDocumentIdRoute,
   ApiCronAutomationsRoute: ApiCronAutomationsRoute,

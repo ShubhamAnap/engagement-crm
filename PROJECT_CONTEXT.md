@@ -251,7 +251,8 @@ Embed on EnerTech website — live AI chat, lead capture (name/email/phone requi
 | AI Command Center | `/command-center` | Supabase | Live sessions: pause/takeover/timeline |
 | Inbox | `/inbox` | Supabase | Live + **mobile list→thread**; WA 24h; templates; Recommend product |
 | AI Chat Support | `/ai-chat` | Supabase | Live Answer Inspector (confidence, sources, reasoning) |
-| AI Agents | `/agents` | Supabase | Live: model/prompt/memory/status; keyword routing |
+| AI Agents | `/agents` | Supabase | Live: model/prompt/memory/status; keyword routing; **per-agent allowed tools** |
+| Tools | `/tools` | Supabase | Global AI tools catalog (Calculator, Web search); enable/disable; agents opt in |
 | Knowledge Base | `/knowledge` | Supabase + Storage | Live collections + upload/index (pgvector RAG) |
 | Products | `/products` | Supabase + Storage | CRUD + card image + catalogue PDF (**short link** `/c/{SKU}`) |
 | Customers | `/customers` | Supabase | List/create/update/delete |
@@ -292,7 +293,7 @@ Record decisions here so we don't re-debate.
 | 2026-07-30 | **White-label** as EnerTech Engage | Removed Lovable config, telemetry, branding, `.lovable/` |
 | 2026-07-30 | Knowledge RAG = **pgvector + OpenAI embeddings** | No Pinecone for v1; catalogue PDFs via Storage download links |
 | TBD | Vector DB scale-out | Stay on pgvector unless search volume outgrows Postgres |
-| 2026-07-30 | Knowledge RAG = **pgvector + OpenAI embeddings** | No Pinecone for v1; catalogue PDFs via Storage download links |
+| 2026-08-03 | AI Tools = global `/tools` + per-agent allow-list | Agents only get tools that are enabled globally AND ticked on the agent (`config.allowed_tools`) |
 
 ---
 
@@ -301,6 +302,7 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-08-03
+- **AI Tools module:** Migration `021_ai_tools.sql` seeds Calculator (on) + Web search (off). Page `/tools` toggles global enable. Agents → Configure ticks allowed tools (`config.allowed_tools`). OpenAI chat loop runs function calls for allowed ∩ enabled tools (widget, WhatsApp, email, Meta). Web search needs `TAVILY_API_KEY` (or `WEB_SEARCH_API_KEY`) on Render.
 - **Short catalogue links:** Product catalogues use `https://<app>/c/{SKU}`; knowledge files use `/d/{id}`. AI replies now rewrite any leftover long Supabase Storage URLs before saving/sending.
 - **Broadcast lead filters:** WhatsApp broadcast audience (leads / IndiaMART) supports optional AND filters: sales person, status, source, location (e.g. Sales person = Ritesh). Helper `src/lib/broadcast-audience-filters.ts`.
 - **WhatsApp template field mapping:** Broadcasting + Automation can map each template variable (`{{1}}` / `{{name}}`) to a CRM column (name, requirement, sales person, …) or fixed text. Send fills values **per recipient/lead**. Helper `src/lib/wa-template-merge.ts`. Prefer Leads/Customers audience so merge fields are available.

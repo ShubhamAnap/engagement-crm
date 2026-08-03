@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, Pencil, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -33,6 +34,7 @@ import {
   setAgentStatus,
   updateAgent,
 } from "@/lib/agents-api";
+import { allowedToolsFromAgentConfig, listAiTools } from "@/lib/tools-api";
 import type { AgentStatus, DbAgent } from "@/lib/db-types";
 
 const statusOptions: AgentStatus[] = ["Active", "Paused", "Degraded"];
@@ -70,13 +72,20 @@ function Page() {
   const [formModel, setFormModel] = useState("gpt-4o-mini");
   const [formMemory, setFormMemory] = useState(true);
   const [formPrompt, setFormPrompt] = useState("");
+  const [formAllowedTools, setFormAllowedTools] = useState<string[]>([]);
 
   const agentsQuery = useQuery({
     queryKey: ["agents", orgId],
     queryFn: () => listAgentsWithStats(orgId),
   });
 
+  const toolsQuery = useQuery({
+    queryKey: ["ai-tools", orgId],
+    queryFn: () => listAiTools(orgId),
+  });
+
   const agents = agentsQuery.data ?? [];
+  const enabledTools = (toolsQuery.data ?? []).filter((t) => t.is_enabled);
   const activeCount = agents.filter((a) => a.status === "Active").length;
   const totalReplies = agents.reduce((sum, a) => sum + a.aiMessageCount, 0);
   const assignedThreads = agents.reduce((sum, a) => sum + a.conversationCount, 0);
@@ -94,6 +103,7 @@ function Page() {
         model: formModel,
         memoryEnabled: formMemory,
         systemPrompt: formPrompt,
+        allowedTools: formAllowedTools,
       });
     },
     onSuccess: async () => {
@@ -121,6 +131,7 @@ function Page() {
     setFormModel(agent.model || "gpt-4o-mini");
     setFormMemory(agent.memory_enabled);
     setFormPrompt(agent.system_prompt || "");
+    setFormAllowedTools(allowedToolsFromAgentConfig(agent.config));
   }
 
   const modelOptions = useMemo(() => {
@@ -158,6 +169,9 @@ function Page() {
               Refresh
             </Button>
             <Button size="sm" variant="outline" asChild>
+              <Link to="/tools">Tools</Link>
+            </Button>
+            <Button size="sm" variant="outline" asChild>
               <Link to="/ai-chat">Open AI Chat</Link>
             </Button>
           </div>
@@ -178,7 +192,12 @@ function Page() {
             quotes, etc., the Master applies that specialist’s prompt for that reply — without starting a
             new chat or telling the customer bots switched. Inbox shows{" "}
             <code className="rounded bg-secondary px-1 text-xs">AI · Support → Warranty</code> when a
-            specialist is active. Pause a specialist to stop using it; keep Master Active.
+            specialist is active. Pause a specialist to stop using it; keep Master Active. Allow tools per
+            agent under Configure (tools must also be enabled on{" "}
+            <Link to="/tools" className="underline underline-offset-2">
+              Tools
+            </Link>
+            ).
           </p>
         </Panel>
 
@@ -197,6 +216,7 @@ function Page() {
           ) : (
             agents.map((a) => {
               const toggling = statusMutation.isPending && statusMutation.variables?.id === a.id;
+              const toolCount = allowedToolsFromAgentConfig(a.config).length;
               return (
                 <Panel key={a.id} bodyClassName="p-4">
                   <div className="flex items-start gap-3">
@@ -227,6 +247,11 @@ function Page() {
                     <Pill tone="neutral">{a.model}</Pill>
                     {a.memory_enabled ? <Pill tone="success">Memory on</Pill> : <Pill tone="neutral">Memory off</Pill>}
                     {a.system_prompt ? <Pill tone="success">Custom prompt</Pill> : <Pill tone="neutral">Default prompt</Pill>}
+                    {toolCount > 0 ? (
+                      <Pill tone="success">{toolCount} tools</Pill>
+                    ) : (
+                      <Pill tone="neutral">No tools</Pill>
+                    )}
                   </div>
 
                   <div className="mt-3 grid grid-cols-2 gap-2 text-center">
@@ -308,6 +333,51 @@ function Page() {
               <Label htmlFor="ag-memory" className="font-normal">
                 Conversation memory (include prior messages)
               </Label>
+            </div>
+            <div className="space-y-2">
+              <Label>Allowed tools</Label>
+              <p className="text-xs text-muted-foreground">
+                Only tools enabled on{" "}
+                <Link to="/tools" className="underline underline-offset-2">
+                  Tools
+                </Link>{" "}
+                appear here. Chat uses tools allowed on Master or the active specialist.
+              </p>
+              {toolsQuery.isLoading ? (
+                <p className="text-sm text-muted-foreground">Loading tools…</p>
+              ) : enabledTools.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No globally enabled tools. Enable Calculator (or others) on the Tools page first.
+                </p>
+              ) : (
+                <div className="space-y-2 rounded-md border border-border p-3">
+                  {enabledTools.map((tool) => {
+                    const checked = formAllowedTools.includes(tool.key);
+                    return (
+                      <label
+                        key={tool.id}
+                        className="flex cursor-pointer items-start gap-2 text-sm"
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(on) => {
+                            setFormAllowedTools((prev) =>
+                              on ? [...new Set([...prev, tool.key])] : prev.filter((k) => k !== tool.key),
+                            );
+                          }}
+                          className="mt-0.5"
+                        />
+                        <span>
+                          <span className="font-medium">{tool.name}</span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">
+                            {tool.description || tool.key}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="ag-prompt">System prompt</Label>

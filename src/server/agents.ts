@@ -136,6 +136,26 @@ export async function resolveChatAgent(options: {
   return stack.specialist || stack.master;
 }
 
+function allowedToolsFromConfig(config: Record<string, unknown> | null | undefined): string[] {
+  const raw = config?.allowed_tools;
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.map((t) => String(t).trim()).filter(Boolean))];
+}
+
+/** Union of tools allowed on master and specialist (still must be globally enabled). */
+export function agentAllowedToolKeys(stack: AgentStack | DbAgent | null): string[] {
+  const normalized: AgentStack =
+    stack && "master" in (stack as AgentStack)
+      ? (stack as AgentStack)
+      : { master: (stack as DbAgent | null) || null, specialist: null };
+  const keys = new Set<string>();
+  for (const agent of [normalized.master, normalized.specialist]) {
+    if (!agent) continue;
+    for (const k of allowedToolsFromConfig(agent.config)) keys.add(k);
+  }
+  return [...keys];
+}
+
 export function agentReplyConfig(stack: AgentStack | DbAgent | null) {
   const normalized: AgentStack =
     stack && "master" in (stack as AgentStack)
@@ -143,6 +163,7 @@ export function agentReplyConfig(stack: AgentStack | DbAgent | null) {
       : { master: (stack as DbAgent | null) || null, specialist: null };
 
   const { master, specialist } = normalized;
+  const allowedTools = agentAllowedToolKeys(normalized);
 
   if (!master && !specialist) {
     return {
@@ -154,6 +175,7 @@ export function agentReplyConfig(stack: AgentStack | DbAgent | null) {
       memoryEnabled: true,
       assigneeLabel: "AI · Master Agent",
       specialistKey: null as string | null,
+      allowedTools: [] as string[],
     };
   }
 
@@ -187,5 +209,6 @@ export function agentReplyConfig(stack: AgentStack | DbAgent | null) {
     memoryEnabled,
     assigneeLabel,
     specialistKey: specialist?.key || null,
+    allowedTools,
   };
 }

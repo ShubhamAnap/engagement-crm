@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import { chunkText, embedQuery, embedTexts, estimateTokens } from "@/server/embeddings";
-import { ensurePdfFileLabel, shortDatasheetUrl, shortKnowledgeDocumentUrl, shortProductCatalogueUrl } from "@/lib/short-links";
+import { ensurePdfFileLabel, shortDatasheetUrl, shortKnowledgeDocumentUrl } from "@/lib/short-links";
 import { shortenStorageUrl } from "@/server/shorten-urls";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
@@ -538,55 +538,164 @@ export type CatalogueDownload = {
   collection?: string;
 };
 
-export async function findCatalogueDownloads(query: string): Promise<CatalogueDownload[]> {
-  const q = query.toLowerCase();
-  const wantsPdf =
-    /pdf|catalogue|catalog|datasheet|brochure|download|spec\s*sheet|manual|price\s*list|specification|\bbess\b/.test(
-      q,
-    );
-  // Image catalogue links are handled by findReferenceImages (inline photos).
-  if (!wantsPdf) return [];
+export type CatalogueClarifyOption = {
+  label: string;
+  documentId: string;
+  title: string;
+  url: string;
+  fileName: string;
+};
 
+export type CatalogueSearchResult = {
+  /** match = send one PDF; clarify = ask which; none = not a catalogue ask / no files */
+  mode: "match" | "clarify" | "none";
+  downloads: CatalogueDownload[];
+  clarifyOptions: CatalogueClarifyOption[];
+  /** Short customer-facing text (options list or empty) */
+  message: string;
+};
+
+type DatasheetRow = {
+  id: string;
+  title: string;
+  fileName: string;
+  label: string;
+  url: string;
+  collection: string;
+  hay: string;
+};
+
+/** Product families → aliases customers type on WhatsApp / chat. */
+const PRODUCT_FAMILIES: Array<{
+  id: string;
+  label: string;
+  /** Customer said one of these */
+  ask: RegExp;
+  /** Datasheet title/filename matches */
+  doc: RegExp;
+}> = [
+  {
+    id: "ongrid",
+    label: "OnGrid Inverter",
+    ask: /\b(ongrid|on[\s-]?grid|grid[\s-]?tied?|grid[\s-]?tie)\b/i,
+    doc: /ongrid|on[\s-]?grid/i,
+  },
+  {
+    id: "bess",
+    label: "BESS",
+    ask: /\bbess\b|battery\s*energy|energy\s*storage|battery\s*storage/i,
+    doc: /\bbess\b/i,
+  },
+  {
+    id: "charger",
+    label: "Battery Charger",
+    ask: /battery\s*charger|\bcharger\b/i,
+    doc: /battery\s*charger|charger/i,
+  },
+  {
+    id: "sfc",
+    label: "Static Frequency Converter",
+    ask: /\bsfc\b|frequency\s*converter|static\s*frequency/i,
+    doc: /sfc|frequency\s*converter|static\s*frequency/i,
+  },
+  {
+    id: "industrial",
+    label: "Industrial Inverter",
+    ask: /industrial\s*inverter/i,
+    doc: /industrial\s*inverter/i,
+  },
+  {
+    id: "eseries",
+    label: "E-Series Solar Hybrid Inverter",
+    ask: /\be[\s-]?series\b/i,
+    doc: /e[\s-]?series/i,
+  },
+  {
+    id: "1ph",
+    label: "1PH Solar Hybrid Inverter",
+    ask: /\b1\s*ph\b|\b1ph\b|single[\s-]?phase|reefi\s*5/i,
+    doc: /1ph|1\s*ph|single|reefi.*5|5kva\s*to\s*40/i,
+  },
+  {
+    id: "3ph-large",
+    label: "10KW–125KW 3PH Solar Hybrid Inverter",
+    ask: /10\s*kw|125\s*kw|10kw|125kw|10\s*to\s*125/i,
+    doc: /10kw|125kw|10\s*kw|125|10kw\s*to\s*125/i,
+  },
+  {
+    id: "3ph",
+    label: "3PH Solar Hybrid Inverter",
+    ask: /\b3\s*ph\b|\b3ph\b|three[\s-]?phase|reefi\s*3/i,
+    doc: /3ph|3\s*ph|three|reefi.*3p|3p_/i,
+  },
+  {
+    id: "hybrid",
+    label: "Solar Hybrid Inverter",
+    ask: /solar\s*hybrid|hybrid\s*inverter|\bhybrid\b/i,
+    doc: /hybrid|solar/i,
+  },
+];
+
+const CATALOGUE_INTENT_RE =
+  /pdf|catalogue|catalog|datasheet|brochure|spec\s*sheet|manual|price\s*list|specification|download/i;
+
+const STOP_WORDS = new Set([
+  "pdf",
+  "catalogue",
+  "catalog",
+  "catalogues",
+  "datasheet",
+  "datasheets",
+  "brochure",
+  "download",
+  "downloads",
+  "spec",
+  "sheet",
+  "manual",
+  "want",
+  "wanting",
+  "please",
+  "send",
+  "share",
+  "with",
+  "from",
+  "the",
+  "and",
+  "our",
+  "for",
+  "you",
+  "can",
+  "help",
+  "need",
+  "links",
+  "link",
+  "file",
+  "files",
+  "me",
+  "this",
+  "that",
+  "product",
+  "products",
+  "enertech",
+  "give",
+]);
+
+function shortClarifyLabel(title: string, fileName: string): string {
+  const raw = String(title || fileName || "Datasheet")
+    .replace(/\.pdf$/i, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return raw.slice(0, 60) || "Datasheet";
+}
+
+function buildClarifyMessage(options: CatalogueClarifyOption[]): string {
+  const lines = options.map((o, i) => `${i + 1}. ${o.label}`);
+  return `Which catalogue do you need?\n${lines.join("\n")}\n\nReply with the number or product name.`;
+}
+
+async function loadDatasheetRows(): Promise<DatasheetRow[]> {
   const supabase = createServiceSupabase();
-  const stop = new Set([
-    "pdf",
-    "catalogue",
-    "catalog",
-    "catalogues",
-    "datasheet",
-    "datasheets",
-    "brochure",
-    "download",
-    "downloads",
-    "spec",
-    "sheet",
-    "manual",
-    "want",
-    "wanting",
-    "please",
-    "send",
-    "share",
-    "with",
-    "from",
-    "the",
-    "and",
-    "our",
-    "for",
-    "you",
-    "can",
-    "help",
-    "need",
-    "links",
-    "link",
-    "file",
-    "files",
-  ]);
-  const queryTokens = q.split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !stop.has(w));
-  const genericAsk = /pdf|catalogue|catalog|datasheet|brochure|download|spec|manual/.test(q);
-
-  type Scored = CatalogueDownload & { score: number };
-  const scored: Scored[] = [];
-
   const { data: docs } = await supabase
     .from("knowledge_documents")
     .select("id, title, source_url, storage_path, mime_type, metadata, collection:knowledge_collections(name)")
@@ -595,6 +704,7 @@ export async function findCatalogueDownloads(query: string): Promise<CatalogueDo
     .order("updated_at", { ascending: false })
     .limit(80);
 
+  const rows: DatasheetRow[] = [];
   for (const doc of docs ?? []) {
     const mime = (doc.mime_type as string | null) || "";
     const fileName = String((doc.metadata as { fileName?: string } | null)?.fileName || "");
@@ -608,78 +718,291 @@ export async function findCatalogueDownloads(query: string): Promise<CatalogueDo
       mime.includes("pdf") ||
       fileName.toLowerCase().endsWith(".pdf") ||
       /\.pdf$/i.test(String(doc.title || ""));
-    if (!isPdf) continue;
+    if (!isPdf || !doc.id) continue;
 
     const label = ensurePdfFileLabel(String(doc.title || "datasheet"), fileName || null);
-    const hay = `${doc.title} ${fileName} ${collectionName} ${label}`.toLowerCase();
-    let score = 0;
-    for (const t of queryTokens) {
-      if (hay.includes(t)) score += 10;
-    }
-    if (score === 0 && genericAsk) score = 1;
-    if (score === 0) continue;
-    if (!doc.id) continue;
-
     const url = shortDatasheetUrl(String(doc.id), String(doc.title || label), fileName || label);
     if (!url) continue;
 
-    scored.push({
-      title: label,
+    rows.push({
+      id: String(doc.id),
+      title: String(doc.title || label),
       fileName: label,
+      label,
       url,
-      documentId: String(doc.id),
       collection: collectionName || "Datasheets",
-      score,
+      hay: `${doc.title} ${fileName} ${collectionName} ${label}`.toLowerCase(),
     });
   }
+  return rows;
+}
 
-  scored.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
-  let links: CatalogueDownload[] = scored
-    .filter((s) => (queryTokens.length ? s.score >= 10 : s.score > 0))
-    .map(({ score: _score, ...rest }) => rest);
+function scoreDatasheet(row: DatasheetRow, query: string, tokens: string[]): number {
+  let score = 0;
+  const q = query.toLowerCase();
 
-  if (links.length === 0) {
-    links = scored.map(({ score: _score, ...rest }) => rest);
-  }
-
-  if (links.length === 0) {
-    const { data: products } = await supabase
-      .from("products")
-      .select("id, name, sku, catalog_pdf_url, catalog_pdf_path")
-      .eq("org_id", ORG_ID)
-      .eq("is_active", true)
-      .limit(50);
-
-    for (const product of products ?? []) {
-      const hasCatalog = Boolean(
-        (product.catalog_pdf_url as string | null) || (product.catalog_pdf_path as string | null),
-      );
-      if (!hasCatalog) continue;
-      const hay = `${product.name} ${product.sku}`.toLowerCase();
-      if (
-        q.includes("catalog") ||
-        q.includes("catalogue") ||
-        q.includes("pdf") ||
-        q.includes("datasheet") ||
-        q.includes("bess") ||
-        hay.split(/\s+/).some((w) => w.length > 2 && q.includes(w))
-      ) {
-        const sku = String(product.sku || "").trim();
-        const label = ensurePdfFileLabel(`${product.name} catalogue`, null);
-        const url = sku ? shortProductCatalogueUrl(sku) : null;
-        if (url) links.push({ title: label, fileName: label, url });
-      }
+  for (const family of PRODUCT_FAMILIES) {
+    if (family.ask.test(q) && family.doc.test(row.hay)) {
+      score += family.id === "hybrid" ? 25 : 50;
     }
   }
 
-  const seen = new Set<string>();
-  return links
-    .filter((l) => {
-      if (seen.has(l.url)) return false;
-      seen.add(l.url);
+  for (const t of tokens) {
+    if (row.hay.includes(t)) score += 10;
+  }
+
+  // Strong exact-ish title hits
+  const titleLower = row.title.toLowerCase();
+  if (tokens.some((t) => t.length >= 4 && titleLower.includes(t))) score += 15;
+
+  return score;
+}
+
+function toDownload(row: DatasheetRow): CatalogueDownload {
+  return {
+    title: row.label,
+    fileName: row.label,
+    url: row.url,
+    documentId: row.id,
+    collection: row.collection,
+  };
+}
+
+function toClarifyOption(row: DatasheetRow): CatalogueClarifyOption {
+  return {
+    label: shortClarifyLabel(row.title, row.fileName),
+    documentId: row.id,
+    title: row.label,
+    url: row.url,
+    fileName: row.label,
+  };
+}
+
+/**
+ * Resolve a numbered / named reply after we asked "Which catalogue…".
+ * Returns a single match when the customer picks an option.
+ */
+export function resolveCatalogueChoice(
+  query: string,
+  pending: Array<{ documentId: string; label: string; title?: string; url?: string; fileName?: string }>,
+): CatalogueSearchResult | null {
+  if (!pending.length) return null;
+  const q = query.trim().toLowerCase();
+  if (!q) return null;
+
+  const num = q.match(/^(\d{1,2})\b/);
+  if (num) {
+    const idx = Number(num[1]) - 1;
+    const pick = pending[idx];
+    if (pick?.documentId && pick.url) {
+      const title = pick.fileName || pick.title || `${pick.label}.pdf`;
+      return {
+        mode: "match",
+        downloads: [
+          {
+            title,
+            fileName: title,
+            url: pick.url,
+            documentId: pick.documentId,
+          },
+        ],
+        clarifyOptions: [],
+        message: "Here is the catalogue.",
+      };
+    }
+  }
+
+  // Match by label / title text
+  const hit = pending.find((p) => {
+    const hay = `${p.label} ${p.title || ""}`.toLowerCase();
+    return hay.includes(q) || q.split(/\s+/).filter((w) => w.length > 2).every((w) => hay.includes(w));
+  });
+  if (hit?.documentId && hit.url) {
+    const title = hit.fileName || hit.title || `${hit.label}.pdf`;
+    return {
+      mode: "match",
+      downloads: [
+        {
+          title,
+          fileName: title,
+          url: hit.url,
+          documentId: hit.documentId,
+        },
+      ],
+      clarifyOptions: [],
+      message: "Here is the catalogue.",
+    };
+  }
+
+  // Soft: family alias against pending labels
+  for (const family of PRODUCT_FAMILIES) {
+    if (!family.ask.test(q)) continue;
+    const famHit = pending.find((p) => family.doc.test(`${p.label} ${p.title || ""}`));
+    if (famHit?.documentId && famHit.url) {
+      const title = famHit.fileName || famHit.title || `${famHit.label}.pdf`;
+      return {
+        mode: "match",
+        downloads: [
+          {
+            title,
+            fileName: title,
+            url: famHit.url,
+            documentId: famHit.documentId,
+          },
+        ],
+        clarifyOptions: [],
+        message: "Here is the catalogue.",
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Smart catalogue resolve:
+ * - Specific product (e.g. ongrid) → exactly one PDF
+ * - Vague (catalogue / inverter) → ask which, list options, send nothing yet
+ * - Never dump all datasheets
+ */
+export async function resolveCatalogueRequest(
+  query: string,
+  options?: {
+    pendingOptions?: Array<{
+      documentId: string;
+      label: string;
+      title?: string;
+      url?: string;
+      fileName?: string;
+    }>;
+  },
+): Promise<CatalogueSearchResult> {
+  const q = String(query || "").trim();
+  if (!q) {
+    return { mode: "none", downloads: [], clarifyOptions: [], message: "" };
+  }
+
+  // Follow-up after we listed options
+  if (options?.pendingOptions?.length) {
+    const choice = resolveCatalogueChoice(q, options.pendingOptions);
+    if (choice) return choice;
+    // If they ask a new specific catalogue, fall through; if still vague, re-ask
+  }
+
+  const wantsCatalogue =
+    CATALOGUE_INTENT_RE.test(q) ||
+    PRODUCT_FAMILIES.some((f) => f.ask.test(q) && /\b(pdf|catalogue|catalog|datasheet|brochure|send|share|want|need|give)\b/i.test(q));
+
+  // Product name alone after pending clarify already handled; bare "ongrid" without catalogue words
+  // still counts when they clearly name a family + send/share intent OR just the product after asking.
+  const namedFamily = PRODUCT_FAMILIES.find((f) => f.ask.test(q));
+  const isCatalogueAsk =
+    CATALOGUE_INTENT_RE.test(q) ||
+    Boolean(options?.pendingOptions?.length && namedFamily) ||
+    (Boolean(namedFamily) &&
+      /\b(send|share|want|need|give|pdf|catalogue|catalog|datasheet)\b/i.test(q));
+
+  if (!isCatalogueAsk && !wantsCatalogue) {
+    return { mode: "none", downloads: [], clarifyOptions: [], message: "" };
+  }
+
+  const rows = await loadDatasheetRows();
+  if (rows.length === 0) {
+    return { mode: "none", downloads: [], clarifyOptions: [], message: "" };
+  }
+
+  const tokens = q
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
+
+  const scored = rows
+    .map((row) => ({ row, score: scoreDatasheet(row, q, tokens) }))
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score || a.row.title.localeCompare(b.row.title));
+
+  const specificFamily = PRODUCT_FAMILIES.find(
+    (f) => f.ask.test(q) && f.id !== "hybrid",
+  );
+  const broadOnly =
+    !specificFamily &&
+    (tokens.length === 0 ||
+      (tokens.length === 1 && ["inverter", "inverters", "solar", "ups"].includes(tokens[0]!)) ||
+      (/hybrid/i.test(q) && !/\b(1\s*ph|1ph|3\s*ph|3ph|e[\s-]?series|10\s*kw|125)/i.test(q)));
+
+  // Vague ask → list options, do not attach PDFs
+  if (broadOnly || scored.length === 0) {
+    const pool =
+      scored.length > 0
+        ? scored.map((s) => s.row)
+        : /hybrid|inverter|solar/i.test(q)
+          ? rows.filter((r) => /hybrid|inverter|solar|ongrid|bess/i.test(r.hay))
+          : rows;
+    const clarifyOptions = pool.map(toClarifyOption).slice(0, 9);
+    // Deduplicate by label
+    const seen = new Set<string>();
+    const unique = clarifyOptions.filter((o) => {
+      const k = o.label.toLowerCase();
+      if (seen.has(k)) return false;
+      seen.add(k);
       return true;
-    })
-    .slice(0, 6);
+    });
+    if (unique.length === 1) {
+      const only = pool[0]!;
+      return {
+        mode: "match",
+        downloads: [toDownload(only)],
+        clarifyOptions: [],
+        message: "Here is the catalogue.",
+      };
+    }
+    return {
+      mode: "clarify",
+      downloads: [],
+      clarifyOptions: unique,
+      message: buildClarifyMessage(unique),
+    };
+  }
+
+  const top = scored[0]!;
+  const second = scored[1];
+  const clearWinner =
+    top.score >= 40 ||
+    (top.score >= 25 && (!second || top.score - second.score >= 15)) ||
+    (specificFamily && top.score >= 25);
+
+  if (clearWinner) {
+    return {
+      mode: "match",
+      downloads: [toDownload(top.row)],
+      clarifyOptions: [],
+      message: "Here is the catalogue.",
+    };
+  }
+
+  // Several similar scores → ask which
+  const near = scored.filter((s) => s.score >= top.score - 10).map((s) => s.row);
+  const clarifyOptions = near.map(toClarifyOption).slice(0, 9);
+  if (clarifyOptions.length <= 1) {
+    return {
+      mode: "match",
+      downloads: [toDownload(top.row)],
+      clarifyOptions: [],
+      message: "Here is the catalogue.",
+    };
+  }
+  return {
+    mode: "clarify",
+    downloads: [],
+    clarifyOptions,
+    message: buildClarifyMessage(clarifyOptions),
+  };
+}
+
+/** @deprecated Prefer resolveCatalogueRequest — returns at most one matched PDF (never dumps all). */
+export async function findCatalogueDownloads(query: string): Promise<CatalogueDownload[]> {
+  const result = await resolveCatalogueRequest(query);
+  return result.downloads;
 }
 
 export type ReferenceImage = {

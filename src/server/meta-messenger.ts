@@ -9,7 +9,7 @@ import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
-import { findCatalogueDownloads, retrieveKnowledgeContext } from "@/server/knowledge";
+import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext } from "@/server/knowledge";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
@@ -264,14 +264,64 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
         .eq("conversation_id", convo.id)
         .order("created_at", { ascending: true })
         .limit(20);
-      const [chunks, downloads] = await Promise.all([
-        retrieveKnowledgeContext(text, 6),
-        findCatalogueDownloads(text),
-      ]);
+      const prevMeta =
+        convo.metadata && typeof convo.metadata === "object"
+          ? (convo.metadata as Record<string, unknown>)
+          : {};
+      const pendingCatalogue = Array.isArray(prevMeta.pending_catalogue_options)
+        ? (prevMeta.pending_catalogue_options as Array<{
+            documentId: string;
+            label: string;
+            title?: string;
+            url?: string;
+            fileName?: string;
+          }>)
+        : [];
+      const catalogue = await resolveCatalogueRequest(text, { pendingOptions: pendingCatalogue });
+      if (catalogue.mode === "clarify") {
+        reply = catalogue.message;
+        const nextMeta = {
+          ...prevMeta,
+          pending_catalogue_options: catalogue.clarifyOptions.map((o) => ({
+            documentId: o.documentId,
+            label: o.label,
+            title: o.title,
+            url: o.url,
+            fileName: o.fileName,
+          })),
+        };
+        await supabase.from("conversations").update({ metadata: nextMeta }).eq("id", convo.id);
+        inspector = buildAnswerInspector({
+          chunks: [],
+          replySource: "openai",
+          model: "gpt-4o-mini",
+          agentName: "EnerBot",
+          channel: type,
+          downloadCount: 0,
+        });
+      } else if (catalogue.mode === "match") {
+        const { sanitizeAssistantFileLinks, shortenDownloadLinks } = await import("@/server/shorten-urls");
+        const downloadLinks = await shortenDownloadLinks(catalogue.downloads.slice(0, 1));
+        reply = await sanitizeAssistantFileLinks("Here is the catalogue.", downloadLinks, {
+          channel: "whatsapp",
+        });
+        const nextMeta = { ...prevMeta };
+        delete nextMeta.pending_catalogue_options;
+        await supabase.from("conversations").update({ metadata: nextMeta }).eq("id", convo.id);
+        inspector = buildAnswerInspector({
+          chunks: [],
+          replySource: "openai",
+          model: "gpt-4o-mini",
+          agentName: "EnerBot",
+          channel: type,
+          downloadCount: downloadLinks.length,
+        });
+      } else {
+      const [chunks] = await Promise.all([retrieveKnowledgeContext(text, 6)]);
       const stack = await resolveAgentStack({ channel: type, message: text });
       const agentCfg = agentReplyConfig(stack);
-      const { sanitizeAssistantFileLinks, shortenDownloadLinks } = await import("@/server/shorten-urls");
-      const downloadLinks = await shortenDownloadLinks(downloads);
+      const { sanitizeAssistantFileLinks } = await import("@/server/shorten-urls");
+      const downloadLinks: Array<{ title: string; url: string }> = [];
       const generated = await generateOpenAiReply({
         visitorName: (convo.visitor_name as string) || "Customer",
         latestUserMessage: text,
@@ -304,10 +354,6 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
         memoryEnabled: agentCfg.memoryEnabled,
       });
       if (agentCfg.agentId) {
-        const prevMeta =
-          convo.metadata && typeof convo.metadata === "object"
-            ? (convo.metadata as Record<string, unknown>)
-            : {};
         await supabase
           .from("conversations")
           .update({
@@ -321,6 +367,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
             },
           })
           .eq("id", convo.id);
+      }
       }
     } catch (err) {
       console.error(`${type} AI reply failed`, err);

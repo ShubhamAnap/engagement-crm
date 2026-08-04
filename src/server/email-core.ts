@@ -8,7 +8,7 @@ import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
-import { findCatalogueDownloads, retrieveKnowledgeContext } from "@/server/knowledge";
+import { resolveCatalogueRequest, retrieveKnowledgeContext } from "@/server/knowledge";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -306,48 +306,72 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
       .eq("conversation_id", convo.id)
       .order("created_at", { ascending: true })
       .limit(20);
-    const [chunks, downloads] = await Promise.all([
-      retrieveKnowledgeContext(text, 6),
-      findCatalogueDownloads(text),
-    ]);
+    const [chunks] = await Promise.all([retrieveKnowledgeContext(text, 6)]);
+    const catalogue = await resolveCatalogueRequest(text);
     const stack = await resolveAgentStack({
       channel: "email",
       message: text,
     });
     const agentCfg = agentReplyConfig(stack);
     const { sanitizeAssistantFileLinks, shortenDownloadLinks } = await import("@/server/shorten-urls");
-    const downloadLinks = await shortenDownloadLinks(downloads);
-    const generated = await generateOpenAiReply({
-      visitorName: (convo.visitor_name as string) || fromName || fromEmail,
-      latestUserMessage: text,
-      history: (history || []).map((m) => ({
-        sender: m.sender as string,
-        body: m.body as string,
-        created_at: m.created_at as string,
-      })),
-      knowledgeContext: chunks
-        .map((c) => c.content)
-        .join("\n\n")
-        .replace(/https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi, "[file]"),
-      downloadLinks,
-      systemPrompt: agentCfg.systemPrompt,
-      model: agentCfg.model,
-      agentName: agentCfg.agentName,
-      memoryEnabled: agentCfg.memoryEnabled,
-      toolKeys: await resolveAgentToolKeys({ allowedOnAgent: agentCfg.allowedTools }),
-    });
-    reply = await sanitizeAssistantFileLinks(generated.reply, downloadLinks, { channel: "website" });
-    inspector = buildAnswerInspector({
-      chunks,
-      replySource: generated.source,
-      model: generated.model,
-      agentName: agentCfg.agentName,
-      specialistKey: agentCfg.specialistKey,
-      channel: "email",
-      visitorName: (convo.visitor_name as string) || fromName || fromEmail,
-      downloadCount: downloadLinks.length,
-      memoryEnabled: agentCfg.memoryEnabled,
-    });
+    if (catalogue.mode === "clarify") {
+      reply = catalogue.message;
+      inspector = buildAnswerInspector({
+        chunks: [],
+        replySource: "openai",
+        model: "gpt-4o-mini",
+        agentName: agentCfg.agentName,
+        channel: "email",
+        downloadCount: 0,
+      });
+    } else if (catalogue.mode === "match") {
+      const downloadLinks = await shortenDownloadLinks(catalogue.downloads.slice(0, 1));
+      reply = await sanitizeAssistantFileLinks("Here is the catalogue.", downloadLinks, {
+        channel: "website",
+      });
+      inspector = buildAnswerInspector({
+        chunks: [],
+        replySource: "openai",
+        model: agentCfg.model || "gpt-4o-mini",
+        agentName: agentCfg.agentName,
+        channel: "email",
+        visitorName: (convo.visitor_name as string) || fromName || fromEmail,
+        downloadCount: downloadLinks.length,
+      });
+    } else {
+      const downloadLinks: Array<{ title: string; url: string }> = [];
+      const generated = await generateOpenAiReply({
+        visitorName: (convo.visitor_name as string) || fromName || fromEmail,
+        latestUserMessage: text,
+        history: (history || []).map((m) => ({
+          sender: m.sender as string,
+          body: m.body as string,
+          created_at: m.created_at as string,
+        })),
+        knowledgeContext: chunks
+          .map((c) => c.content)
+          .join("\n\n")
+          .replace(/https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi, "[file]"),
+        downloadLinks,
+        systemPrompt: agentCfg.systemPrompt,
+        model: agentCfg.model,
+        agentName: agentCfg.agentName,
+        memoryEnabled: agentCfg.memoryEnabled,
+        toolKeys: await resolveAgentToolKeys({ allowedOnAgent: agentCfg.allowedTools }),
+      });
+      reply = await sanitizeAssistantFileLinks(generated.reply, downloadLinks, { channel: "website" });
+      inspector = buildAnswerInspector({
+        chunks,
+        replySource: generated.source,
+        model: generated.model,
+        agentName: agentCfg.agentName,
+        specialistKey: agentCfg.specialistKey,
+        channel: "email",
+        visitorName: (convo.visitor_name as string) || fromName || fromEmail,
+        downloadCount: downloadLinks.length,
+        memoryEnabled: agentCfg.memoryEnabled,
+      });
+    }
     if (agentCfg.agentId) {
       const prevMeta =
         convo.metadata && typeof convo.metadata === "object"

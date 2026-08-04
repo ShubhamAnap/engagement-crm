@@ -192,13 +192,13 @@ export async function sanitizeAssistantFileLinks(
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  // WhatsApp: name the PDFs only — files are also sent as native document messages.
-  // Raw PDF links often fail in WhatsApp's in-app browser ("site can't be loaded").
-  const block =
-    options?.channel === "whatsapp"
-      ? `Sending PDF file(s) in chat:\n${links.map((l) => `📄 ${l.title}`).join("\n")}`
-      : links.map((l) => `📄 [${l.title}](${l.url})`).join("\n");
+  // WhatsApp: keep it tiny — PDF is sent as a native document message.
+  if (options?.channel === "whatsapp") {
+    if (links.length === 0) return out;
+    return "Here is the catalogue.";
+  }
 
+  const block = links.map((l) => `📄 [${l.title}](${l.url})`).join("\n");
   return `${out}${out ? "\n\n" : ""}${block}`.trim();
 }
 

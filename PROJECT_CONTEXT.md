@@ -310,6 +310,7 @@ Brief notes from each working session — append, don't delete.
 - **File proxy:** `/f/`, `/d/`, `/c/` stream files through Render (service-role download) instead of 302 → supabase.co — fixes mobile `ERR_ADDRESS_UNREACHABLE` when Storage host is blocked.
 - **Datasheet `/f/` UUID lookup fix:** Postgres `uuid` does not support `LIKE`; short-id resolve uses UUID range + JS prefix match. Verified all 9 ready Datasheets (incl. BESS) look up and stream (~773KB PDF) on live `enertechups-ai.onrender.com`.
 - **WhatsApp mobile PDF:** In-app browser often fails on raw `application/pdf` (“site can’t be loaded”). Catalogues now send as native WhatsApp **document** messages (like photos). `/f/` also serves an HTML download page for normal mobile browsers; Meta fetchers / `?download=1` still get raw PDF.
+- **Catalogue matching (no PDF dump):** Agent sends **only the asked product** catalogue (e.g. OnGrid → OnGrid PDF). Vague asks (“catalogue” / “inverter”) get a short numbered list; customer replies with number/name → that one PDF. WhatsApp text is just “Here is the catalogue.” + document.
 
 ### 2026-08-03
 - **Website chat visitor UX:** Embed panel uses EnerTech `#0B2388` / white. Required contact = name, email, phone, location (company optional). After save / returning browser session → chat-only + tiny header **Edit**. Circular launcher remains **ASK EnerTech**. Mic = browser speech-to-text (edit then send).

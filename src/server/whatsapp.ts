@@ -5,7 +5,7 @@ import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
-import { findCatalogueDownloads, findReferenceImages, retrieveKnowledgeContext } from "@/server/knowledge";
+import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext } from "@/server/knowledge";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
@@ -404,9 +404,122 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             .eq("conversation_id", convo.id)
             .order("created_at", { ascending: true })
             .limit(20);
-          const [chunks, downloads, referenceImages] = await Promise.all([
+
+          const prevMeta =
+            convo.metadata && typeof convo.metadata === "object"
+              ? (convo.metadata as Record<string, unknown>)
+              : {};
+          const pendingCatalogue = Array.isArray(prevMeta.pending_catalogue_options)
+            ? (prevMeta.pending_catalogue_options as Array<{
+                documentId: string;
+                label: string;
+                title?: string;
+                url?: string;
+                fileName?: string;
+              }>)
+            : [];
+
+          const catalogue = await resolveCatalogueRequest(text, {
+            pendingOptions: pendingCatalogue,
+          });
+
+          // Short catalogue path — skip long AI essays; send 0–1 PDF only
+          if (catalogue.mode === "clarify" || catalogue.mode === "match") {
+            const { shortenDownloadLinks } = await import("@/server/shorten-urls");
+            const downloadLinks =
+              catalogue.mode === "match"
+                ? await shortenDownloadLinks(catalogue.downloads.slice(0, 1))
+                : [];
+            reply =
+              catalogue.mode === "match"
+                ? "Here is the catalogue."
+                : catalogue.message || "Which catalogue do you need?";
+
+            inspector = buildAnswerInspector({
+              chunks: [],
+              replySource: "openai",
+              model: "gpt-4o-mini",
+              agentName: "EnerBot",
+              channel: "whatsapp",
+              visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
+              downloadCount: downloadLinks.length,
+              memoryEnabled: true,
+            });
+            (inspector.metadata as Record<string, unknown>).download_links = downloadLinks.map((l) => ({
+              title: l.title,
+              url: l.url,
+              file_name: l.fileName || l.title,
+            }));
+            (inspector.metadata as Record<string, unknown>).catalogue_mode = catalogue.mode;
+
+            const nextMeta: Record<string, unknown> = { ...prevMeta };
+            if (catalogue.mode === "clarify") {
+              nextMeta.pending_catalogue_options = catalogue.clarifyOptions.map((o) => ({
+                documentId: o.documentId,
+                label: o.label,
+                title: o.title,
+                url: o.url,
+                fileName: o.fileName,
+              }));
+            } else {
+              delete nextMeta.pending_catalogue_options;
+            }
+            await supabase
+              .from("conversations")
+              .update({ metadata: nextMeta })
+              .eq("id", convo.id);
+
+            await supabase.from("messages").insert({
+              org_id: ORG_ID,
+              conversation_id: convo.id,
+              sender: "ai",
+              body: reply,
+              confidence: inspector.confidence,
+              sources: inspector.sources,
+              metadata: inspector.metadata,
+            });
+
+            try {
+              await sendWhatsAppText(from, reply, cfg);
+            } catch (err) {
+              console.error("WhatsApp outbound AI send failed", err);
+            }
+
+            for (const link of downloadLinks.slice(0, 1)) {
+              const docUrl = String(link.url || "").trim();
+              if (!/^https:\/\//i.test(docUrl)) continue;
+              const fileName = String(link.fileName || link.title || "datasheet.pdf");
+              try {
+                await sendWhatsAppDocument({
+                  toPhone: from,
+                  documentUrl: docUrl,
+                  fileName,
+                  caption: "Catalogue",
+                  cfg,
+                });
+                await supabase.from("messages").insert({
+                  org_id: ORG_ID,
+                  conversation_id: convo.id,
+                  sender: "ai",
+                  body: `Catalogue PDF: ${fileName}\n${docUrl}`,
+                  metadata: {
+                    attachment: true,
+                    catalogue: true,
+                    url: docUrl,
+                    file_name: fileName,
+                    mime_type: "application/pdf",
+                    document_id: link.documentId || null,
+                  },
+                });
+              } catch (err) {
+                console.error("WhatsApp catalogue document send failed", err);
+              }
+            }
+            continue;
+          }
+
+          const [chunks, referenceImages] = await Promise.all([
             retrieveKnowledgeContext(text, 6),
-            findCatalogueDownloads(text),
             findReferenceImages(text, 3),
           ]);
           const knowledgeContext = chunks
@@ -418,10 +531,8 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             message: text,
           });
           const agentCfg = agentReplyConfig(stack);
-          const { sanitizeAssistantFileLinks, shortenDownloadLinks } = await import("@/server/shorten-urls");
-          const downloadLinks = await shortenDownloadLinks(
-            downloads.filter((d) => !referenceImages.some((img) => d.url.includes(img.documentId || ""))),
-          );
+          const { sanitizeAssistantFileLinks } = await import("@/server/shorten-urls");
+          const downloadLinks: Array<{ title: string; url: string; fileName?: string }> = [];
           const generated = await generateOpenAiReply({
             visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
             latestUserMessage: text,
@@ -452,10 +563,9 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             specialistKey: agentCfg.specialistKey,
             channel: "whatsapp",
             visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
-            downloadCount: downloadLinks.length,
+            downloadCount: 0,
             memoryEnabled: agentCfg.memoryEnabled,
           });
-          // Stash on inspector metadata via local var for insert below
           (inspector.metadata as Record<string, unknown>).reference_images = referenceImages.map((r) => ({
             url: r.imageUrl,
             title: r.title,
@@ -464,16 +574,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             mime_type: r.mimeType,
             document_id: r.documentId,
           }));
-          (inspector.metadata as Record<string, unknown>).download_links = downloadLinks.map((l) => ({
-            title: l.title,
-            url: l.url,
-            file_name: l.fileName || l.title,
-          }));
           if (agentCfg.agentId) {
-            const prevMeta =
-              convo.metadata && typeof convo.metadata === "object"
-                ? (convo.metadata as Record<string, unknown>)
-                : {};
             await supabase
               .from("conversations")
               .update({
@@ -529,38 +630,6 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               });
             } catch (err) {
               console.error("WhatsApp reference image send failed", err);
-            }
-          }
-
-          // Native PDF documents — mobile WhatsApp browser often fails on raw PDF URLs
-          for (const link of downloadLinks.slice(0, 3)) {
-            const docUrl = String(link.url || "").trim();
-            if (!/^https:\/\//i.test(docUrl)) continue;
-            const fileName = String(link.fileName || link.title || "datasheet.pdf");
-            try {
-              await sendWhatsAppDocument({
-                toPhone: from,
-                documentUrl: docUrl,
-                fileName,
-                caption: fileName.slice(0, 1024),
-                cfg,
-              });
-              await supabase.from("messages").insert({
-                org_id: ORG_ID,
-                conversation_id: convo.id,
-                sender: "ai",
-                body: `Catalogue PDF: ${fileName}\n${docUrl}`,
-                metadata: {
-                  attachment: true,
-                  catalogue: true,
-                  url: docUrl,
-                  file_name: fileName,
-                  mime_type: "application/pdf",
-                  document_id: link.documentId || null,
-                },
-              });
-            } catch (err) {
-              console.error("WhatsApp catalogue document send failed", err);
             }
           }
           continue;

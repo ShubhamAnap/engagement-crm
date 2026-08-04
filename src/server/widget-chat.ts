@@ -1,4 +1,4 @@
-ï»¿import { createServerFn } from "@tanstack/react-start";
+import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import { buildPlaceholderAiReply } from "@/lib/chat-replies";
@@ -7,7 +7,7 @@ import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
-import { findCatalogueDownloads, findReferenceImages, retrieveKnowledgeContext } from "@/server/knowledge";
+import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext } from "@/server/knowledge";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -72,7 +72,7 @@ async function assertWidgetPageOrigin(pageOrigin: string | null | undefined) {
     })
   ) {
     throw new Error(
-      "This website is not allowed to use the EnerTech chat widget. Ask EnerTech to add your domain under Channels â†’ Website.",
+      "This website is not allowed to use the EnerTech chat widget. Ask EnerTech to add your domain under Channels ? Website.",
     );
   }
 }
@@ -520,7 +520,7 @@ export const widgetGetOrCreateConversation = createServerFn({ method: "POST" })
         channel: "website",
         external_ref: `CV-${Date.now().toString().slice(-6)}`,
         status: "ai",
-        assignee_label: "AI Â· GPT-4o-mini",
+        assignee_label: "AI · GPT-4o-mini",
         visitor_name: visitor.visitor_name || matched?.name || "Website visitor",
         visitor_email: visitor.visitor_email || matched?.email,
         visitor_phone: visitor.visitor_phone || matched?.phone,
@@ -651,7 +651,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
     const escalate = /human|agent|support executive/i.test(text);
     const aiPaused = convo.status === "human" || convo.status === "escalated" || convo.status === "resolved" || convo.status === "closed";
 
-    // Human takeover / escalated: save customer message only â€” do not call OpenAI.
+    // Human takeover / escalated: save customer message only — do not call OpenAI.
     if (aiPaused) {
       const { data: messages, error } = await supabase
         .from("messages")
@@ -668,9 +668,96 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
         ? history.slice(0, -1)
         : history;
 
-    const [chunks, downloads, referenceImages] = await Promise.all([
+    const prevMeta =
+      convo.metadata && typeof convo.metadata === "object"
+        ? (convo.metadata as Record<string, unknown>)
+        : {};
+    const pendingCatalogue = Array.isArray(prevMeta.pending_catalogue_options)
+      ? (prevMeta.pending_catalogue_options as Array<{
+          documentId: string;
+          label: string;
+          title?: string;
+          url?: string;
+          fileName?: string;
+        }>)
+      : [];
+
+    const catalogue = await resolveCatalogueRequest(text, { pendingOptions: pendingCatalogue });
+
+    // Catalogue intent: short reply + at most one PDF (or numbered choices)
+    if (catalogue.mode === "clarify" || catalogue.mode === "match") {
+      const { shortenDownloadLinks } = await import("@/server/shorten-urls");
+      const downloadLinks =
+        catalogue.mode === "match" ? await shortenDownloadLinks(catalogue.downloads.slice(0, 1)) : [];
+      const reply =
+        catalogue.mode === "match"
+          ? catalogue.message || "Here is the catalogue."
+          : catalogue.message;
+
+      const nextMeta: Record<string, unknown> = { ...prevMeta };
+      if (catalogue.mode === "clarify") {
+        nextMeta.pending_catalogue_options = catalogue.clarifyOptions.map((o) => ({
+          documentId: o.documentId,
+          label: o.label,
+          title: o.title,
+          url: o.url,
+          fileName: o.fileName,
+        }));
+      } else {
+        delete nextMeta.pending_catalogue_options;
+      }
+      await supabase.from("conversations").update({ metadata: nextMeta }).eq("id", data.conversationId);
+
+      const inspector = buildAnswerInspector({
+        chunks: [],
+        replySource: "openai",
+        model: "gpt-4o-mini",
+        agentName: "EnerBot",
+        channel: (convo.channel as string) || "website",
+        visitorName: convo.visitor_name || "Website visitor",
+        downloadCount: downloadLinks.length,
+        memoryEnabled: true,
+      });
+
+      const { error: aiErr } = await supabase.from("messages").insert({
+        org_id: ORG_ID,
+        conversation_id: data.conversationId,
+        sender: "ai",
+        body: reply,
+        confidence: inspector.confidence,
+        sources: inspector.sources,
+        metadata: {
+          ...inspector.metadata,
+          catalogue_mode: catalogue.mode,
+          download_links: downloadLinks.map((l) => ({
+            title: l.title,
+            url: l.url,
+            file_name: l.fileName || l.title,
+          })),
+        },
+      });
+      if (aiErr) throw new Error(aiErr.message);
+
+      await supabase
+        .from("conversations")
+        .update({
+          preview: reply.slice(0, 160),
+          last_message_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", data.conversationId);
+
+      return {
+        messages: await getConversationMessages(supabase, data.conversationId),
+        reply,
+        source: "openai",
+        aiPaused: false,
+        status: convo.status,
+      };
+    }
+
+    const [chunks, referenceImages] = await Promise.all([
       retrieveKnowledgeContext(text, 6),
-      findCatalogueDownloads(text),
       findReferenceImages(text, 3),
     ]);
 
@@ -679,23 +766,9 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       .join("\n\n")
       .replace(/https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi, "[file]");
 
-    const { sanitizeAssistantFileLinks, shortenDownloadLinks } = await import("@/server/shorten-urls");
-    // Prefer Datasheets catalogue matches; don't mix random chunk URLs that can be long/broken.
-    let downloadLinks = await shortenDownloadLinks(
-      (downloads.length > 0
-        ? downloads
-        : chunks
-            .filter((c) => c.download_url)
-            .map((c) => ({
-              title: /\.pdf$/i.test(c.document_title) ? c.document_title : `${c.document_title}.pdf`,
-              url: c.download_url as string,
-              fileName: /\.pdf$/i.test(c.document_title) ? c.document_title : `${c.document_title}.pdf`,
-            }))
-      )
-        .filter((link, index, arr) => arr.findIndex((x) => x.url === link.url) === index)
-        .filter((link) => !referenceImages.some((img) => link.url.includes(img.documentId)))
-        .slice(0, 5),
-    );
+    const { sanitizeAssistantFileLinks } = await import("@/server/shorten-urls");
+    // Do not attach random KB chunk PDFs — catalogues only via resolveCatalogueRequest above.
+    const downloadLinks: Array<{ title: string; url: string; fileName?: string }> = [];
 
     const stack = await resolveAgentStack({
       channel: (convo.channel as string) || "website",
@@ -785,7 +858,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
         org_id: ORG_ID,
         conversation_id: data.conversationId,
         sender: "system",
-        body: "Connecting you to a human support executive. An agent will reply here shortly â€” you can keep typing while you wait.",
+        body: "Connecting you to a human support executive. An agent will reply here shortly — you can keep typing while you wait.",
         metadata: { handoff: true },
       });
     }
@@ -911,7 +984,7 @@ export const widgetUploadAttachment = createServerFn({ method: "POST" })
     let reply: string | null = null;
     if (!aiPaused) {
       reply =
-        "Thanks â€” I received your file. Our team can review it in the inbox. Tell me what you need help with, or ask to talk to a human.";
+        "Thanks — I received your file. Our team can review it in the inbox. Tell me what you need help with, or ask to talk to a human.";
       await supabase.from("messages").insert({
         org_id: ORG_ID,
         conversation_id: data.conversationId,

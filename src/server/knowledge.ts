@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import { chunkText, embedQuery, embedTexts, estimateTokens } from "@/server/embeddings";
 import { ensurePdfFileLabel, shortDatasheetUrl, shortKnowledgeDocumentUrl } from "@/lib/short-links";
+import { isAckOnlyMessage, isGreetingOnlyMessage } from "@/lib/enertech-scope";
 import { shortenStorageUrl } from "@/server/shorten-urls";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
@@ -815,27 +816,31 @@ export function resolveCatalogueChoice(
     }
   }
 
-  // Match by label / title text
-  const hit = pending.find((p) => {
-    const hay = `${p.label} ${p.title || ""}`.toLowerCase();
-    return hay.includes(q) || q.split(/\s+/).filter((w) => w.length > 2).every((w) => hay.includes(w));
-  });
-  if (hit?.documentId && hit.url) {
-    const title = hit.fileName || hit.title || `${hit.label}.pdf`;
-    return {
-      mode: "match",
-      downloads: [
-        {
-          title,
-          fileName: title,
-          url: hit.url,
-          documentId: hit.documentId,
-        },
-      ],
-      clarifyOptions: [],
-      message: "Here is the catalogue.",
-      fromPending: true,
-    };
+  // Match by label / title text (require real tokens — empty [].every() is always true in JS)
+  const tokens = q.split(/\s+/).filter((w) => w.length > 2);
+  if (q.length >= 3) {
+    const hit = pending.find((p) => {
+      const hay = `${p.label} ${p.title || ""}`.toLowerCase();
+      if (hay.includes(q) && q.length >= 3) return true;
+      return tokens.length > 0 && tokens.every((w) => hay.includes(w));
+    });
+    if (hit?.documentId && hit.url) {
+      const title = hit.fileName || hit.title || `${hit.label}.pdf`;
+      return {
+        mode: "match",
+        downloads: [
+          {
+            title,
+            fileName: title,
+            url: hit.url,
+            documentId: hit.documentId,
+          },
+        ],
+        clarifyOptions: [],
+        message: "Here is the catalogue.",
+        fromPending: true,
+      };
+    }
   }
 
   // Soft: family alias against pending labels (prefer best label match, not first)
@@ -893,6 +898,11 @@ export async function resolveCatalogueRequest(
 ): Promise<CatalogueSearchResult> {
   const q = String(query || "").trim();
   if (!q) {
+    return { mode: "none", downloads: [], clarifyOptions: [], message: "" };
+  }
+
+  // Never treat ok/thanks/hi as a catalogue pick
+  if (isAckOnlyMessage(q) || isGreetingOnlyMessage(q)) {
     return { mode: "none", downloads: [], clarifyOptions: [], message: "" };
   }
 

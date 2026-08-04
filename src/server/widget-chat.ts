@@ -8,7 +8,7 @@ import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
 import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, REFERENCE_PHOTOS_REPLY, wantsReferenceImages } from "@/server/knowledge";
-import { isOffTopicMessage, OFF_TOPIC_REPLY } from "@/lib/enertech-scope";
+import { isOffTopicMessage, OFF_TOPIC_REPLY, isAckOnlyMessage, isGreetingOnlyMessage, GREETING_REPLY } from "@/lib/enertech-scope";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -673,6 +673,43 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       convo.metadata && typeof convo.metadata === "object"
         ? (convo.metadata as Record<string, unknown>)
         : {};
+
+    if (isAckOnlyMessage(text)) {
+      return {
+        messages: await getConversationMessages(supabase, data.conversationId),
+        reply: null,
+        source: "fallback",
+        aiPaused: false,
+        status: convo.status,
+      };
+    }
+
+    if (isGreetingOnlyMessage(text)) {
+      const reply = GREETING_REPLY;
+      await supabase.from("messages").insert({
+        org_id: ORG_ID,
+        conversation_id: data.conversationId,
+        sender: "ai",
+        body: reply,
+        metadata: { greeting: true },
+      });
+      await supabase
+        .from("conversations")
+        .update({
+          preview: reply.slice(0, 160),
+          last_message_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", data.conversationId);
+      return {
+        messages: await getConversationMessages(supabase, data.conversationId),
+        reply,
+        source: "fallback",
+        aiPaused: false,
+        status: convo.status,
+      };
+    }
+
     const pendingCatalogue = Array.isArray(prevMeta.pending_catalogue_options)
       ? (prevMeta.pending_catalogue_options as Array<{
           documentId: string;

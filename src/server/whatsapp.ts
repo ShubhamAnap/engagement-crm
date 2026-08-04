@@ -6,7 +6,7 @@ import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
 import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, REFERENCE_PHOTOS_REPLY, wantsReferenceImages } from "@/server/knowledge";
-import { isOffTopicMessage, OFF_TOPIC_REPLY } from "@/lib/enertech-scope";
+import { isOffTopicMessage, OFF_TOPIC_REPLY, isAckOnlyMessage, isGreetingOnlyMessage, GREETING_REPLY } from "@/lib/enertech-scope";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
@@ -410,6 +410,30 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             convo.metadata && typeof convo.metadata === "object"
               ? (convo.metadata as Record<string, unknown>)
               : {};
+
+          // "ok" / "thanks" / "bye" — save customer msg only, no bot reply
+          if (isAckOnlyMessage(text)) {
+            continue;
+          }
+
+          // Short greeting only
+          if (isGreetingOnlyMessage(text)) {
+            reply = GREETING_REPLY;
+            await supabase.from("messages").insert({
+              org_id: ORG_ID,
+              conversation_id: convo.id,
+              sender: "ai",
+              body: reply,
+              metadata: { greeting: true },
+            });
+            try {
+              await sendWhatsAppText(from, reply, cfg);
+            } catch (err) {
+              console.error("WhatsApp greeting send failed", err);
+            }
+            continue;
+          }
+
           const pendingCatalogue = Array.isArray(prevMeta.pending_catalogue_options)
             ? (prevMeta.pending_catalogue_options as Array<{
                 documentId: string;

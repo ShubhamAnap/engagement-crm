@@ -315,6 +315,7 @@ Brief notes from each working session — append, don't delete.
 - **Reference photos UX:** Photo asks reply with only “Sir, here are some reference photos.” + max **3** real images. No invented `![…](164.jpg)` markdown, no “Reference photo: 394 (Cold Storage)” text, no image captions with filenames.
 - **Catalogue list memory:** After customer picks from a numbered catalogue list, keep that list so they can reply `2`, `3`, … for another product without asking again.
 - **Off-topic guard:** WhatsApp / website / Meta / email refuse general questions (politics, news, etc.) with: “I can only help you with EnerTech products and services. Thank you.” Catalogues, service, photos, greetings still allowed.
+- **Ack ignore:** Messages like `ok` / `thanks` / `bye` get **no bot reply** (and never trigger a catalogue). Fixed pending-list bug where `ok` matched the first PDF via empty `[].every()`.
 
 ### 2026-08-03
 - **Website chat visitor UX:** Embed panel uses EnerTech `#0B2388` / white. Required contact = name, email, phone, location (company optional). After save / returning browser session → chat-only + tiny header **Edit**. Circular launcher remains **ASK EnerTech**. Mic = browser speech-to-text (edit then send).

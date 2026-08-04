@@ -687,8 +687,12 @@ function Page() {
                   const attach = messageAttachment(m);
                   const refImages = messageReferenceImages(m);
                   const caption = attach
-                    ? m.body.replace(attach.url, "").replace(/\n+/g, " ").trim()
-                    : m.body;
+                    ? m.body
+                        .replace(attach.url, "")
+                        .replace(/\n+/g, " ")
+                        .replace(/^Reference photo:\s*.*$/i, "")
+                        .trim()
+                    : m.body.replace(/!\[[^\]]*\]\([^)]+\)/g, "").trim();
                   return (
                     <div
                       key={m.id}
@@ -706,7 +710,7 @@ function Page() {
                             <a href={attach.url} target="_blank" rel="noreferrer" className="block">
                               <img
                                 src={attach.url}
-                                alt={attach.fileName}
+                                alt="Reference photo"
                                 className="mb-1 max-h-48 max-w-full rounded-lg object-contain"
                               />
                               {caption ? <p>{caption}</p> : null}
@@ -726,7 +730,7 @@ function Page() {
                               </a>
                             </p>
                           ) : (
-                            m.body
+                            caption || m.body
                           )}
                           {refImages.length > 0 ? (
                             <div className="mt-2 space-y-2">
@@ -740,13 +744,10 @@ function Page() {
                                 >
                                   <img
                                     src={img.url}
-                                    alt={img.title}
+                                    alt="Reference photo"
                                     className="max-h-48 w-full object-cover"
                                     loading="lazy"
                                   />
-                                  <div className="px-2 py-1 text-[10px] opacity-90">
-                                    {[img.collection, img.title].filter(Boolean).join(" · ")}
-                                  </div>
                                 </a>
                               ))}
                             </div>

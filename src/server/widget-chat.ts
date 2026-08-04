@@ -7,7 +7,7 @@ import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
-import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext } from "@/server/knowledge";
+import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, REFERENCE_PHOTOS_REPLY, wantsReferenceImages } from "@/server/knowledge";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -520,7 +520,7 @@ export const widgetGetOrCreateConversation = createServerFn({ method: "POST" })
         channel: "website",
         external_ref: `CV-${Date.now().toString().slice(-6)}`,
         status: "ai",
-        assignee_label: "AI · GPT-4o-mini",
+        assignee_label: "AI ï¿½ GPT-4o-mini",
         visitor_name: visitor.visitor_name || matched?.name || "Website visitor",
         visitor_email: visitor.visitor_email || matched?.email,
         visitor_phone: visitor.visitor_phone || matched?.phone,
@@ -651,7 +651,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
     const escalate = /human|agent|support executive/i.test(text);
     const aiPaused = convo.status === "human" || convo.status === "escalated" || convo.status === "resolved" || convo.status === "closed";
 
-    // Human takeover / escalated: save customer message only — do not call OpenAI.
+    // Human takeover / escalated: save customer message only ï¿½ do not call OpenAI.
     if (aiPaused) {
       const { data: messages, error } = await supabase
         .from("messages")
@@ -758,8 +758,58 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
 
     const [chunks, referenceImages] = await Promise.all([
       retrieveKnowledgeContext(text, 6),
-      findReferenceImages(text, 3),
+      findReferenceImages(text),
     ]);
+
+    if (referenceImages.length > 0 && wantsReferenceImages(text)) {
+      const photos = referenceImages.slice(0, 3);
+      const reply = REFERENCE_PHOTOS_REPLY;
+      const inspector = buildAnswerInspector({
+        chunks: [],
+        replySource: "openai",
+        model: "gpt-4o-mini",
+        agentName: "EnerBot",
+        channel: (convo.channel as string) || "website",
+        visitorName: convo.visitor_name || "Website visitor",
+        downloadCount: 0,
+        memoryEnabled: true,
+      });
+      const { error: photoErr } = await supabase.from("messages").insert({
+        org_id: ORG_ID,
+        conversation_id: data.conversationId,
+        sender: "ai",
+        body: reply,
+        confidence: inspector.confidence,
+        sources: inspector.sources,
+        metadata: {
+          ...inspector.metadata,
+          reference_images: photos.map((r) => ({
+            url: r.imageUrl,
+            title: r.title,
+            collection: r.collection,
+            file_name: r.fileName,
+            mime_type: r.mimeType,
+            document_id: r.documentId,
+          })),
+        },
+      });
+      if (photoErr) throw new Error(photoErr.message);
+      await supabase
+        .from("conversations")
+        .update({
+          preview: reply.slice(0, 160),
+          last_message_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", data.conversationId);
+      return {
+        messages: await getConversationMessages(supabase, data.conversationId),
+        reply,
+        source: "openai",
+        aiPaused: false,
+        status: convo.status,
+      };
+    }
 
     const knowledgeContext = chunks
       .map((c, i) => `[${i + 1}] (${c.document_title}, relevance ${c.similarity.toFixed(2)})\n${c.content}`)
@@ -767,7 +817,6 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       .replace(/https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi, "[file]");
 
     const { sanitizeAssistantFileLinks } = await import("@/server/shorten-urls");
-    // Do not attach random KB chunk PDFs — catalogues only via resolveCatalogueRequest above.
     const downloadLinks: Array<{ title: string; url: string; fileName?: string }> = [];
 
     const stack = await resolveAgentStack({
@@ -782,22 +831,18 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       history: priorHistory,
       knowledgeContext,
       downloadLinks,
-      referenceImages: referenceImages.map((r) => ({ title: r.title, collection: r.collection })),
+      referenceImages: [],
       systemPrompt: agentCfg.systemPrompt,
       model: agentCfg.model,
       agentName: agentCfg.agentName,
       memoryEnabled: agentCfg.memoryEnabled,
       toolKeys: await resolveAgentToolKeys({ allowedOnAgent: agentCfg.allowedTools }),
     });
-    let reply = await sanitizeAssistantFileLinks(
+    const reply = await sanitizeAssistantFileLinks(
       ai.reply || buildPlaceholderAiReply(text),
       downloadLinks,
       { channel: "website" },
     );
-    if (referenceImages.length > 0 && !/reference|photo|image|install/i.test(reply)) {
-      const collections = [...new Set(referenceImages.map((r) => r.collection))];
-      reply += `\n\nSharing ${referenceImages.length} reference photo(s) from ${collections.join(", ")}. Tap a photo to open or download.`;
-    }
     const source = ai.source;
     const inspector = buildAnswerInspector({
       chunks,
@@ -825,18 +870,10 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
           url: l.url,
           file_name: l.fileName || l.title,
         })),
-        reference_images: referenceImages.map((r) => ({
-          url: r.imageUrl,
-          title: r.title,
-          collection: r.collection,
-          file_name: r.fileName,
-          mime_type: r.mimeType,
-          document_id: r.documentId,
-        })),
+        reference_images: [],
       },
     });
     if (aiErr) throw new Error(aiErr.message);
-
     const convoPatch: Record<string, unknown> = {};
     if (agentCfg.agentId) {
       const prevMeta =
@@ -858,7 +895,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
         org_id: ORG_ID,
         conversation_id: data.conversationId,
         sender: "system",
-        body: "Connecting you to a human support executive. An agent will reply here shortly — you can keep typing while you wait.",
+        body: "Connecting you to a human support executive. An agent will reply here shortly ï¿½ you can keep typing while you wait.",
         metadata: { handoff: true },
       });
     }
@@ -984,7 +1021,7 @@ export const widgetUploadAttachment = createServerFn({ method: "POST" })
     let reply: string | null = null;
     if (!aiPaused) {
       reply =
-        "Thanks — I received your file. Our team can review it in the inbox. Tell me what you need help with, or ask to talk to a human.";
+        "Thanks ï¿½ I received your file. Our team can review it in the inbox. Tell me what you need help with, or ask to talk to a human.";
       await supabase.from("messages").insert({
         org_id: ORG_ID,
         conversation_id: data.conversationId,

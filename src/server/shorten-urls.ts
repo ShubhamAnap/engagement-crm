@@ -158,6 +158,14 @@ export async function rewriteStorageUrlsInText(text: string): Promise<string> {
   return out.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+export function stripInventedImageMarkdown(text: string): string {
+  return (text || "")
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, "")
+    .replace(/\[[^\]]*\]\([^)]*\.(?:jpe?g|png|webp|gif)[^)]*\)/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /**
  * Final customer-facing scrub: no supabase storage URLs; attach verified short downloads.
  */
@@ -167,6 +175,7 @@ export async function sanitizeAssistantFileLinks(
   options?: { channel?: "whatsapp" | "website" },
 ): Promise<string> {
   let out = await rewriteStorageUrlsInText(text || "");
+  out = stripInventedImageMarkdown(out);
   out = out.replace(STORAGE_MD_RE, "");
   out = out.replace(STORAGE_URL_RE, "");
   out = out.replace(/\[[^\]]*\]\(\s*\)/g, "");

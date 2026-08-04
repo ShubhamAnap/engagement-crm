@@ -1015,6 +1015,16 @@ export type ReferenceImage = {
   fileName: string;
 };
 
+/** Short customer-facing line when sharing installation / application photos. */
+export const REFERENCE_PHOTOS_REPLY = "Sir, here are some reference photos.";
+
+/** Max reference photos per ask unless customer explicitly asks for more. */
+export const REFERENCE_PHOTOS_LIMIT = 3;
+
+export function customerAskedForMorePhotos(query: string): boolean {
+  return /\b(more|all|extra|additional|aur|zyada|sab)\b/i.test(query);
+}
+
 /** Hindi/English cues that the visitor wants installation / application reference photos. */
 export function wantsReferenceImages(query: string): boolean {
   const q = query.toLowerCase();
@@ -1073,9 +1083,9 @@ function scoreReferenceDoc(options: {
  * Find ready knowledge-base images for application / installation references.
  * Prefers collections whose names match the ask (Cold Storage, Petrol Pump, Hospital, …).
  */
-export async function findReferenceImages(query: string, limit = 3): Promise<ReferenceImage[]> {
+export async function findReferenceImages(query: string, limit = REFERENCE_PHOTOS_LIMIT): Promise<ReferenceImage[]> {
   if (!wantsReferenceImages(query)) return [];
-
+  const max = Math.min(Math.max(1, limit), customerAskedForMorePhotos(query) ? 6 : REFERENCE_PHOTOS_LIMIT);
   const supabase = createServiceSupabase();
   const { data: docs, error } = await supabase
     .from("knowledge_documents")
@@ -1149,7 +1159,7 @@ export async function findReferenceImages(query: string, limit = 3): Promise<Ref
       mimeType: item.mimeType,
       fileName: item.fileName,
     });
-    if (out.length >= limit) break;
+    if (out.length >= max) break;
   }
   return out;
 }

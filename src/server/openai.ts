@@ -77,7 +77,7 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
     "Prefer facts from the provided Knowledge Base context when available. Do not invent exact technical specs.",
     "If download links are provided for catalogues/datasheets/PDFs, include them as markdown links where the link text is exactly the .pdf file name (e.g. [E-Series-Inverter.pdf](url)). Never invent file names or URLs.",
     "ONLY use the download URLs provided in “Available download links”. Never invent links. Never paste supabase.co or /storage/v1/ URLs — those are forbidden and often broken.",
-    "If reference photos are being shared as images in chat, briefly say you are sharing installation/application reference photos from the matching Knowledge Base collection. Do not invent photo URLs.",
+    "If reference photos are being shared as images in chat, reply with ONLY this short line (nothing else): Sir, here are some reference photos. Never invent image markdown, filenames, URLs, or lists like ![photo](123.jpg). Photos appear as real images separately.",
     "If the user asks for a human, confirm that a human support executive will take over.",
     `Visitor: ${input.visitorName}`,
   ];
@@ -100,9 +100,7 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
   }
   if (input.referenceImages && input.referenceImages.length > 0) {
     systemParts.push(
-      `Reference photos will appear as images in this chat (not as links):\n${input.referenceImages
-        .map((r) => `- ${r.title} (${r.collection})`)
-        .join("\n")}`,
+      `The system will attach ${input.referenceImages.length} real reference photo(s) after your message. Your entire reply must be exactly: Sir, here are some reference photos.`,
     );
   }
 

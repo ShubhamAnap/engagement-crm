@@ -13,15 +13,18 @@ export type ChatRefImage = {
   file_name?: string;
 };
 
-/** Drop auto footers when photos/downloads are shown as cards. */
+/** Drop auto footers / invented markdown when photos/downloads are shown as cards. */
 export function cleanChatExtrasCaption(
   text: string,
   options: { hasImages?: boolean; hasDownloads?: boolean },
 ): string {
   if (!text) return text;
   let out = text;
+  out = out.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
   if (options.hasImages) {
-    out = out.replace(/\n*\s*Sharing \d+ reference photo\(s\)[^\n]*/gi, "");
+    out = out
+      .replace(/\n*\s*Sharing \d+ reference photo\(s\)[^\n]*/gi, "")
+      .replace(/\n*\s*Sending \d+ reference photo\(s\)[^\n]*/gi, "");
   }
   if (options.hasDownloads) {
     out = out
@@ -51,9 +54,7 @@ export function ChatReferenceImages(props: {
   return (
     <div className={cn("space-y-2", props.className)}>
       {props.images.map((img) => {
-        const label = img.collection?.trim() || "Reference photo";
-        const sub = img.title?.trim();
-        const showSub = Boolean(sub && sub !== label && !/^\d+$/.test(sub));
+        const label = "Reference photo";
         return (
           <a
             key={img.url}
@@ -67,7 +68,7 @@ export function ChatReferenceImages(props: {
             <div className="flex max-h-48 items-center justify-center bg-[#EEF1F8]">
               <img
                 src={img.url}
-                alt={showSub ? sub! : label}
+                alt={label}
                 className="max-h-48 w-full object-contain"
                 loading="lazy"
               />
@@ -76,10 +77,7 @@ export function ChatReferenceImages(props: {
               className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[10px] leading-tight"
               style={{ color: brand, backgroundColor: "#FFFFFF" }}
             >
-              <span className="min-w-0 truncate font-medium">
-                {label}
-                {showSub ? ` · ${sub}` : ""}
-              </span>
+              <span className="min-w-0 truncate font-medium">{label}</span>
               <span className="shrink-0 opacity-70 group-hover:opacity-100">Open / save</span>
             </div>
           </a>

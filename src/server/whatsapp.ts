@@ -5,7 +5,7 @@ import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
-import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext } from "@/server/knowledge";
+import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, REFERENCE_PHOTOS_REPLY, wantsReferenceImages } from "@/server/knowledge";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
@@ -520,8 +520,62 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
 
           const [chunks, referenceImages] = await Promise.all([
             retrieveKnowledgeContext(text, 6),
-            findReferenceImages(text, 3),
+            findReferenceImages(text),
           ]);
+
+          // Photo ask: short line + up to 3 real images only (no invented markdown / filenames)
+          if (referenceImages.length > 0 && wantsReferenceImages(text)) {
+            const photos = referenceImages.slice(0, 3);
+            reply = REFERENCE_PHOTOS_REPLY;
+            inspector = buildAnswerInspector({
+              chunks: [],
+              replySource: "openai",
+              model: "gpt-4o-mini",
+              agentName: "EnerBot",
+              channel: "whatsapp",
+              visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
+              downloadCount: 0,
+              memoryEnabled: true,
+            });
+            (inspector.metadata as Record<string, unknown>).reference_images = photos.map((r) => ({
+              url: r.imageUrl,
+              title: r.title,
+              collection: r.collection,
+              file_name: r.fileName,
+              mime_type: r.mimeType,
+              document_id: r.documentId,
+            }));
+
+            await supabase.from("messages").insert({
+              org_id: ORG_ID,
+              conversation_id: convo.id,
+              sender: "ai",
+              body: reply,
+              confidence: inspector.confidence,
+              sources: inspector.sources,
+              metadata: inspector.metadata,
+            });
+
+            try {
+              await sendWhatsAppText(from, reply, cfg);
+            } catch (err) {
+              console.error("WhatsApp outbound AI send failed", err);
+            }
+
+            for (const img of photos) {
+              try {
+                await sendWhatsAppImage({
+                  toPhone: from,
+                  imageUrl: img.imageUrl,
+                  cfg,
+                });
+              } catch (err) {
+                console.error("WhatsApp reference image send failed", err);
+              }
+            }
+            continue;
+          }
+
           const knowledgeContext = chunks
             .map((c) => c.content)
             .join("\n\n")
@@ -543,7 +597,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             })),
             knowledgeContext,
             downloadLinks,
-            referenceImages: referenceImages.map((r) => ({ title: r.title, collection: r.collection })),
+            referenceImages: [],
             systemPrompt: agentCfg.systemPrompt,
             model: agentCfg.model,
             agentName: agentCfg.agentName,
@@ -551,10 +605,6 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             toolKeys: await resolveAgentToolKeys({ allowedOnAgent: agentCfg.allowedTools }),
           });
           reply = await sanitizeAssistantFileLinks(generated.reply, downloadLinks, { channel: "whatsapp" });
-          if (referenceImages.length > 0 && !/reference|photo|image|install/i.test(reply)) {
-            const collections = [...new Set(referenceImages.map((r) => r.collection))];
-            reply += `\n\nSending ${referenceImages.length} reference photo(s) from ${collections.join(", ")}.`;
-          }
           inspector = buildAnswerInspector({
             chunks,
             replySource: generated.source,
@@ -566,14 +616,6 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             downloadCount: 0,
             memoryEnabled: agentCfg.memoryEnabled,
           });
-          (inspector.metadata as Record<string, unknown>).reference_images = referenceImages.map((r) => ({
-            url: r.imageUrl,
-            title: r.title,
-            collection: r.collection,
-            file_name: r.fileName,
-            mime_type: r.mimeType,
-            document_id: r.documentId,
-          }));
           if (agentCfg.agentId) {
             await supabase
               .from("conversations")
@@ -603,34 +645,6 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             await sendWhatsAppText(from, reply, cfg);
           } catch (err) {
             console.error("WhatsApp outbound AI send failed", err);
-          }
-
-          for (const img of referenceImages) {
-            try {
-              await sendWhatsAppImage({
-                toPhone: from,
-                imageUrl: img.imageUrl,
-                caption: `${img.collection}: ${img.title}`.slice(0, 1024),
-                cfg,
-              });
-              await supabase.from("messages").insert({
-                org_id: ORG_ID,
-                conversation_id: convo.id,
-                sender: "ai",
-                body: `Reference photo: ${img.title} (${img.collection})\n${img.imageUrl}`,
-                metadata: {
-                  attachment: true,
-                  reference: true,
-                  url: img.imageUrl,
-                  file_name: img.fileName,
-                  mime_type: img.mimeType,
-                  collection: img.collection,
-                  document_id: img.documentId,
-                },
-              });
-            } catch (err) {
-              console.error("WhatsApp reference image send failed", err);
-            }
           }
           continue;
         } catch (err) {

@@ -188,16 +188,16 @@ function Page() {
         <Panel title="Master + specialists">
           <p className="text-sm text-muted-foreground">
             <span className="font-medium text-foreground">Support Agent</span> is the Master: it owns every
-            conversation and keeps full memory. When the customer asks about sales, warranty, batteries,
-            quotes, etc., the Master applies that specialist’s prompt for that reply — without starting a
-            new chat or telling the customer bots switched. Inbox shows{" "}
-            <code className="rounded bg-secondary px-1 text-xs">AI · Support → Warranty</code> when a
+            conversation and keeps full memory. When the customer asks about sales, after-sales service,
+            warranty, batteries, quotes, etc., the Master applies that specialist’s prompt for that reply —
+            without starting a new chat or telling the customer bots switched. Inbox shows{" "}
+            <code className="rounded bg-secondary px-1 text-xs">AI · Support → Service</code> when a
             specialist is active. Pause a specialist to stop using it; keep Master Active. Allow tools per
             agent under Configure (tools must also be enabled on{" "}
             <Link to="/tools" className="underline underline-offset-2">
               Tools
             </Link>
-            ).
+            ). Add or edit each specialist’s goal/mission prompt under Configure.
           </p>
         </Panel>
 

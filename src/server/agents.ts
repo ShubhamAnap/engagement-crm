@@ -32,6 +32,14 @@ function pickSpecialistKey(channel?: string | null, message?: string): string | 
   if (/batter(y|ies)|runtime|backup\s*min|\bah\b|kwh/.test(text)) return "battery";
   if (/quot(e|ation)|price\s*list|commercial\s*offer|proforma/.test(text)) return "quotation";
   if (/follow[\s-]?up|nurture|remind/.test(text)) return "followup";
+  // After-sales / fault / repair — before technical (install/schematics)
+  if (
+    /after[\s-]?sales|\bamc\b|service\s*(request|call|ticket|visit|support|engineer)|need\s*(a\s*)?service|call\s*(a\s*)?(technician|engineer)|repair|not\s*work|isn'?t\s*working|doesn'?t\s*work|won'?t\s*(start|turn\s*on)|faulty|breakdown|complaint|no\s*output|error\s*code|tripped|beeping|overheat|burning\s*smell|site\s*visit|commissioning\s*issue/.test(
+      text,
+    )
+  ) {
+    return "service";
+  }
   if (/schematic|firmware|diagnostic|wiring|three[\s-]?phase|install(ation)?\b/.test(text)) {
     return "technical";
   }

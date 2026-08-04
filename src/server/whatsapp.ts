@@ -132,6 +132,59 @@ export async function sendWhatsAppImage(options: {
   return json;
 }
 
+/** Send a PDF/catalogue as a native WhatsApp document (opens in-app — no mobile browser). */
+export async function sendWhatsAppDocument(options: {
+  toPhone: string;
+  documentUrl: string;
+  fileName: string;
+  caption?: string;
+  cfg?: WhatsAppChannelConfig;
+}) {
+  const config = options.cfg || (await loadWhatsAppConfig());
+  if (!config.phone_number_id || !config.access_token) {
+    throw new Error("WhatsApp is not configured (missing phone_number_id or access_token)");
+  }
+  const { normalizeWhatsAppDigits } = await import("@/lib/whatsapp-window");
+  const to = normalizeWhatsAppDigits(options.toPhone) || options.toPhone.replace(/\D/g, "");
+  if (!to) throw new Error("Invalid WhatsApp recipient phone");
+  if (!/^https:\/\//i.test(options.documentUrl)) {
+    throw new Error("Document must be a public HTTPS URL for WhatsApp");
+  }
+
+  const fileName = (options.fileName || "document.pdf")
+    .replace(/[\\/]+/g, "-")
+    .replace(/[^\w.\- ()]+/g, "_")
+    .slice(0, 200);
+  const safeName = /\.pdf$/i.test(fileName) ? fileName : `${fileName}.pdf`;
+
+  const res = await fetch(`${GRAPH_BASE}/${config.phone_number_id}/messages`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.access_token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to,
+      type: "document",
+      document: {
+        link: options.documentUrl,
+        filename: safeName,
+        ...(options.caption ? { caption: options.caption.slice(0, 1024) } : {}),
+      },
+    }),
+  });
+
+  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    const err =
+      (json.error as { message?: string } | undefined)?.message ||
+      `WhatsApp document API error (${res.status})`;
+    throw new Error(err);
+  }
+  return json;
+}
+
 async function getWhatsAppChannelId(supabase: ReturnType<typeof createServiceSupabase>) {
   const { data } = await supabase
     .from("channels")
@@ -476,6 +529,38 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               });
             } catch (err) {
               console.error("WhatsApp reference image send failed", err);
+            }
+          }
+
+          // Native PDF documents — mobile WhatsApp browser often fails on raw PDF URLs
+          for (const link of downloadLinks.slice(0, 3)) {
+            const docUrl = String(link.url || "").trim();
+            if (!/^https:\/\//i.test(docUrl)) continue;
+            const fileName = String(link.fileName || link.title || "datasheet.pdf");
+            try {
+              await sendWhatsAppDocument({
+                toPhone: from,
+                documentUrl: docUrl,
+                fileName,
+                caption: fileName.slice(0, 1024),
+                cfg,
+              });
+              await supabase.from("messages").insert({
+                org_id: ORG_ID,
+                conversation_id: convo.id,
+                sender: "ai",
+                body: `Catalogue PDF: ${fileName}\n${docUrl}`,
+                metadata: {
+                  attachment: true,
+                  catalogue: true,
+                  url: docUrl,
+                  file_name: fileName,
+                  mime_type: "application/pdf",
+                  document_id: link.documentId || null,
+                },
+              });
+            } catch (err) {
+              console.error("WhatsApp catalogue document send failed", err);
             }
           }
           continue;

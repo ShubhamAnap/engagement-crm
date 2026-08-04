@@ -20,6 +20,8 @@ export async function proxyStorageObject(options: {
   storagePath: string;
   downloadName?: string;
   mimeType?: string | null;
+  /** inline = preview in browser; attachment = force download (better on mobile WebViews) */
+  disposition?: "inline" | "attachment";
 }): Promise<Response> {
   const supabase = createServiceSupabase();
   const { data, error } = await supabase.storage.from(BUCKET).download(options.storagePath);
@@ -39,13 +41,14 @@ export async function proxyStorageObject(options: {
     data.type ||
     guessContentType(fileName) ||
     guessContentType(options.storagePath);
+  const disposition = options.disposition || "inline";
 
   return new Response(bytes, {
     status: 200,
     headers: {
       "Content-Type": contentType,
       "Content-Length": String(bytes.byteLength),
-      "Content-Disposition": `inline; filename="${fileName}"`,
+      "Content-Disposition": `${disposition}; filename="${fileName}"`,
       "Cache-Control": "public, max-age=300",
       "X-Content-Type-Options": "nosniff",
     },

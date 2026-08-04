@@ -123,15 +123,20 @@ export async function shortenStorageUrl(url: string): Promise<string> {
 }
 
 export async function shortenDownloadLinks(
-  links: Array<{ title: string; url: string; fileName?: string }>,
-): Promise<Array<{ title: string; url: string; fileName?: string }>> {
-  const out: Array<{ title: string; url: string; fileName?: string }> = [];
+  links: Array<{ title: string; url: string; fileName?: string; documentId?: string }>,
+): Promise<Array<{ title: string; url: string; fileName?: string; documentId?: string }>> {
+  const out: Array<{ title: string; url: string; fileName?: string; documentId?: string }> = [];
   for (const link of links) {
     const url = isKnowledgeStorageUrl(link.url)
       ? await shortenStorageUrl(link.url)
       : ensureAbsoluteAppUrl(link.url);
     if (!url) continue;
-    out.push({ title: link.title, url, fileName: link.fileName });
+    out.push({
+      title: link.title,
+      url,
+      fileName: link.fileName,
+      documentId: link.documentId,
+    });
   }
   return out;
 }
@@ -187,9 +192,11 @@ export async function sanitizeAssistantFileLinks(
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
+  // WhatsApp: name the PDFs only — files are also sent as native document messages.
+  // Raw PDF links often fail in WhatsApp's in-app browser ("site can't be loaded").
   const block =
     options?.channel === "whatsapp"
-      ? links.map((l) => `📄 ${l.title}\n${l.url}`).join("\n\n")
+      ? `Sending PDF file(s) in chat:\n${links.map((l) => `📄 ${l.title}`).join("\n")}`
       : links.map((l) => `📄 [${l.title}](${l.url})`).join("\n");
 
   return `${out}${out ? "\n\n" : ""}${block}`.trim();

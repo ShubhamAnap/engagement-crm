@@ -35,7 +35,10 @@ const welcome: UiMsg = {
 const emptyProfile: VisitorProfile = { name: "", email: "", phone: "", company: "", location: "" };
 
 export const Route = createFileRoute("/embed")({
-  validateSearch: (search: Record<string, unknown>) => ({ key: typeof search.key === "string" ? search.key : "" }),
+  validateSearch: (search: Record<string, unknown>) => ({
+    key: typeof search.key === "string" ? search.key : "",
+    parentOrigin: typeof search.parentOrigin === "string" ? search.parentOrigin : "",
+  }),
   head: () => ({ meta: [{ title: "EnerBot — EnerTech" }] }),
   component: EmbedChat,
 });
@@ -113,7 +116,9 @@ function applyHistory(messages: ServerMessage[]): UiMsg[] {
 }
 
 function EmbedChat() {
-  const { key } = Route.useSearch();
+  const { key, parentOrigin } = Route.useSearch();
+  const pageOrigin =
+    parentOrigin || (typeof window !== "undefined" ? window.location.origin : "");
   const stored = loadStoredProfile();
   const [open, setOpen] = useState(true);
   const [msgs, setMsgs] = useState<UiMsg[]>([welcome]);
@@ -252,6 +257,7 @@ function EmbedChat() {
       data: {
         key,
         sessionId: getSessionId(),
+        pageOrigin,
         visitorName: visitor.name,
         visitorEmail: visitor.email,
         visitorPhone: visitor.phone,
@@ -266,7 +272,7 @@ function EmbedChat() {
 
     if (prevId !== nextId) {
       const history = (await widgetListMessages({
-        data: { key, conversationId: nextId },
+        data: { key, pageOrigin, conversationId: nextId },
       })) as ServerMessage[];
       setMsgs(applyHistory(history));
       setHumanMode(history.some((m) => m.sender === "agent") || convo.status === "human" || convo.status === "escalated");
@@ -300,7 +306,7 @@ function EmbedChat() {
     const convoId = await syncConversationProfile(initial);
     if (!convoId || !key) return;
     const history = (await widgetListMessages({
-      data: { key, conversationId: convoId },
+      data: { key, pageOrigin, conversationId: convoId },
     })) as ServerMessage[];
     setMsgs(applyHistory(history));
     setHumanMode(history.some((m) => m.sender === "agent"));
@@ -336,7 +342,7 @@ function EmbedChat() {
       if (busyRef.current) return;
       try {
         const history = (await widgetListMessages({
-          data: { key, conversationId },
+          data: { key, pageOrigin, conversationId },
         })) as ServerMessage[];
         setMsgs(applyHistory(history));
         if (history.some((m) => m.sender === "agent")) setHumanMode(true);
@@ -359,7 +365,7 @@ function EmbedChat() {
         try {
           if (lookedUpRef.current === lookupKey) return;
           const known = await widgetLookupVisitor({
-            data: { key, email: profile.email, phone: profile.phone },
+            data: { key, pageOrigin, email: profile.email, phone: profile.phone },
           });
           lookedUpRef.current = lookupKey;
           if (!known) return;
@@ -430,7 +436,9 @@ function EmbedChat() {
       if (!convoId) convoId = await syncConversationProfile(profile);
       else await syncConversationProfile(profile);
       if (!convoId) throw new Error("Conversation not ready");
-      const result = await widgetSendMessage({ data: { key, conversationId: convoId, body: userText } });
+      const result = await widgetSendMessage({
+        data: { key, pageOrigin, conversationId: convoId, body: userText },
+      });
       setMsgs(applyHistory(result.messages as ServerMessage[]));
       if (result.aiPaused || result.status === "human" || result.status === "escalated") setHumanMode(true);
       setEditingContact(false);

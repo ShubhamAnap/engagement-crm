@@ -98,7 +98,12 @@
   iframe.title = "EnerTech chat";
   iframe.allow = "clipboard-write; microphone";
   iframe.style.cssText = "width:100%;height:100%;border:0;background:transparent;";
-  iframe.src = appUrl + "/embed?key=" + encodeURIComponent(key);
+  iframe.src =
+    appUrl +
+    "/embed?key=" +
+    encodeURIComponent(key) +
+    "&parentOrigin=" +
+    encodeURIComponent(window.location.origin);
   frameWrap.appendChild(iframe);
 
   btn.addEventListener("click", function () {

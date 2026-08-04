@@ -39,8 +39,14 @@ import {
   listChannelsWithStats,
   setChannelEnabled,
   updateChannel,
+  updateWebsiteAllowedOrigins,
   type ChannelWithStats,
 } from "@/lib/channels-api";
+import {
+  formatAllowedOriginsText,
+  parseAllowedOriginsText,
+} from "@/lib/widget-origins";
+import { Textarea } from "@/components/ui/textarea";
 import { getWhatsAppSetupInfo, saveWhatsAppChannelConfig, testWhatsAppConnection } from "@/server/whatsapp";
 import { getEmailSetupInfo, saveEmailChannelConfig } from "@/server/email";
 import {
@@ -159,6 +165,8 @@ function Page() {
   const [bmApiSecret, setBmApiSecret] = useState("");
   const [bmAuthStyle, setBmAuthStyle] = useState<BrainmineAuthStyle>("token");
   const [bmLeadsPath, setBmLeadsPath] = useState("/api/resource/Lead");
+  const [websiteOriginsText, setWebsiteOriginsText] = useState("");
+  const [websiteOriginsLoaded, setWebsiteOriginsLoaded] = useState(false);
 
   const channelsQuery = useQuery({
     queryKey: ["channels", orgId],
@@ -286,6 +294,17 @@ function Page() {
   const openThreads = channels.reduce((sum, c) => sum + c.openCount, 0);
   const website = channels.find((c) => c.type === "website");
   const whatsapp = channels.find((c) => c.type === "whatsapp");
+
+  useEffect(() => {
+    if (!website || websiteOriginsLoaded) return;
+    const raw = website.config && typeof website.config === "object" ? website.config : {};
+    const list = Array.isArray((raw as { allowed_origins?: unknown }).allowed_origins)
+      ? ((raw as { allowed_origins: unknown[] }).allowed_origins.map(String))
+      : [];
+    setWebsiteOriginsText(formatAllowedOriginsText(list));
+    setWebsiteOriginsLoaded(true);
+  }, [website, websiteOriginsLoaded]);
+
   const emailChannel = channels.find((c) => c.type === "email");
   const facebook = channels.find((c) => c.type === "facebook");
   const instagram = channels.find((c) => c.type === "instagram");
@@ -371,6 +390,32 @@ function Page() {
       }
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not update channel"),
+  });
+
+  const saveWebsiteOriginsMutation = useMutation({
+    mutationFn: async () => {
+      if (!website) throw new Error("Website channel not found. Run core schema seed if missing.");
+      const allowedOrigins = parseAllowedOriginsText(websiteOriginsText);
+      return updateWebsiteAllowedOrigins({
+        channelId: website.id,
+        allowedOrigins,
+      });
+    },
+    onSuccess: async (data) => {
+      const raw = data.config && typeof data.config === "object" ? data.config : {};
+      const list = Array.isArray((raw as { allowed_origins?: unknown }).allowed_origins)
+        ? ((raw as { allowed_origins: unknown[] }).allowed_origins.map(String))
+        : [];
+      setWebsiteOriginsText(formatAllowedOriginsText(list));
+      await invalidate();
+      toast.success(
+        list.length > 0
+          ? `Allowed ${list.length} domain${list.length === 1 ? "" : "s"} (subdomains + paths included)`
+          : "Allowlist cleared — widget blocked off-app (preview hosts still work)",
+      );
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not save allowed origins"),
   });
 
   const saveMutation = useMutation({
@@ -991,6 +1036,50 @@ function Page() {
               </a>
             </Button>
           </div>
+        </Panel>
+
+        <Panel
+          title="Website chat — allowed domains"
+          description="Only these sites can load the widget. Empty list blocks every site except the app preview hosts."
+        >
+          <p className="mb-3 text-sm text-muted-foreground">
+            Enter one domain per line (e.g. <code className="rounded bg-secondary px-1">enertechups.com</code>).
+            Subdomains (<code className="rounded bg-secondary px-1">www.</code>,{" "}
+            <code className="rounded bg-secondary px-1">shop.</code>) and all paths are allowed automatically.
+            Always allowed: this app URL, localhost, and{" "}
+            <code className="rounded bg-secondary px-1">enertechups-ai.onrender.com</code>.
+          </p>
+          {!website ? (
+            <p className="text-sm text-amber-700 dark:text-amber-400">
+              Website channel row missing — run the core schema seed in Supabase.
+            </p>
+          ) : (
+            <>
+              <Label htmlFor="website-allowed-origins" className="sr-only">
+                Allowed domains
+              </Label>
+              <Textarea
+                id="website-allowed-origins"
+                value={websiteOriginsText}
+                onChange={(e) => setWebsiteOriginsText(e.target.value)}
+                placeholder={"enertechups.com\nexample.com"}
+                rows={5}
+                className="font-mono text-xs"
+              />
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  disabled={!website || saveWebsiteOriginsMutation.isPending}
+                  onClick={() => saveWebsiteOriginsMutation.mutate()}
+                >
+                  {saveWebsiteOriginsMutation.isPending ? "Saving…" : "Save allowed domains"}
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  {website.detail || "No origins set — widget blocked off-app"}
+                </span>
+              </div>
+            </>
+          )}
         </Panel>
 
         <Panel

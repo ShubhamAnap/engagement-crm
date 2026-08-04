@@ -133,6 +133,7 @@ export async function updateChannel(options: {
   status?: ChannelStatus;
   health?: number;
   is_enabled?: boolean;
+  config?: Record<string, unknown>;
 }): Promise<DbChannel> {
   const supabase = getBrowserSupabase();
   const patch: Record<string, unknown> = {};
@@ -141,6 +142,7 @@ export async function updateChannel(options: {
   if (options.status !== undefined) patch.status = options.status;
   if (options.health !== undefined) patch.health = Math.max(0, Math.min(100, options.health));
   if (options.is_enabled !== undefined) patch.is_enabled = options.is_enabled;
+  if (options.config !== undefined) patch.config = options.config;
 
   const { data, error } = await supabase
     .from("channels")
@@ -150,6 +152,40 @@ export async function updateChannel(options: {
     .single();
   if (error) throw error;
   return data as DbChannel;
+}
+
+/** Merge allowed_origins into the Website channel config. */
+export async function updateWebsiteAllowedOrigins(options: {
+  channelId: string;
+  allowedOrigins: string[];
+}): Promise<DbChannel> {
+  const supabase = getBrowserSupabase();
+  const { data: current, error: curErr } = await supabase
+    .from("channels")
+    .select("config, type")
+    .eq("id", options.channelId)
+    .maybeSingle();
+  if (curErr) throw curErr;
+  if (!current || current.type !== "website") {
+    throw new Error("Website channel not found");
+  }
+
+  const prev =
+    current.config && typeof current.config === "object" && !Array.isArray(current.config)
+      ? ({ ...(current.config as Record<string, unknown>) } as Record<string, unknown>)
+      : {};
+  prev.allowed_origins = options.allowedOrigins;
+
+  const detail =
+    options.allowedOrigins.length > 0
+      ? `Allowed: ${options.allowedOrigins.join(", ")}`
+      : "No origins set — widget blocked off-app";
+
+  return updateChannel({
+    channelId: options.channelId,
+    config: prev,
+    detail,
+  });
 }
 
 export function channelStatusTone(

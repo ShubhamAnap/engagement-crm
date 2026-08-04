@@ -2,6 +2,7 @@
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import { buildPlaceholderAiReply } from "@/lib/chat-replies";
+import { isWidgetOriginAllowed, normalizeWidgetHost } from "@/lib/widget-origins";
 import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
@@ -13,6 +14,7 @@ const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const visitorSchema = z.object({
   key: z.string().min(1),
   sessionId: z.string().min(8),
+  pageOrigin: z.string().max(500).optional(),
   visitorName: z.string().optional(),
   visitorEmail: z.string().optional(),
   visitorPhone: z.string().optional(),
@@ -36,6 +38,48 @@ function assertWidgetKey(key: string) {
   if (!key || key !== expected) {
     throw new Error("Invalid widget key");
   }
+}
+
+async function assertWidgetPageOrigin(pageOrigin: string | null | undefined) {
+  const supabase = createServiceSupabase();
+  const { data: channel, error } = await supabase
+    .from("channels")
+    .select("config")
+    .eq("org_id", ORG_ID)
+    .eq("type", "website")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+
+  const raw = channel?.config && typeof channel.config === "object" ? channel.config : {};
+  const list = Array.isArray((raw as { allowed_origins?: unknown }).allowed_origins)
+    ? ((raw as { allowed_origins: unknown[] }).allowed_origins
+        .map((v) => normalizeWidgetHost(String(v)))
+        .filter(Boolean) as string[])
+    : [];
+
+  const extra: string[] = [];
+  for (const envName of ["VITE_APP_URL", "APP_URL"] as const) {
+    const value = process.env[envName];
+    const host = normalizeWidgetHost(value);
+    if (host) extra.push(host);
+  }
+
+  if (
+    !isWidgetOriginAllowed({
+      pageOrigin,
+      allowedOrigins: list,
+      extraAlwaysAllowedHosts: extra,
+    })
+  ) {
+    throw new Error(
+      "This website is not allowed to use the EnerTech chat widget. Ask EnerTech to add your domain under Channels → Website.",
+    );
+  }
+}
+
+async function assertWidgetAccess(key: string, pageOrigin?: string | null) {
+  assertWidgetKey(key);
+  await assertWidgetPageOrigin(pageOrigin);
 }
 
 function normalizeVisitor(fields: VisitorFields) {
@@ -420,7 +464,7 @@ async function ensureConversationLinks(
 export const widgetGetOrCreateConversation = createServerFn({ method: "POST" })
   .validator(visitorSchema)
   .handler(async ({ data }) => {
-    assertWidgetKey(data.key);
+    await assertWidgetAccess(data.key, data.pageOrigin);
     const supabase = createServiceSupabase();
     const visitor = normalizeVisitor(data);
 
@@ -512,12 +556,13 @@ export const widgetLookupVisitor = createServerFn({ method: "POST" })
   .validator(
     z.object({
       key: z.string().min(1),
+      pageOrigin: z.string().max(500).optional(),
       email: z.string().optional(),
       phone: z.string().optional(),
     }),
   )
   .handler(async ({ data }) => {
-    assertWidgetKey(data.key);
+    await assertWidgetAccess(data.key, data.pageOrigin);
     const supabase = createServiceSupabase();
     const customer = await findCustomerByEmailOrPhone(supabase, data.email, data.phone);
     if (!customer) return null;
@@ -538,9 +583,15 @@ export const widgetLookupVisitor = createServerFn({ method: "POST" })
   });
 
 export const widgetListMessages = createServerFn({ method: "POST" })
-  .validator(z.object({ key: z.string().min(1), conversationId: z.string().uuid() }))
+  .validator(
+    z.object({
+      key: z.string().min(1),
+      pageOrigin: z.string().max(500).optional(),
+      conversationId: z.string().uuid(),
+    }),
+  )
   .handler(async ({ data }) => {
-    assertWidgetKey(data.key);
+    await assertWidgetAccess(data.key, data.pageOrigin);
     const supabase = createServiceSupabase();
 
     const { data: convo, error: convoError } = await supabase
@@ -564,9 +615,16 @@ export const widgetListMessages = createServerFn({ method: "POST" })
   });
 
 export const widgetSendMessage = createServerFn({ method: "POST" })
-  .validator(z.object({ key: z.string().min(1), conversationId: z.string().uuid(), body: z.string().min(1).max(4000) }))
+  .validator(
+    z.object({
+      key: z.string().min(1),
+      pageOrigin: z.string().max(500).optional(),
+      conversationId: z.string().uuid(),
+      body: z.string().min(1).max(4000),
+    }),
+  )
   .handler(async ({ data }) => {
-    assertWidgetKey(data.key);
+    await assertWidgetAccess(data.key, data.pageOrigin);
     const supabase = createServiceSupabase();
     const text = data.body.trim();
 
@@ -746,6 +804,7 @@ export const widgetUploadAttachment = createServerFn({ method: "POST" })
   .validator(
     z.object({
       key: z.string().min(1),
+      pageOrigin: z.string().max(500).optional(),
       conversationId: z.string().uuid(),
       fileName: z.string().min(1).max(180),
       mimeType: z.string().max(120).optional(),
@@ -753,7 +812,7 @@ export const widgetUploadAttachment = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }) => {
-    assertWidgetKey(data.key);
+    await assertWidgetAccess(data.key, data.pageOrigin);
     const supabase = createServiceSupabase();
 
     const { data: convo, error: convoError } = await supabase

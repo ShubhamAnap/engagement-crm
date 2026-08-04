@@ -1,7 +1,7 @@
 # EnerTech Engage — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
-> **Last updated:** 2026-08-03
+> **Last updated:** 2026-08-04
 
 ---
 
@@ -294,12 +294,16 @@ Record decisions here so we don't re-debate.
 | 2026-07-30 | Knowledge RAG = **pgvector + OpenAI embeddings** | No Pinecone for v1; catalogue PDFs via Storage download links |
 | TBD | Vector DB scale-out | Stay on pgvector unless search volume outgrows Postgres |
 | 2026-08-03 | AI Tools = global `/tools` + per-agent allow-list | Agents only get tools that are enabled globally AND ticked on the agent (`config.allowed_tools`) |
+| 2026-08-04 | Website widget origin allowlist | Empty `config.allowed_origins` blocks off-app embeds; subdomains/paths auto; app/localhost/Render always allowed |
 
 ---
 
 ## Session Log
 
 Brief notes from each working session — append, don't delete.
+
+### 2026-08-04
+- **Website widget origin allowlist:** Channels → Website → allowed domains (stored in channel `config.allowed_origins`). Empty list blocks every site except always-allowed preview hosts (`enertechups-ai.onrender.com`, localhost, `VITE_APP_URL` host). Subdomains and paths of an allowed apex are included automatically. Embed passes `parentOrigin` via `widget.js`; server checks `pageOrigin` on all widget APIs (`src/lib/widget-origins.ts`, `assertWidgetAccess` in `widget-chat.ts`).
 
 ### 2026-08-03
 - **Website chat visitor UX:** Embed panel uses EnerTech `#0B2388` / white. Required contact = name, email, phone, location (company optional). After save / returning browser session → chat-only + tiny header **Edit**. Circular launcher remains **ASK EnerTech**. Mic = browser speech-to-text (edit then send).

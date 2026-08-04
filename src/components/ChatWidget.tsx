@@ -129,6 +129,7 @@ export function ChatWidget() {
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const draftBeforeListenRef = useRef("");
   const widgetKey = (import.meta.env.VITE_WIDGET_PUBLIC_KEY as string) || "";
+  const pageOrigin = typeof window !== "undefined" ? window.location.origin : "";
   const profileReady = isProfileComplete(profile);
   const showContactForm = editingContact || !profileReady;
   const micSupported = speechRecognitionSupported();
@@ -241,6 +242,7 @@ export function ChatWidget() {
       data: {
         key: widgetKey,
         sessionId: getSessionId(),
+        pageOrigin,
         visitorName: visitor.name,
         visitorEmail: visitor.email,
         visitorPhone: visitor.phone,
@@ -256,7 +258,7 @@ export function ChatWidget() {
     // Contact matched an existing Inbox thread — reload that history once.
     if (prevId !== nextId) {
       const history = (await widgetListMessages({
-        data: { key: widgetKey, conversationId: nextId },
+        data: { key: widgetKey, pageOrigin, conversationId: nextId },
       })) as ServerMessage[];
       setMsgs(applyHistory(history));
       setHumanMode(history.some((m) => m.sender === "agent") || convo.status === "human" || convo.status === "escalated");
@@ -288,7 +290,7 @@ export function ChatWidget() {
     setEditingContact(!isProfileComplete(initial));
     const convoId = await syncConversationProfile(initial);
     const history = (await widgetListMessages({
-      data: { key: widgetKey, conversationId: convoId },
+      data: { key: widgetKey, pageOrigin, conversationId: convoId },
     })) as ServerMessage[];
     setMsgs(applyHistory(history));
     setHumanMode(history.some((m) => m.sender === "agent") || false);
@@ -324,7 +326,7 @@ export function ChatWidget() {
       if (busyRef.current) return;
       try {
         const history = (await widgetListMessages({
-          data: { key: widgetKey, conversationId },
+          data: { key: widgetKey, pageOrigin, conversationId },
         })) as ServerMessage[];
         setMsgs(applyHistory(history));
         if (history.some((m) => m.sender === "agent")) setHumanMode(true);
@@ -347,7 +349,7 @@ export function ChatWidget() {
         try {
           if (lookedUpRef.current === lookupKey) return;
           const known = await widgetLookupVisitor({
-            data: { key: widgetKey, email: profile.email, phone: profile.phone },
+            data: { key: widgetKey, pageOrigin, email: profile.email, phone: profile.phone },
           });
           lookedUpRef.current = lookupKey;
           if (!known) return;
@@ -443,6 +445,7 @@ export function ChatWidget() {
       const result = await widgetUploadAttachment({
         data: {
           key: widgetKey,
+          pageOrigin,
           conversationId: convoId,
           fileName: file.name,
           mimeType: file.type || undefined,
@@ -488,7 +491,9 @@ export function ChatWidget() {
       let convoId = conversationId;
       if (!convoId) convoId = await syncConversationProfile(profile);
       else await syncConversationProfile(profile);
-      const result = await widgetSendMessage({ data: { key: widgetKey, conversationId: convoId, body: userText } });
+      const result = await widgetSendMessage({
+        data: { key: widgetKey, pageOrigin, conversationId: convoId, body: userText },
+      });
       setMsgs(applyHistory(result.messages as ServerMessage[]));
       if (result.aiPaused || result.status === "human" || result.status === "escalated") setHumanMode(true);
       setEditingContact(false);

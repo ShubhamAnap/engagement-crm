@@ -430,27 +430,37 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 
 ## Next Immediate Step
 
-1. Smoke-test on WhatsApp + website: service intent vs catalogue, `ok` silent / `yes` answers, soft wait handoff, more photos, media ack.
-2. Confirm product image/PDF uploads after `005` + `019` SQL (if not already run).
-3. Run any pending SQL: `015`–`020` as needed for branding, automation wait, WA session, Gmail, merge fields.
-4. Cron: `CRON_URL` + `CRON_SECRET` on the Render cron job (every 5 min).
+1. **Discuss then build (user paused):** Human Support queue — latest activity on top (`last_message_at`); keep human-handled threads visible; confirm whether to keep “resolved today”.
+2. Smoke-test language + handoff on WhatsApp after Render deploy.
+3. Confirm product image/PDF uploads after `005` + `019` SQL (if not already run).
+4. Cron: `CRON_URL` + `CRON_SECRET` on Render (every 5 min).
 5. Later: Settings RBAC / encrypted AI keys / audit logs; Brainmine field map.
 
 ---
 
 ### Session 2026-08-04 — Chat UX batch (human-like handoff + service)
 
-**Customer-facing rule:** Never reveal bot/AI or “connecting to human”. Handoff replies sound like a colleague: *“Okay sir, please wait…”* / Hinglish variant.
+**Customer-facing rule:** Never reveal bot/AI or “connecting to human”. Handoff replies sound like a colleague: *“Okay sir, please wait…”* / match session language.
 
 | Item | Status |
 |------|--------|
-| 1.1 Service intent beats pending catalogue | DONE (`knowledge.ts` + service ticket path) |
-| 1.2 Ack noise only (`ok`/thanks) — keep yes/no | DONE (`enertech-scope.ts`) |
+| 1.1 Service intent beats pending catalogue | DONE |
+| 1.2 Ack noise only (`ok`/thanks) — keep yes/no | DONE |
 | 1.3 Softer commercial scope (delivery/PO/city) | DONE |
-| 1.4 Human-like wait handoff (tight triggers) | DONE (`conversation-guards.ts` + WA/widget/email/meta) |
-| 2.1 WhatsApp Lead + Customer | DONE (`whatsapp-crm.ts`) |
-| 2.2 Website unread bump | DONE (`widget-chat.ts`) |
-| 3.1 More photos same collection | DONE (WA + widget) |
+| 1.4 Human-like wait handoff (tight triggers) | DONE |
+| 2.1 WhatsApp Lead + Customer | DONE |
+| 2.2 Website unread bump | DONE |
+| 3.1 More photos same collection | DONE |
 | 3.2 WA media inbound ack | DONE |
-| 4.1 Service structured ticket → quiet escalate | DONE (WA + widget) |
-| Session language (EN / HI / MR / mixed) | DONE (`src/lib/session-language.ts`) — replies follow conversation language; stored as `metadata.preferred_lang` |
+| 4.1 Service structured ticket → quiet escalate | DONE |
+| Session language (EN / HI / MR / mixed) | DONE (`src/lib/session-language.ts`) |
+| Inbox scroll to latest messages | DONE |
+| Inbox **Return to AI** | DONE — header Bot icon only (no banner above composer) |
+
+**Paused for next session (discuss first):**
+- Human Support: sort by latest message; ensure claimed/`human` chats still listed.
+- Any further Inbox composer polish.
+
+**Key files:** `src/lib/session-language.ts`, `src/lib/conversation-guards.ts`, `src/server/whatsapp.ts`, `src/server/widget-chat.ts`, `src/routes/inbox.tsx`
+
+**Last commits (main):** Return to AI header-only (`e32aafa`), session language (`9793dc9`), handoff UX batch.

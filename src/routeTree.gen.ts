@@ -31,6 +31,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ToolsRouteImport } from './routes/tools'
 import { Route as CSkuRouteImport } from './routes/c.$sku'
 import { Route as DDocumentIdRouteImport } from './routes/d.$documentId'
+import { Route as FFileSlugRouteImport } from './routes/f.$fileSlug'
 import { Route as ApiCronAutomationsRouteImport } from './routes/api/cron/automations'
 import { Route as ApiWebhooksEmailRouteImport } from './routes/api/webhooks/email'
 import { Route as ApiWebhooksFacebookRouteImport } from './routes/api/webhooks/facebook'
@@ -149,6 +150,11 @@ const DDocumentIdRoute = DDocumentIdRouteImport.update({
   path: '/d/$documentId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FFileSlugRoute = FFileSlugRouteImport.update({
+  id: '/f/$fileSlug',
+  path: '/f/$fileSlug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCronAutomationsRoute = ApiCronAutomationsRouteImport.update({
   id: '/api/cron/automations',
   path: '/api/cron/automations',
@@ -208,6 +214,7 @@ export interface FileRoutesByFullPath {
   '/tools': typeof ToolsRoute
   '/c/$sku': typeof CSkuRoute
   '/d/$documentId': typeof DDocumentIdRoute
+  '/f/$fileSlug': typeof FFileSlugRoute
   '/api/cron/automations': typeof ApiCronAutomationsRoute
   '/api/webhooks/email': typeof ApiWebhooksEmailRoute
   '/api/webhooks/facebook': typeof ApiWebhooksFacebookRoute
@@ -239,6 +246,7 @@ export interface FileRoutesByTo {
   '/tools': typeof ToolsRoute
   '/c/$sku': typeof CSkuRoute
   '/d/$documentId': typeof DDocumentIdRoute
+  '/f/$fileSlug': typeof FFileSlugRoute
   '/api/cron/automations': typeof ApiCronAutomationsRoute
   '/api/webhooks/email': typeof ApiWebhooksEmailRoute
   '/api/webhooks/facebook': typeof ApiWebhooksFacebookRoute
@@ -271,6 +279,7 @@ export interface FileRoutesById {
   '/tools': typeof ToolsRoute
   '/c/$sku': typeof CSkuRoute
   '/d/$documentId': typeof DDocumentIdRoute
+  '/f/$fileSlug': typeof FFileSlugRoute
   '/api/cron/automations': typeof ApiCronAutomationsRoute
   '/api/webhooks/email': typeof ApiWebhooksEmailRoute
   '/api/webhooks/facebook': typeof ApiWebhooksFacebookRoute
@@ -304,6 +313,7 @@ export interface FileRouteTypes {
     | '/tools'
     | '/c/$sku'
     | '/d/$documentId'
+    | '/f/$fileSlug'
     | '/api/cron/automations'
     | '/api/webhooks/email'
     | '/api/webhooks/facebook'
@@ -335,6 +345,7 @@ export interface FileRouteTypes {
     | '/tools'
     | '/c/$sku'
     | '/d/$documentId'
+    | '/f/$fileSlug'
     | '/api/cron/automations'
     | '/api/webhooks/email'
     | '/api/webhooks/facebook'
@@ -366,6 +377,7 @@ export interface FileRouteTypes {
     | '/tools'
     | '/c/$sku'
     | '/d/$documentId'
+    | '/f/$fileSlug'
     | '/api/cron/automations'
     | '/api/webhooks/email'
     | '/api/webhooks/facebook'
@@ -398,6 +410,7 @@ export interface RootRouteChildren {
   ToolsRoute: typeof ToolsRoute
   CSkuRoute: typeof CSkuRoute
   DDocumentIdRoute: typeof DDocumentIdRoute
+  FFileSlugRoute: typeof FFileSlugRoute
   ApiCronAutomationsRoute: typeof ApiCronAutomationsRoute
   ApiWebhooksEmailRoute: typeof ApiWebhooksEmailRoute
   ApiWebhooksFacebookRoute: typeof ApiWebhooksFacebookRoute
@@ -563,6 +576,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DDocumentIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/f/$fileSlug': {
+      id: '/f/$fileSlug'
+      path: '/f/$fileSlug'
+      fullPath: '/f/$fileSlug'
+      preLoaderRoute: typeof FFileSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/cron/automations': {
       id: '/api/cron/automations'
       path: '/api/cron/automations'
@@ -638,6 +658,7 @@ const rootRouteChildren: RootRouteChildren = {
   ToolsRoute: ToolsRoute,
   CSkuRoute: CSkuRoute,
   DDocumentIdRoute: DDocumentIdRoute,
+  FFileSlugRoute: FFileSlugRoute,
   ApiCronAutomationsRoute: ApiCronAutomationsRoute,
   ApiWebhooksEmailRoute: ApiWebhooksEmailRoute,
   ApiWebhooksFacebookRoute: ApiWebhooksFacebookRoute,

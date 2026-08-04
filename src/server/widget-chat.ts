@@ -712,10 +712,10 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       toolKeys: await resolveAgentToolKeys({ allowedOnAgent: agentCfg.allowedTools }),
     });
     let reply = await rewriteStorageUrlsInText(ai.reply || buildPlaceholderAiReply(text));
-    if (downloadLinks.length > 0 && !/https?:\/\//i.test(reply)) {
+    if (downloadLinks.length > 0 && !/https?:\/\//i.test(reply) && !/\.pdf\]\(/i.test(reply)) {
       reply +=
-        "\n\nDownloads:\n" +
-        downloadLinks.map((l) => `• ${l.title}: ${l.url}`).join("\n");
+        "\n\n" +
+        downloadLinks.map((l) => `📄 [${l.title}](${l.url})`).join("\n");
     }
     if (referenceImages.length > 0 && !/reference|photo|image|install/i.test(reply)) {
       const collections = [...new Set(referenceImages.map((r) => r.collection))];
@@ -743,6 +743,11 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       sources: inspector.sources,
       metadata: {
         ...inspector.metadata,
+        download_links: downloadLinks.map((l) => ({
+          title: l.title,
+          url: l.url,
+          file_name: l.fileName || l.title,
+        })),
         reference_images: referenceImages.map((r) => ({
           url: r.imageUrl,
           title: r.title,

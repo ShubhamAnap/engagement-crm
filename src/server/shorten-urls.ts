@@ -6,6 +6,7 @@ import {
   getAppBaseUrl,
   isKnowledgeStorageUrl,
   productIdFromStoragePath,
+  shortDatasheetUrl,
   shortKnowledgeDocumentUrl,
   shortProductCatalogueUrl,
   storagePathFromPublicUrl,
@@ -50,17 +51,18 @@ export async function shortenStorageUrl(url: string): Promise<string> {
     }
   }
 
-  // Knowledge document → /d/{id}
+  // Knowledge document → friendly /f/Name-id.pdf when possible
   const { data: doc } = await supabase
     .from("knowledge_documents")
-    .select("id")
+    .select("id, title, metadata")
     .eq("org_id", ORG_ID)
     .eq("storage_path", storagePath)
     .maybeSingle();
   if (doc?.id) {
-    const short = shortKnowledgeDocumentUrl(String(doc.id));
-    cache.set(trimmed, short);
-    return short;
+    const fileName = String((doc.metadata as { fileName?: string } | null)?.fileName || "");
+    const short = shortDatasheetUrl(String(doc.id), String(doc.title || "datasheet"), fileName || null);
+    cache.set(trimmed, short || shortKnowledgeDocumentUrl(String(doc.id)));
+    return cache.get(trimmed)!;
   }
 
   cache.set(trimmed, trimmed);

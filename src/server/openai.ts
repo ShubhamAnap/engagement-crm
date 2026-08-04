@@ -75,7 +75,7 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
     `You are acting as: ${agentLabel} for EnerTech UPS Pvt. Ltd.`,
     "If you are uncertain, say so briefly and ask one clarifying question.",
     "Prefer facts from the provided Knowledge Base context when available. Do not invent exact technical specs.",
-    "If download links are provided for catalogues/datasheets/PDFs/images, include them clearly in your reply as markdown links.",
+    "If download links are provided for catalogues/datasheets/PDFs, include them as markdown links where the link text is exactly the .pdf file name (e.g. [E-Series-Inverter.pdf](url)). Never invent file names or URLs.",
     "ONLY use the download URLs provided in “Available download links”. Never invent links and never paste raw supabase.co/storage URLs — those long storage links are forbidden.",
     "If reference photos are being shared as images in chat, briefly say you are sharing installation/application reference photos from the matching Knowledge Base collection. Do not invent photo URLs.",
     "If the user asks for a human, confirm that a human support executive will take over.",
@@ -93,7 +93,9 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
   }
   if (input.downloadLinks && input.downloadLinks.length > 0) {
     systemParts.push(
-      `Available download links:\n${input.downloadLinks.map((l) => `- ${l.title}: ${l.url}`).join("\n")}`,
+      `Available download links (use these exact names as markdown link text):\n${input.downloadLinks
+        .map((l) => `- [${l.title}](${l.url})`)
+        .join("\n")}`,
     );
   }
   if (input.referenceImages && input.referenceImages.length > 0) {
@@ -211,8 +213,8 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
     let fallback = buildPlaceholderAiReply(input.latestUserMessage);
     if (input.downloadLinks && input.downloadLinks.length > 0) {
       fallback +=
-        "\n\nDownloads:\n" +
-        input.downloadLinks.map((l) => `• ${l.title}: ${l.url}`).join("\n");
+        "\n\n" +
+        input.downloadLinks.map((l) => `📄 [${l.title}](${l.url})`).join("\n");
     }
     const { rewriteStorageUrlsInText } = await import("@/server/shorten-urls");
     fallback = await rewriteStorageUrlsInText(fallback);

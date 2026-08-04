@@ -384,6 +384,11 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             toolKeys: await resolveAgentToolKeys({ allowedOnAgent: agentCfg.allowedTools }),
           });
           reply = await rewriteStorageUrlsInText(generated.reply);
+          if (downloadLinks.length > 0 && !/https?:\/\//i.test(reply) && !/\.pdf\]\(/i.test(reply)) {
+            reply +=
+              "\n\n" +
+              downloadLinks.map((l) => `📄 ${l.title}\n${l.url}`).join("\n\n");
+          }
           if (referenceImages.length > 0 && !/reference|photo|image|install/i.test(reply)) {
             const collections = [...new Set(referenceImages.map((r) => r.collection))];
             reply += `\n\nSending ${referenceImages.length} reference photo(s) from ${collections.join(", ")}.`;
@@ -407,6 +412,11 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             file_name: r.fileName,
             mime_type: r.mimeType,
             document_id: r.documentId,
+          }));
+          (inspector.metadata as Record<string, unknown>).download_links = downloadLinks.map((l) => ({
+            title: l.title,
+            url: l.url,
+            file_name: l.fileName || l.title,
           }));
           if (agentCfg.agentId) {
             const prevMeta =

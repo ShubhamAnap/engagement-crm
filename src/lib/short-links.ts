@@ -1,6 +1,6 @@
 /**
  * Public short URLs for customer-facing file shares (WhatsApp, chat, email).
- * Full Storage URLs stay in DB; sharing uses /c/{sku} or /d/{documentId}.
+ * Full Storage URLs stay in DB; sharing uses /c/{sku}, /d/{documentId}, or /f/{Name.pdf}.
  */
 
 export function getAppBaseUrl(): string {
@@ -23,6 +23,39 @@ export function getAppBaseUrl(): string {
 function withBase(path: string): string {
   const base = getAppBaseUrl();
   return base ? `${base}${path}` : path;
+}
+
+/** Ensure label ends with .pdf for customer-facing download names. */
+export function ensurePdfFileLabel(title: string, fileName?: string | null): string {
+  const raw = String(fileName || title || "datasheet").trim() || "datasheet";
+  const cleaned = raw.replace(/[\\/]+/g, "-");
+  return /\.pdf$/i.test(cleaned) ? cleaned : `${cleaned}.pdf`;
+}
+
+/** Friendly path segment: Name-of-file-a1b2c3d4.pdf */
+export function datasheetFileSlug(documentId: string, title: string, fileName?: string | null): string {
+  const label = ensurePdfFileLabel(title, fileName);
+  const stem = label
+    .replace(/\.pdf$/i, "")
+    .replace(/[^\w]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 72);
+  const idPart = documentId.replace(/-/g, "").slice(0, 8);
+  return `${stem || "datasheet"}-${idPart}.pdf`;
+}
+
+/** Path only: /f/E-Series-Solar-aaf86f2d.pdf */
+export function shortDatasheetPath(documentId: string, title: string, fileName?: string | null): string {
+  const id = documentId.trim();
+  if (!id) return "";
+  return `/f/${encodeURIComponent(datasheetFileSlug(id, title, fileName))}`;
+}
+
+/** Full short URL that still looks like a PDF filename. */
+export function shortDatasheetUrl(documentId: string, title: string, fileName?: string | null): string {
+  const path = shortDatasheetPath(documentId, title, fileName);
+  if (!path) return "";
+  return withBase(path);
 }
 
 /** Path only: /c/EN-3000X */

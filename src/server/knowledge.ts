@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import { chunkText, embedQuery, embedTexts, estimateTokens } from "@/server/embeddings";
-import { shortKnowledgeDocumentUrl, shortProductCatalogueUrl } from "@/lib/short-links";
+import { ensurePdfFileLabel, shortDatasheetUrl, shortProductCatalogueUrl } from "@/lib/short-links";
 import { shortenStorageUrl } from "@/server/shorten-urls";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
@@ -511,11 +511,12 @@ export async function retrieveKnowledgeContext(query: string, limit = 6): Promis
         ? publicFileUrl(String(row.storage_path))
         : (row.source_url as string) || null;
       const docId = row.document_id ? String(row.document_id) : "";
-      const shortFromDoc = docId ? shortKnowledgeDocumentUrl(docId) : null;
+      const docTitle = String(row.document_title ?? "Document");
+      const shortFromDoc = docId ? shortDatasheetUrl(docId, docTitle, null) : null;
       mapped.push({
         content: String(row.content ?? ""),
         similarity: Number(row.similarity ?? 0),
-        document_title: String(row.document_title ?? "Document"),
+        document_title: docTitle,
         source_url: (row.source_url as string) || null,
         storage_path: (row.storage_path as string) || null,
         download_url: shortFromDoc || (longUrl ? await shortenStorageUrl(longUrl) : null),
@@ -528,22 +529,35 @@ export async function retrieveKnowledgeContext(query: string, limit = 6): Promis
   }
 }
 
-export async function findCatalogueDownloads(query: string): Promise<Array<{ title: string; url: string }>> {
+export type CatalogueDownload = {
+  /** Customer-facing label, e.g. "E Series Solar Hybrid Inverter.pdf" */
+  title: string;
+  url: string;
+  fileName: string;
+  documentId?: string;
+  collection?: string;
+};
+
+export async function findCatalogueDownloads(query: string): Promise<CatalogueDownload[]> {
   const q = query.toLowerCase();
-  const wantsPdf = /pdf|catalogue|catalog|datasheet|brochure|download|spec sheet|manual/.test(q);
-  const wantsImage = /image|photo|picture|pic|gallery|installation|site photo|jpg|png/.test(q);
-  if (!wantsPdf && !wantsImage) return [];
+  const wantsPdf =
+    /pdf|catalogue|catalog|datasheet|brochure|download|spec\s*sheet|manual|price\s*list|specification/.test(
+      q,
+    );
+  // Image catalogue links are handled by findReferenceImages (inline photos).
+  if (!wantsPdf) return [];
 
   const supabase = createServiceSupabase();
-  const links: Array<{ title: string; url: string }> = [];
+  const links: CatalogueDownload[] = [];
 
+  // Primary source: Knowledge Base → Datasheets collection (PDFs only).
   const { data: docs } = await supabase
     .from("knowledge_documents")
     .select("id, title, source_url, storage_path, mime_type, metadata, collection:knowledge_collections(name)")
     .eq("org_id", ORG_ID)
     .eq("status", "ready")
     .order("updated_at", { ascending: false })
-    .limit(40);
+    .limit(80);
 
   for (const doc of docs ?? []) {
     const mime = (doc.mime_type as string | null) || "";
@@ -552,37 +566,38 @@ export async function findCatalogueDownloads(query: string): Promise<Array<{ tit
     const collectionName = String(
       Array.isArray(collectionRel) ? collectionRel[0]?.name || "" : collectionRel?.name || "",
     );
-    const isImage = isImageFile(fileName, mime) || mime.startsWith("image/");
+    if (!/datasheet/i.test(collectionName)) continue;
+
     const isPdf =
       mime.includes("pdf") ||
       fileName.toLowerCase().endsWith(".pdf") ||
-      /catalog|datasheet|brochure|manual/i.test(doc.title as string);
+      /\.pdf$/i.test(String(doc.title || ""));
+    if (!isPdf) continue;
 
-    const include =
-      (wantsImage && isImage) ||
-      (wantsPdf && isPdf);
-    if (!include) continue;
-
-    const hay = `${doc.title} ${fileName} ${collectionName}`.toLowerCase();
+    const label = ensurePdfFileLabel(String(doc.title || "datasheet"), fileName || null);
+    const hay = `${doc.title} ${fileName} ${collectionName} ${label}`.toLowerCase();
     const queryTokens = q.split(/[^a-z0-9]+/).filter((w) => w.length > 2);
-    const matchesTopic =
-      queryTokens.some((w) => hay.includes(w)) ||
-      /photo|image|picture|gallery|pdf|catalogue|catalog|datasheet|brochure|manual|download/.test(q);
+    const genericAsk = /pdf|catalogue|catalog|datasheet|brochure|download|spec|manual/.test(q);
+    const matchesTopic = queryTokens.some((w) => hay.includes(w)) || genericAsk;
     if (!matchesTopic) continue;
 
     const longUrl = doc.storage_path
       ? publicFileUrl(doc.storage_path as string)
       : (doc.source_url as string | null);
-    if (longUrl) {
-      const url = doc.id
-        ? shortKnowledgeDocumentUrl(String(doc.id))
-        : await shortenStorageUrl(longUrl);
-      const label = collectionName ? `${doc.title as string} (${collectionName})` : (doc.title as string);
-      links.push({ title: label, url });
-    }
+    if (!longUrl || !doc.id) continue;
+
+    const url = shortDatasheetUrl(String(doc.id), String(doc.title || label), fileName || label);
+    links.push({
+      title: label,
+      fileName: label,
+      url,
+      documentId: String(doc.id),
+      collection: collectionName || "Datasheets",
+    });
   }
 
-  if (wantsPdf) {
+  // Fallback: product catalogue PDFs only when Datasheets had no match.
+  if (links.length === 0) {
     const { data: products } = await supabase
       .from("products")
       .select("id, name, sku, catalog_pdf_url, catalog_pdf_path")
@@ -600,15 +615,14 @@ export async function findCatalogueDownloads(query: string): Promise<Array<{ tit
         q.includes("catalog") ||
         q.includes("catalogue") ||
         q.includes("pdf") ||
+        q.includes("datasheet") ||
         hay.split(/\s+/).some((w) => w.length > 2 && q.includes(w))
       ) {
         const sku = String(product.sku || "").trim();
-        const long =
-          (product.catalog_pdf_url as string | null) ||
-          (product.catalog_pdf_path ? publicFileUrl(product.catalog_pdf_path as string) : null);
-        const url = (sku ? shortProductCatalogueUrl(sku) : null) || (long ? await shortenStorageUrl(long) : null);
+        const label = ensurePdfFileLabel(`${product.name} catalogue`, null);
+        const url = (sku ? shortProductCatalogueUrl(sku) : null) || null;
         if (url) {
-          links.push({ title: `${product.name} catalogue`, url });
+          links.push({ title: label, fileName: label, url });
         }
       }
     }
@@ -621,7 +635,7 @@ export async function findCatalogueDownloads(query: string): Promise<Array<{ tit
       seen.add(l.url);
       return true;
     })
-    .slice(0, 8);
+    .slice(0, 6);
 }
 
 export type ReferenceImage = {

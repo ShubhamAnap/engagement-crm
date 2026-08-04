@@ -16,6 +16,7 @@ import {
   widgetLookupVisitor,
   widgetSendMessage,
 } from "@/server/widget-chat";
+import { ChatDownloadLinks, ChatReferenceImages, cleanChatExtrasCaption } from "@/components/ChatReferenceImages";
 
 const SESSION_KEY = "enertech-embed-session";
 const PROFILE_KEY = "enertech-embed-profile";
@@ -29,12 +30,14 @@ type ServerMessage = {
   metadata?: Record<string, unknown> | null;
 };
 type RefImage = { url: string; title?: string; collection?: string; file_name?: string };
+type DownloadLink = { url: string; title: string; fileName?: string };
 type UiMsg = {
   id: string;
   from: "bot" | "user";
   text: string;
   kind?: "ai" | "agent";
   images?: RefImage[];
+  downloads?: DownloadLink[];
 };
 type VisitorProfile = { name: string; email: string; phone: string; company: string; location: string };
 
@@ -133,6 +136,25 @@ function extractReferenceImages(meta: Record<string, unknown> | null | undefined
   return out;
 }
 
+function extractDownloadLinks(meta: Record<string, unknown> | null | undefined): DownloadLink[] {
+  const raw = meta?.download_links;
+  if (!Array.isArray(raw)) return [];
+  const out: DownloadLink[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const url = typeof row.url === "string" ? row.url : "";
+    const title = typeof row.title === "string" ? row.title : "";
+    if (!url || !title) continue;
+    out.push({
+      url,
+      title,
+      fileName: typeof row.file_name === "string" ? row.file_name : title,
+    });
+  }
+  return out;
+}
+
 function toUi(messages: ServerMessage[]): UiMsg[] {
   return messages.map((m) => ({
     id: m.id,
@@ -140,6 +162,7 @@ function toUi(messages: ServerMessage[]): UiMsg[] {
     text: m.body,
     kind: m.sender === "agent" ? "agent" : m.sender === "ai" ? "ai" : undefined,
     images: extractReferenceImages(m.metadata),
+    downloads: extractDownloadLinks(m.metadata),
   }));
 }
 
@@ -651,7 +674,10 @@ function EmbedChat() {
                     </div>
                   )}
                   <div
-                    className={cn("max-w-[80%] space-y-1 rounded-xl px-3 py-2 text-sm leading-relaxed")}
+                    className={cn(
+                      "max-w-[82%] min-w-0 overflow-hidden rounded-xl text-sm leading-relaxed",
+                      m.from === "user" ? "" : "",
+                    )}
                     style={
                       m.from === "user"
                         ? { backgroundColor: BRAND, color: INK }
@@ -660,31 +686,26 @@ function EmbedChat() {
                           : { backgroundColor: INK, color: BRAND, border: `1px solid ${BRAND}22` }
                     }
                   >
-                    {m.kind === "agent" ? <p className="mb-1 text-[10px] font-medium opacity-70">Support team</p> : null}
-                    {m.text ? <p className="whitespace-pre-wrap">{m.text}</p> : null}
+                    {m.kind === "agent" ? (
+                      <p className="mb-0 px-3 pt-2 text-[10px] font-medium opacity-70">Support team</p>
+                    ) : null}
+                    {(() => {
+                      const caption = cleanChatExtrasCaption(m.text, {
+                        hasImages: Boolean(m.images?.length),
+                        hasDownloads: Boolean(m.downloads?.length),
+                      });
+                      return caption ? (
+                        <p className="whitespace-pre-wrap break-words px-3 py-2">{caption}</p>
+                      ) : null;
+                    })()}
+                    {m.downloads && m.downloads.length > 0 ? (
+                      <div className="px-2 pb-2">
+                        <ChatDownloadLinks links={m.downloads} brand={BRAND} />
+                      </div>
+                    ) : null}
                     {m.images && m.images.length > 0 ? (
-                      <div className="mt-2 space-y-2">
-                        {m.images.map((img) => (
-                          <a
-                            key={img.url}
-                            href={img.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            download={img.file_name || true}
-                            className="block overflow-hidden rounded-lg"
-                            style={{ border: `1px solid ${BRAND}22` }}
-                          >
-                            <img
-                              src={img.url}
-                              alt={img.title || "Reference photo"}
-                              className="max-h-52 w-full object-cover"
-                              loading="lazy"
-                            />
-                            <div className="px-2 py-1 text-[10px] opacity-80" style={{ backgroundColor: "#F7F8FC", color: BRAND }}>
-                              {[img.collection, img.title].filter(Boolean).join(" · ") || "Open / download photo"}
-                            </div>
-                          </a>
-                        ))}
+                      <div className="px-2 pb-2">
+                        <ChatReferenceImages images={m.images} brand={BRAND} />
                       </div>
                     ) : null}
                   </div>

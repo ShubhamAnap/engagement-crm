@@ -27,18 +27,42 @@ export function wantsHumanHandoff(text: string): boolean {
 }
 
 /**
- * Human-sounding "please wait" — no bot/agent reveal.
- * Light Hindi/Hinglish detection from the same message / recent tone.
+ * Prefer English by default. Hindi/Hinglish only when clearly used
+ * (Devanagari or real Hindi words — NOT "please"/"plz"/"sir").
  */
-export function humanWaitReply(text: string): string {
+export function prefersHindiReply(text: string): boolean {
   const q = String(text || "").toLowerCase();
-  const hindi =
-    /[\u0900-\u097F]/.test(text) ||
-    /\b(ji|haan|nahi|please|plz|bhai|sir|madam|baat|karo|kijiye|jaldi)\b/i.test(q);
-  if (hindi) {
+  if (wantsEnglishReply(text)) return false;
+  if (/[\u0900-\u097F]/.test(text)) return true;
+  return /\b(haan|han|nahi|nahin|theek|thoda|kijiye|kripya|kripa|baat|karo|karna|jaldi|abhi|aapko|mujhe|mera|kharab|dikhao|bhejo|chahiye|namaste|namaskar|bhai|ji)\b/i.test(
+    q,
+  );
+}
+
+/** Customer explicitly asks for English. */
+export function wantsEnglishReply(text: string): boolean {
+  return /\b(in\s*english|talk\s*in\s*english|speak\s*(in\s*)?english|english\s*(please|plz)|reply\s*in\s*english)\b/i.test(
+    String(text || ""),
+  );
+}
+
+/**
+ * Human-sounding "please wait" — no bot/agent reveal.
+ * Match session language: English unless customer is clearly in Hindi/Hinglish.
+ */
+export function humanWaitReply(text: string, preferredLang?: "en" | "hi" | null): string {
+  if (preferredLang === "en" || wantsEnglishReply(text)) {
+    return "Okay sir, please wait a moment — I will get back to you shortly.";
+  }
+  if (preferredLang === "hi" || prefersHindiReply(text)) {
     return "Theek hai sir, please thoda wait kijiye — main aapko jaldi reply karta hoon.";
   }
   return "Okay sir, please wait a moment — I will get back to you shortly.";
+}
+
+/** Short ack when customer asks to switch to English (after a Hindi wait, etc.). */
+export function englishLanguageAck(): string {
+  return "Sure sir — I'll reply in English. Please wait a moment, I will get back to you shortly.";
 }
 
 export type ServiceTicket = {

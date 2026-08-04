@@ -16,6 +16,8 @@ import {
   emptyServiceTicket,
   mergeServiceTicketFromText,
   nextServiceTicketPrompt,
+  wantsEnglishReply,
+  englishLanguageAck,
   type ServiceTicket,
 } from "@/lib/conversation-guards";
 
@@ -671,9 +673,40 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
 
     const escalate = wantsHumanHandoff(text);
     const aiPaused = convo.status === "human" || convo.status === "escalated" || convo.status === "resolved" || convo.status === "closed";
+    const prevMetaEarly =
+      convo.metadata && typeof convo.metadata === "object"
+        ? (convo.metadata as Record<string, unknown>)
+        : {};
 
-    // Human takeover / escalated: save customer message only ? do not call OpenAI.
+    // Human takeover / escalated: save customer message only ? except language switch to English
     if (aiPaused) {
+      if (
+        (convo.status === "human" || convo.status === "escalated") &&
+        wantsEnglishReply(text)
+      ) {
+        const ack = englishLanguageAck();
+        await supabase
+          .from("conversations")
+          .update({
+            metadata: { ...prevMetaEarly, preferred_lang: "en" },
+            preview: ack.slice(0, 160),
+          })
+          .eq("id", data.conversationId);
+        await supabase.from("messages").insert({
+          org_id: ORG_ID,
+          conversation_id: data.conversationId,
+          sender: "ai",
+          body: ack,
+          metadata: { language_ack: true },
+        });
+        return {
+          messages: await getConversationMessages(supabase, data.conversationId),
+          reply: ack,
+          source: "fallback",
+          aiPaused: true,
+          status: convo.status,
+        };
+      }
       const { data: messages, error } = await supabase
         .from("messages")
         .select("*")
@@ -684,10 +717,19 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
     }
 
     if (escalate) {
-      const wait = humanWaitReply(text);
+      const preferredLang =
+        prevMetaEarly.preferred_lang === "hi" || prevMetaEarly.preferred_lang === "en"
+          ? (prevMetaEarly.preferred_lang as "en" | "hi")
+          : null;
+      const wait = humanWaitReply(text, preferredLang);
       await supabase
         .from("conversations")
-        .update({ status: "escalated", assignee_label: "Human queue", preview: wait.slice(0, 160) })
+        .update({
+          status: "escalated",
+          assignee_label: "Human queue",
+          preview: wait.slice(0, 160),
+          metadata: { ...prevMetaEarly, preferred_lang: "en" },
+        })
         .eq("id", data.conversationId);
       await supabase.from("messages").insert({
         org_id: ORG_ID,

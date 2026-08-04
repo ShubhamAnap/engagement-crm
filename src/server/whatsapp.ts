@@ -14,6 +14,8 @@ import {
   emptyServiceTicket,
   mergeServiceTicketFromText,
   nextServiceTicketPrompt,
+  wantsEnglishReply,
+  englishLanguageAck,
   type ServiceTicket,
 } from "@/lib/conversation-guards";
 import { ensureWhatsAppLeadCustomer } from "@/server/whatsapp-crm";
@@ -463,10 +465,24 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
         const status = convo.status as string;
         const escalate = wantsHumanHandoff(text);
         if (escalate) {
-          const wait = humanWaitReply(text);
+          const prevMetaEsc =
+            convo.metadata && typeof convo.metadata === "object"
+              ? (convo.metadata as Record<string, unknown>)
+              : {};
+          const preferredLang =
+            prevMetaEsc.preferred_lang === "hi" || prevMetaEsc.preferred_lang === "en"
+              ? (prevMetaEsc.preferred_lang as "en" | "hi")
+              : null;
+          const wait = humanWaitReply(text, preferredLang);
+          const lang = wantsEnglishReply(text) ? "en" : preferredLang || "en";
           await supabase
             .from("conversations")
-            .update({ status: "escalated", assignee_label: "Human queue" })
+            .update({
+              status: "escalated",
+              assignee_label: "Human queue",
+              metadata: { ...prevMetaEsc, preferred_lang: lang },
+              preview: wait.slice(0, 160),
+            })
             .eq("id", convo.id);
           await supabase.from("messages").insert({
             org_id: ORG_ID,
@@ -495,7 +511,38 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           console.error("WA CRM link failed", err);
         }
 
-        if (status === "human" || status === "escalated" || status === "resolved" || status === "closed") {
+        // Escalated/human: still answer "talk in english" so customer isn't stuck after a Hindi wait
+        if (status === "human" || status === "escalated") {
+          if (wantsEnglishReply(text)) {
+            const ack = englishLanguageAck();
+            const prevMetaLang =
+              convo.metadata && typeof convo.metadata === "object"
+                ? (convo.metadata as Record<string, unknown>)
+                : {};
+            await supabase
+              .from("conversations")
+              .update({
+                metadata: { ...prevMetaLang, preferred_lang: "en" },
+                preview: ack.slice(0, 160),
+              })
+              .eq("id", convo.id);
+            await supabase.from("messages").insert({
+              org_id: ORG_ID,
+              conversation_id: convo.id,
+              sender: "ai",
+              body: ack,
+              metadata: { language_ack: true },
+            });
+            try {
+              await sendWhatsAppText(from, ack, cfg);
+            } catch (err) {
+              console.error("WA english ack send failed", err);
+            }
+          }
+          continue;
+        }
+
+        if (status === "resolved" || status === "closed") {
           continue;
         }
 

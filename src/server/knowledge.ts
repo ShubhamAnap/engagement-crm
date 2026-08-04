@@ -541,16 +541,52 @@ export type CatalogueDownload = {
 export async function findCatalogueDownloads(query: string): Promise<CatalogueDownload[]> {
   const q = query.toLowerCase();
   const wantsPdf =
-    /pdf|catalogue|catalog|datasheet|brochure|download|spec\s*sheet|manual|price\s*list|specification/.test(
+    /pdf|catalogue|catalog|datasheet|brochure|download|spec\s*sheet|manual|price\s*list|specification|\bbess\b/.test(
       q,
     );
   // Image catalogue links are handled by findReferenceImages (inline photos).
   if (!wantsPdf) return [];
 
   const supabase = createServiceSupabase();
-  const links: CatalogueDownload[] = [];
+  const stop = new Set([
+    "pdf",
+    "catalogue",
+    "catalog",
+    "catalogues",
+    "datasheet",
+    "datasheets",
+    "brochure",
+    "download",
+    "downloads",
+    "spec",
+    "sheet",
+    "manual",
+    "want",
+    "wanting",
+    "please",
+    "send",
+    "share",
+    "with",
+    "from",
+    "the",
+    "and",
+    "our",
+    "for",
+    "you",
+    "can",
+    "help",
+    "need",
+    "links",
+    "link",
+    "file",
+    "files",
+  ]);
+  const queryTokens = q.split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !stop.has(w));
+  const genericAsk = /pdf|catalogue|catalog|datasheet|brochure|download|spec|manual/.test(q);
 
-  // Primary source: Knowledge Base → Datasheets collection (PDFs only).
+  type Scored = CatalogueDownload & { score: number };
+  const scored: Scored[] = [];
+
   const { data: docs } = await supabase
     .from("knowledge_documents")
     .select("id, title, source_url, storage_path, mime_type, metadata, collection:knowledge_collections(name)")
@@ -576,27 +612,36 @@ export async function findCatalogueDownloads(query: string): Promise<CatalogueDo
 
     const label = ensurePdfFileLabel(String(doc.title || "datasheet"), fileName || null);
     const hay = `${doc.title} ${fileName} ${collectionName} ${label}`.toLowerCase();
-    const queryTokens = q.split(/[^a-z0-9]+/).filter((w) => w.length > 2);
-    const genericAsk = /pdf|catalogue|catalog|datasheet|brochure|download|spec|manual/.test(q);
-    const matchesTopic = queryTokens.some((w) => hay.includes(w)) || genericAsk;
-    if (!matchesTopic) continue;
-
-    const longUrl = doc.storage_path
-      ? publicFileUrl(doc.storage_path as string)
-      : (doc.source_url as string | null);
-    if (!longUrl || !doc.id) continue;
+    let score = 0;
+    for (const t of queryTokens) {
+      if (hay.includes(t)) score += 10;
+    }
+    if (score === 0 && genericAsk) score = 1;
+    if (score === 0) continue;
+    if (!doc.id) continue;
 
     const url = shortDatasheetUrl(String(doc.id), String(doc.title || label), fileName || label);
-    links.push({
+    if (!url) continue;
+
+    scored.push({
       title: label,
       fileName: label,
       url,
       documentId: String(doc.id),
       collection: collectionName || "Datasheets",
+      score,
     });
   }
 
-  // Fallback: product catalogue PDFs only when Datasheets had no match.
+  scored.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+  let links: CatalogueDownload[] = scored
+    .filter((s) => (queryTokens.length ? s.score >= 10 : s.score > 0))
+    .map(({ score: _score, ...rest }) => rest);
+
+  if (links.length === 0) {
+    links = scored.map(({ score: _score, ...rest }) => rest);
+  }
+
   if (links.length === 0) {
     const { data: products } = await supabase
       .from("products")
@@ -616,14 +661,13 @@ export async function findCatalogueDownloads(query: string): Promise<CatalogueDo
         q.includes("catalogue") ||
         q.includes("pdf") ||
         q.includes("datasheet") ||
+        q.includes("bess") ||
         hay.split(/\s+/).some((w) => w.length > 2 && q.includes(w))
       ) {
         const sku = String(product.sku || "").trim();
         const label = ensurePdfFileLabel(`${product.name} catalogue`, null);
-        const url = (sku ? shortProductCatalogueUrl(sku) : null) || null;
-        if (url) {
-          links.push({ title: label, fileName: label, url });
-        }
+        const url = sku ? shortProductCatalogueUrl(sku) : null;
+        if (url) links.push({ title: label, fileName: label, url });
       }
     }
   }

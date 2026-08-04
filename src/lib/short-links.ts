@@ -55,7 +55,10 @@ export function shortDatasheetPath(documentId: string, title: string, fileName?:
 export function shortDatasheetUrl(documentId: string, title: string, fileName?: string | null): string {
   const path = shortDatasheetPath(documentId, title, fileName);
   if (!path) return "";
-  return withBase(path);
+  const base = getAppBaseUrl();
+  // Absolute URL required for WhatsApp / external clients
+  if (base) return `${base}${path}`;
+  return path;
 }
 
 /** Path only: /c/EN-3000X */

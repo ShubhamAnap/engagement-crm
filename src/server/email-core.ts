@@ -315,7 +315,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
       message: text,
     });
     const agentCfg = agentReplyConfig(stack);
-    const { rewriteStorageUrlsInText, shortenDownloadLinks } = await import("@/server/shorten-urls");
+    const { sanitizeAssistantFileLinks, shortenDownloadLinks } = await import("@/server/shorten-urls");
     const downloadLinks = await shortenDownloadLinks(downloads);
     const generated = await generateOpenAiReply({
       visitorName: (convo.visitor_name as string) || fromName || fromEmail,
@@ -325,7 +325,10 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
         body: m.body as string,
         created_at: m.created_at as string,
       })),
-      knowledgeContext: chunks.map((c) => c.content).join("\n\n"),
+      knowledgeContext: chunks
+        .map((c) => c.content)
+        .join("\n\n")
+        .replace(/https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi, "[file]"),
       downloadLinks,
       systemPrompt: agentCfg.systemPrompt,
       model: agentCfg.model,
@@ -333,7 +336,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
       memoryEnabled: agentCfg.memoryEnabled,
       toolKeys: await resolveAgentToolKeys({ allowedOnAgent: agentCfg.allowedTools }),
     });
-    reply = await rewriteStorageUrlsInText(generated.reply);
+    reply = await sanitizeAssistantFileLinks(generated.reply, downloadLinks, { channel: "website" });
     inspector = buildAnswerInspector({
       chunks,
       replySource: generated.source,

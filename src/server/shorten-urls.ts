@@ -1,5 +1,6 @@
 /**
  * Rewrite long Supabase Storage URLs in AI replies / download lists to short app links.
+ * Never leave raw supabase.co/storage links for customers (often blocked / invented / broken).
  */
 import { createServiceSupabase } from "@/lib/supabase";
 import {
@@ -14,6 +15,10 @@ import {
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const BUCKET = "knowledge";
+const STORAGE_URL_RE =
+  /https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi;
+const STORAGE_MD_RE =
+  /\[[^\]]*\]\(https?:\/\/[^)]*\/storage\/v1\/object\/public\/knowledge\/[^)]*\)/gi;
 
 function publicFileUrl(path: string): string {
   const base = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
@@ -22,13 +27,26 @@ function publicFileUrl(path: string): string {
 
 const cache = new Map<string, string>();
 
+/** Make sure WhatsApp / external clients get an absolute https URL. */
+export function ensureAbsoluteAppUrl(url: string): string {
+  const trimmed = (url || "").trim();
+  if (!trimmed) return trimmed;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  const base = getAppBaseUrl();
+  if (!base) return trimmed;
+  return `${base}${trimmed.startsWith("/") ? trimmed : `/${trimmed}`}`;
+}
+
 export async function shortenStorageUrl(url: string): Promise<string> {
   const trimmed = (url || "").trim();
   if (!trimmed || !isKnowledgeStorageUrl(trimmed)) return trimmed;
   if (cache.has(trimmed)) return cache.get(trimmed)!;
 
   const storagePath = storagePathFromPublicUrl(trimmed);
-  if (!storagePath) return trimmed;
+  if (!storagePath) {
+    cache.set(trimmed, "");
+    return "";
+  }
 
   const supabase = createServiceSupabase();
 
@@ -43,15 +61,13 @@ export async function shortenStorageUrl(url: string): Promise<string> {
       .maybeSingle();
     const sku = String(product?.sku || "").trim();
     if (sku) {
-      const short = shortProductCatalogueUrl(sku);
-      if (short.startsWith("http") || getAppBaseUrl()) {
-        cache.set(trimmed, short);
-        return short;
-      }
+      const short = ensureAbsoluteAppUrl(shortProductCatalogueUrl(sku));
+      cache.set(trimmed, short);
+      return short;
     }
   }
 
-  // Knowledge document → friendly /f/Name-id.pdf when possible
+  // Exact storage_path match → friendly /f/Name-id.pdf
   const { data: doc } = await supabase
     .from("knowledge_documents")
     .select("id, title, metadata")
@@ -60,42 +76,131 @@ export async function shortenStorageUrl(url: string): Promise<string> {
     .maybeSingle();
   if (doc?.id) {
     const fileName = String((doc.metadata as { fileName?: string } | null)?.fileName || "");
-    const short = shortDatasheetUrl(String(doc.id), String(doc.title || "datasheet"), fileName || null);
-    cache.set(trimmed, short || shortKnowledgeDocumentUrl(String(doc.id)));
-    return cache.get(trimmed)!;
+    const short = ensureAbsoluteAppUrl(
+      shortDatasheetUrl(String(doc.id), String(doc.title || "datasheet"), fileName || null) ||
+        shortKnowledgeDocumentUrl(String(doc.id)),
+    );
+    cache.set(trimmed, short);
+    return short;
   }
 
-  cache.set(trimmed, trimmed);
-  return trimmed;
+  // Fuzzy: match by filename tail (AI often invents wrong folders)
+  const filePart = storagePath.split("/").pop() || "";
+  const stem = filePart.replace(/\.pdf$/i, "").replace(/[_\-]+/g, " ").trim();
+  if (stem.length >= 3) {
+    const { data: candidates } = await supabase
+      .from("knowledge_documents")
+      .select("id, title, metadata, storage_path")
+      .eq("org_id", ORG_ID)
+      .eq("status", "ready")
+      .ilike("title", `%${stem.split(/\s+/)[0]}%`)
+      .limit(20);
+    const lowerFile = filePart.toLowerCase();
+    const hit =
+      (candidates || []).find((c) => {
+        const fn = String((c.metadata as { fileName?: string } | null)?.fileName || "").toLowerCase();
+        const title = String(c.title || "").toLowerCase();
+        const path = String(c.storage_path || "").toLowerCase();
+        return (
+          fn === lowerFile ||
+          path.endsWith(`/${lowerFile}`) ||
+          title.includes(stem.toLowerCase().slice(0, 12))
+        );
+      }) || null;
+    if (hit?.id) {
+      const fileName = String((hit.metadata as { fileName?: string } | null)?.fileName || "");
+      const short = ensureAbsoluteAppUrl(
+        shortDatasheetUrl(String(hit.id), String(hit.title || "datasheet"), fileName || null),
+      );
+      cache.set(trimmed, short);
+      return short;
+    }
+  }
+
+  // Unknown / invented Storage URL — drop it (do not pass broken links to customers)
+  cache.set(trimmed, "");
+  return "";
 }
 
 export async function shortenDownloadLinks(
-  links: Array<{ title: string; url: string }>,
-): Promise<Array<{ title: string; url: string }>> {
-  const out: Array<{ title: string; url: string }> = [];
+  links: Array<{ title: string; url: string; fileName?: string }>,
+): Promise<Array<{ title: string; url: string; fileName?: string }>> {
+  const out: Array<{ title: string; url: string; fileName?: string }> = [];
   for (const link of links) {
-    out.push({ title: link.title, url: await shortenStorageUrl(link.url) });
+    const url = isKnowledgeStorageUrl(link.url)
+      ? await shortenStorageUrl(link.url)
+      : ensureAbsoluteAppUrl(link.url);
+    if (!url) continue;
+    out.push({ title: link.title, url, fileName: link.fileName });
   }
   return out;
 }
 
 /** Replace any long knowledge Storage URLs inside assistant text. */
 export async function rewriteStorageUrlsInText(text: string): Promise<string> {
-  if (!text || !isKnowledgeStorageUrl(text)) return text;
+  if (!text || !STORAGE_URL_RE.test(text)) return text;
+  STORAGE_URL_RE.lastIndex = 0;
 
-  const re = /https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi;
-  const matches = text.match(re) || [];
+  const matches = text.match(STORAGE_URL_RE) || [];
   if (!matches.length) return text;
 
   let out = text;
   const unique = [...new Set(matches)];
   for (const url of unique) {
     const short = await shortenStorageUrl(url);
-    if (short !== url) {
-      out = out.split(url).join(short);
-    }
+    out = out.split(url).join(short || "");
   }
-  return out;
+  return out.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/**
+ * Final customer-facing scrub: no supabase storage URLs; attach verified short downloads.
+ */
+export async function sanitizeAssistantFileLinks(
+  text: string,
+  downloadLinks: Array<{ title: string; url: string }>,
+  options?: { channel?: "whatsapp" | "website" },
+): Promise<string> {
+  let out = await rewriteStorageUrlsInText(text || "");
+  out = out.replace(STORAGE_MD_RE, "");
+  out = out.replace(STORAGE_URL_RE, "");
+  out = out.replace(/\[[^\]]*\]\(\s*\)/g, "");
+  out = out.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+
+  const links = downloadLinks
+    .map((l) => ({ title: l.title, url: ensureAbsoluteAppUrl(l.url) }))
+    .filter((l) => l.url && /^https?:\/\//i.test(l.url));
+
+  if (links.length === 0) return out;
+
+  const alreadyHasShort = links.some(
+    (l) => out.includes(l.url) || out.includes("/f/") || out.includes("/c/") || out.includes("/d/"),
+  );
+  if (alreadyHasShort && links.every((l) => out.includes(l.title) || out.includes(l.url))) {
+    return out;
+  }
+
+  // Strip leftover invented catalogue dumps, then append verified links
+  out = out
+    .replace(/\n*Downloads:\n(?:[•\-*].*\n?)+/gi, "")
+    .replace(/(?:📄\s*)?\[[^\]]+\.pdf\]\([^)]+\)/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  const block =
+    options?.channel === "whatsapp"
+      ? links.map((l) => `📄 ${l.title}\n${l.url}`).join("\n\n")
+      : links.map((l) => `📄 [${l.title}](${l.url})`).join("\n");
+
+  return `${out}${out ? "\n\n" : ""}${block}`.trim();
+}
+
+export function stripStorageUrlsFromText(text: string): string {
+  return (text || "")
+    .replace(STORAGE_MD_RE, "")
+    .replace(STORAGE_URL_RE, "[file]")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export function storagePublicUrl(path: string): string {

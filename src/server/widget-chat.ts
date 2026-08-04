@@ -676,18 +676,23 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
 
     const knowledgeContext = chunks
       .map((c, i) => `[${i + 1}] (${c.document_title}, relevance ${c.similarity.toFixed(2)})\n${c.content}`)
-      .join("\n\n");
+      .join("\n\n")
+      .replace(/https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi, "[file]");
 
-    const { rewriteStorageUrlsInText, shortenDownloadLinks } = await import("@/server/shorten-urls");
+    const { sanitizeAssistantFileLinks, shortenDownloadLinks } = await import("@/server/shorten-urls");
+    // Prefer Datasheets catalogue matches; don't mix random chunk URLs that can be long/broken.
     let downloadLinks = await shortenDownloadLinks(
-      [
-        ...downloads,
-        ...chunks
-          .filter((c) => c.download_url)
-          .map((c) => ({ title: c.document_title, url: c.download_url as string })),
-      ]
+      (downloads.length > 0
+        ? downloads
+        : chunks
+            .filter((c) => c.download_url)
+            .map((c) => ({
+              title: /\.pdf$/i.test(c.document_title) ? c.document_title : `${c.document_title}.pdf`,
+              url: c.download_url as string,
+              fileName: /\.pdf$/i.test(c.document_title) ? c.document_title : `${c.document_title}.pdf`,
+            }))
+      )
         .filter((link, index, arr) => arr.findIndex((x) => x.url === link.url) === index)
-        // Prefer photo bubbles over duplicate image download links
         .filter((link) => !referenceImages.some((img) => link.url.includes(img.documentId)))
         .slice(0, 5),
     );
@@ -711,12 +716,11 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       memoryEnabled: agentCfg.memoryEnabled,
       toolKeys: await resolveAgentToolKeys({ allowedOnAgent: agentCfg.allowedTools }),
     });
-    let reply = await rewriteStorageUrlsInText(ai.reply || buildPlaceholderAiReply(text));
-    if (downloadLinks.length > 0 && !/https?:\/\//i.test(reply) && !/\.pdf\]\(/i.test(reply)) {
-      reply +=
-        "\n\n" +
-        downloadLinks.map((l) => `📄 [${l.title}](${l.url})`).join("\n");
-    }
+    let reply = await sanitizeAssistantFileLinks(
+      ai.reply || buildPlaceholderAiReply(text),
+      downloadLinks,
+      { channel: "website" },
+    );
     if (referenceImages.length > 0 && !/reference|photo|image|install/i.test(reply)) {
       const collections = [...new Set(referenceImages.map((r) => r.collection))];
       reply += `\n\nSharing ${referenceImages.length} reference photo(s) from ${collections.join(", ")}. Tap a photo to open or download.`;

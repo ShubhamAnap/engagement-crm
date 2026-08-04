@@ -76,7 +76,7 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
     "If you are uncertain, say so briefly and ask one clarifying question.",
     "Prefer facts from the provided Knowledge Base context when available. Do not invent exact technical specs.",
     "If download links are provided for catalogues/datasheets/PDFs, include them as markdown links where the link text is exactly the .pdf file name (e.g. [E-Series-Inverter.pdf](url)). Never invent file names or URLs.",
-    "ONLY use the download URLs provided in “Available download links”. Never invent links and never paste raw supabase.co/storage URLs — those long storage links are forbidden.",
+    "ONLY use the download URLs provided in “Available download links”. Never invent links. Never paste supabase.co or /storage/v1/ URLs — those are forbidden and often broken.",
     "If reference photos are being shared as images in chat, briefly say you are sharing installation/application reference photos from the matching Knowledge Base collection. Do not invent photo URLs.",
     "If the user asks for a human, confirm that a human support executive will take over.",
     `Visitor: ${input.visitorName}`,
@@ -206,19 +206,15 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
     }
 
     const { rewriteStorageUrlsInText } = await import("@/server/shorten-urls");
+    // Channel handlers (WhatsApp / website) run sanitizeAssistantFileLinks to attach verified links.
     const shortened = await rewriteStorageUrlsInText(reply);
-    return { reply: shortened, source: "openai", model };
+    return { reply: shortened, source: "openai" as const, model };
   } catch (error) {
     console.error("OpenAI request failed", error);
     let fallback = buildPlaceholderAiReply(input.latestUserMessage);
-    if (input.downloadLinks && input.downloadLinks.length > 0) {
-      fallback +=
-        "\n\n" +
-        input.downloadLinks.map((l) => `📄 [${l.title}](${l.url})`).join("\n");
-    }
     const { rewriteStorageUrlsInText } = await import("@/server/shorten-urls");
     fallback = await rewriteStorageUrlsInText(fallback);
-    return { reply: fallback, source: "fallback", model };
+    return { reply: fallback, source: "fallback" as const, model };
   } finally {
     clearTimeout(timer);
   }

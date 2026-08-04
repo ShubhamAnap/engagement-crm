@@ -356,15 +356,18 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             findCatalogueDownloads(text),
             findReferenceImages(text, 3),
           ]);
-          const knowledgeContext = chunks.map((c) => c.content).join("\n\n");
+          const knowledgeContext = chunks
+            .map((c) => c.content)
+            .join("\n\n")
+            .replace(/https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi, "[file]");
           const stack = await resolveAgentStack({
             channel: "whatsapp",
             message: text,
           });
           const agentCfg = agentReplyConfig(stack);
-          const { rewriteStorageUrlsInText, shortenDownloadLinks } = await import("@/server/shorten-urls");
+          const { sanitizeAssistantFileLinks, shortenDownloadLinks } = await import("@/server/shorten-urls");
           const downloadLinks = await shortenDownloadLinks(
-            downloads.filter((d) => !referenceImages.some((img) => d.url.includes(img.documentId))),
+            downloads.filter((d) => !referenceImages.some((img) => d.url.includes(img.documentId || ""))),
           );
           const generated = await generateOpenAiReply({
             visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
@@ -383,12 +386,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             memoryEnabled: agentCfg.memoryEnabled,
             toolKeys: await resolveAgentToolKeys({ allowedOnAgent: agentCfg.allowedTools }),
           });
-          reply = await rewriteStorageUrlsInText(generated.reply);
-          if (downloadLinks.length > 0 && !/https?:\/\//i.test(reply) && !/\.pdf\]\(/i.test(reply)) {
-            reply +=
-              "\n\n" +
-              downloadLinks.map((l) => `📄 ${l.title}\n${l.url}`).join("\n\n");
-          }
+          reply = await sanitizeAssistantFileLinks(generated.reply, downloadLinks, { channel: "whatsapp" });
           if (referenceImages.length > 0 && !/reference|photo|image|install/i.test(reply)) {
             const collections = [...new Set(referenceImages.map((r) => r.collection))];
             reply += `\n\nSending ${referenceImages.length} reference photo(s) from ${collections.join(", ")}.`;

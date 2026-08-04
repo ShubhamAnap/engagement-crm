@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -155,6 +155,7 @@ function Page() {
   const [sendingProduct, setSendingProduct] = useState(false);
   const [productModalOpen, setProductModalOpen] = useState(false);
   const attachInputRef = useRef<HTMLInputElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
   const [leadStatus, setLeadStatus] = useState<LeadStatus>("New");
   const [leadPriority, setLeadPriority] = useState<PriorityLevel>("Medium");
   const [layout, setLayout] = useState<Record<string, number> | undefined>(undefined);
@@ -250,6 +251,18 @@ function Page() {
     queryFn: () => listMessages(selectedId!),
     refetchInterval: 4000,
   });
+
+  // Open thread at latest message (WhatsApp-style), not at the top of history
+  useLayoutEffect(() => {
+    const el = messagesScrollRef.current;
+    if (!el || messagesQuery.isLoading) return;
+    const jump = () => {
+      el.scrollTop = el.scrollHeight;
+    };
+    jump();
+    const t = window.requestAnimationFrame(jump);
+    return () => window.cancelAnimationFrame(t);
+  }, [selectedId, messagesQuery.data, messagesQuery.isLoading]);
 
   const lastCustomerMessageAt = useMemo(() => {
     const msgs = messagesQuery.data ?? [];
@@ -675,7 +688,10 @@ function Page() {
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:p-4">
+          <div
+            ref={messagesScrollRef}
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:p-4"
+          >
             <div className="space-y-3">
               {messagesQuery.isLoading ? (
                 <ListSkeleton rows={4} />

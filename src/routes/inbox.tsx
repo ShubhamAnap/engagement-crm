@@ -88,6 +88,26 @@ function messageAttachment(m: DbMessage): { url: string; fileName: string; isIma
   return null;
 }
 
+function messageReferenceImages(
+  m: DbMessage,
+): Array<{ url: string; title: string; collection?: string }> {
+  const raw = (m.metadata as { reference_images?: unknown } | null)?.reference_images;
+  if (!Array.isArray(raw)) return [];
+  const out: Array<{ url: string; title: string; collection?: string }> = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const url = typeof row.url === "string" ? row.url : "";
+    if (!url) continue;
+    out.push({
+      url,
+      title: typeof row.title === "string" ? row.title : "Reference photo",
+      collection: typeof row.collection === "string" ? row.collection : undefined,
+    });
+  }
+  return out;
+}
+
 export const Route = createFileRoute("/inbox")({
   validateSearch: (search: Record<string, unknown>): { c?: string } => ({
     c: typeof search.c === "string" && search.c.length > 0 ? search.c : undefined,
@@ -665,6 +685,7 @@ function Page() {
                 (messagesQuery.data ?? []).map((m) => {
                   const isCustomer = m.sender === "customer";
                   const attach = messageAttachment(m);
+                  const refImages = messageReferenceImages(m);
                   const caption = attach
                     ? m.body.replace(attach.url, "").replace(/\n+/g, " ").trim()
                     : m.body;
@@ -707,6 +728,29 @@ function Page() {
                           ) : (
                             m.body
                           )}
+                          {refImages.length > 0 ? (
+                            <div className="mt-2 space-y-2">
+                              {refImages.map((img) => (
+                                <a
+                                  key={img.url}
+                                  href={img.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="block overflow-hidden rounded-lg bg-black/10"
+                                >
+                                  <img
+                                    src={img.url}
+                                    alt={img.title}
+                                    className="max-h-48 w-full object-cover"
+                                    loading="lazy"
+                                  />
+                                  <div className="px-2 py-1 text-[10px] opacity-90">
+                                    {[img.collection, img.title].filter(Boolean).join(" · ")}
+                                  </div>
+                                </a>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                           <span className="num">{formatClock(m.created_at)}</span>

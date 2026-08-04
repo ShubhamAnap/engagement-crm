@@ -19,8 +19,20 @@ import {
   widgetUploadAttachment,
 } from "@/server/widget-chat";
 
-type ServerMessage = { id: string; sender: string; body: string };
-type UiMsg = { id: string; from: "bot" | "user"; text: string; kind?: "ai" | "agent" };
+type ServerMessage = {
+  id: string;
+  sender: string;
+  body: string;
+  metadata?: Record<string, unknown> | null;
+};
+type RefImage = { url: string; title?: string; collection?: string; file_name?: string };
+type UiMsg = {
+  id: string;
+  from: "bot" | "user";
+  text: string;
+  kind?: "ai" | "agent";
+  images?: RefImage[];
+};
 type VisitorProfile = { name: string; email: string; phone: string; company: string; location: string };
 
 const SESSION_KEY = "enertech-widget-session";
@@ -94,12 +106,32 @@ function mergeMissingFields(current: VisitorProfile, known: Partial<VisitorProfi
   };
 }
 
+function extractReferenceImages(meta: Record<string, unknown> | null | undefined): RefImage[] {
+  const raw = meta?.reference_images;
+  if (!Array.isArray(raw)) return [];
+  const out: RefImage[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const url = typeof row.url === "string" ? row.url : "";
+    if (!url) continue;
+    out.push({
+      url,
+      title: typeof row.title === "string" ? row.title : undefined,
+      collection: typeof row.collection === "string" ? row.collection : undefined,
+      file_name: typeof row.file_name === "string" ? row.file_name : undefined,
+    });
+  }
+  return out;
+}
+
 function toUi(messages: ServerMessage[]): UiMsg[] {
   return messages.map((m) => ({
     id: m.id,
     from: m.sender === "customer" ? "user" : "bot",
     text: m.body,
     kind: m.sender === "agent" ? "agent" : m.sender === "ai" ? "ai" : undefined,
+    images: extractReferenceImages(m.metadata),
   }));
 }
 
@@ -630,7 +662,36 @@ export function ChatWidget() {
                               : { backgroundColor: INK, color: BRAND, border: `1px solid ${BRAND}22` }
                         }
                       >
-                        {m.text}
+                        {m.text ? <p className="whitespace-pre-wrap">{m.text}</p> : null}
+                        {m.images && m.images.length > 0 ? (
+                          <div className="mt-2 space-y-2">
+                            {m.images.map((img) => (
+                              <a
+                                key={img.url}
+                                href={img.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                download={img.file_name || true}
+                                className="block overflow-hidden rounded-lg"
+                                style={{ border: `1px solid ${BRAND}22` }}
+                              >
+                                <img
+                                  src={img.url}
+                                  alt={img.title || "Reference photo"}
+                                  className="max-h-52 w-full object-cover"
+                                  loading="lazy"
+                                />
+                                <div
+                                  className="px-2 py-1 text-[10px] opacity-80"
+                                  style={{ backgroundColor: "#F7F8FC", color: BRAND }}
+                                >
+                                  {[img.collection, img.title].filter(Boolean).join(" · ") ||
+                                    "Open / download photo"}
+                                </div>
+                              </a>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   </div>

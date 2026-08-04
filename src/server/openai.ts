@@ -30,6 +30,8 @@ type GenerateReplyInput = {
   history: HistoryMessage[];
   knowledgeContext?: string;
   downloadLinks?: Array<{ title: string; url: string }>;
+  /** When set, photos are delivered as chat images — do not dump Storage URLs. */
+  referenceImages?: Array<{ title: string; collection: string }>;
   /** Override from configured AI agent */
   systemPrompt?: string;
   model?: string;
@@ -75,6 +77,7 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
     "Prefer facts from the provided Knowledge Base context when available. Do not invent exact technical specs.",
     "If download links are provided for catalogues/datasheets/PDFs/images, include them clearly in your reply as markdown links.",
     "ONLY use the download URLs provided in “Available download links”. Never invent links and never paste raw supabase.co/storage URLs — those long storage links are forbidden.",
+    "If reference photos are being shared as images in chat, briefly say you are sharing installation/application reference photos from the matching Knowledge Base collection. Do not invent photo URLs.",
     "If the user asks for a human, confirm that a human support executive will take over.",
     `Visitor: ${input.visitorName}`,
   ];
@@ -91,6 +94,13 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
   if (input.downloadLinks && input.downloadLinks.length > 0) {
     systemParts.push(
       `Available download links:\n${input.downloadLinks.map((l) => `- ${l.title}: ${l.url}`).join("\n")}`,
+    );
+  }
+  if (input.referenceImages && input.referenceImages.length > 0) {
+    systemParts.push(
+      `Reference photos will appear as images in this chat (not as links):\n${input.referenceImages
+        .map((r) => `- ${r.title} (${r.collection})`)
+        .join("\n")}`,
     );
   }
 

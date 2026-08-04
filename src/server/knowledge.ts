@@ -623,3 +623,152 @@ export async function findCatalogueDownloads(query: string): Promise<Array<{ tit
     })
     .slice(0, 8);
 }
+
+export type ReferenceImage = {
+  documentId: string;
+  title: string;
+  collection: string;
+  /** Public HTTPS Storage URL (safe for WhatsApp image.link). */
+  imageUrl: string;
+  mimeType: string;
+  fileName: string;
+};
+
+/** Hindi/English cues that the visitor wants installation / application reference photos. */
+export function wantsReferenceImages(query: string): boolean {
+  const q = query.toLowerCase();
+  return /reference|refrence|install|installation|site\s*photo|gallery|photo|picture|image|\bpic\b|dikhao|dikha|dikhai|hospital|cold\s*storage|petrol|pump|fire\s*(ref|safety|install|system)?|project\s*photo|application|show\s*(me\s*)?(photo|image|pic)|photo\s*bhejo|image\s*bhejo|\bref\b|site\s*ref|install\s*ref/.test(
+    q,
+  );
+}
+
+const COLLECTION_ALIASES: Array<{ match: RegExp; boost: string }> = [
+  { match: /cold\s*storage|coldstore|cold\s*room|freezer|cold\s*chain/, boost: "cold" },
+  { match: /petrol|fuel\s*station|filling\s*station|petrol\s*pump/, boost: "petrol" },
+  { match: /hospital|clinic|medical|healthcare|icu/, boost: "hospital" },
+  { match: /fire\s*(safety|ref|install|system|fighting)?|sprinkler/, boost: "fire" },
+  { match: /poultry|broiler|chicken\s*farm|hatchery/, boost: "poultry" },
+  { match: /farm\s*house|farmhouse|house\/farm|residential|bungalow|villa/, boost: "house" },
+  { match: /data\s*cent(?:er|re)|server\s*room/, boost: "data" },
+  { match: /mall|retail|shop|store/, boost: "mall" },
+  { match: /factory|industry|industrial|plant/, boost: "industr" },
+  { match: /hotel|resort/, boost: "hotel" },
+  { match: /bank|atm/, boost: "bank" },
+  { match: /school|college|university|campus/, boost: "school" },
+];
+
+function scoreReferenceDoc(options: {
+  query: string;
+  title: string;
+  fileName: string;
+  collectionName: string;
+}): number {
+  const q = options.query.toLowerCase();
+  const hay = `${options.title} ${options.fileName} ${options.collectionName}`.toLowerCase();
+  let score = 0;
+
+  const tokens = q.split(/[^a-z0-9]+/).filter((w) => w.length > 2);
+  for (const w of tokens) {
+    if (hay.includes(w)) score += 2;
+    if (options.collectionName.toLowerCase().includes(w)) score += 3;
+  }
+
+  for (const alias of COLLECTION_ALIASES) {
+    if (alias.match.test(q) && options.collectionName.toLowerCase().includes(alias.boost)) {
+      score += 8;
+    }
+    if (alias.match.test(q) && hay.includes(alias.boost)) {
+      score += 3;
+    }
+  }
+
+  // Soft boost for install/reference intent even without exact collection name
+  if (/install|reference|refrence|gallery|site\s*photo|dikhao/.test(q)) score += 1;
+
+  return score;
+}
+
+/**
+ * Find ready knowledge-base images for application / installation references.
+ * Prefers collections whose names match the ask (Cold Storage, Petrol Pump, Hospital, …).
+ */
+export async function findReferenceImages(query: string, limit = 3): Promise<ReferenceImage[]> {
+  if (!wantsReferenceImages(query)) return [];
+
+  const supabase = createServiceSupabase();
+  const { data: docs, error } = await supabase
+    .from("knowledge_documents")
+    .select("id, title, source_url, storage_path, mime_type, metadata, collection:knowledge_collections(name)")
+    .eq("org_id", ORG_ID)
+    .eq("status", "ready")
+    .order("updated_at", { ascending: false })
+    .limit(200);
+
+  if (error) {
+    console.error("findReferenceImages failed", error.message);
+    return [];
+  }
+
+  const scored: Array<ReferenceImage & { score: number }> = [];
+
+  for (const doc of docs ?? []) {
+    const mime = (doc.mime_type as string | null) || "";
+    const fileName = String((doc.metadata as { fileName?: string; kind?: string } | null)?.fileName || "");
+    const kind = String((doc.metadata as { kind?: string } | null)?.kind || "");
+    const collectionRel = doc.collection as { name?: string } | { name?: string }[] | null;
+    const collectionName = String(
+      Array.isArray(collectionRel) ? collectionRel[0]?.name || "" : collectionRel?.name || "",
+    );
+
+    const isImage =
+      kind === "image" || isImageFile(fileName, mime) || mime.startsWith("image/");
+    if (!isImage) continue;
+
+    const imageUrl = doc.storage_path
+      ? publicFileUrl(doc.storage_path as string)
+      : (doc.source_url as string | null);
+    if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) continue;
+
+    const score = scoreReferenceDoc({
+      query,
+      title: String(doc.title || ""),
+      fileName,
+      collectionName,
+    });
+
+    scored.push({
+      documentId: String(doc.id),
+      title: String(doc.title || fileName || "Reference photo"),
+      collection: collectionName || "Knowledge Base",
+      imageUrl,
+      mimeType: mime || "image/jpeg",
+      fileName: fileName || "reference.jpg",
+      score,
+    });
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+
+  // If the user named an application (hospital, cold storage, …), prefer matches with score >= 5
+  const namedApp = COLLECTION_ALIASES.some((a) => a.match.test(query.toLowerCase()));
+  const filtered = namedApp ? scored.filter((s) => s.score >= 5) : scored.filter((s) => s.score >= 1);
+  const pool = filtered.length > 0 ? filtered : scored;
+
+  const seen = new Set<string>();
+  const out: ReferenceImage[] = [];
+  for (const item of pool) {
+    if (seen.has(item.imageUrl) || seen.has(item.documentId)) continue;
+    seen.add(item.imageUrl);
+    seen.add(item.documentId);
+    out.push({
+      documentId: item.documentId,
+      title: item.title,
+      collection: item.collection,
+      imageUrl: item.imageUrl,
+      mimeType: item.mimeType,
+      fileName: item.fileName,
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}

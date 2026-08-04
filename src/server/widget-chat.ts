@@ -7,7 +7,7 @@ import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
-import { findCatalogueDownloads, retrieveKnowledgeContext } from "@/server/knowledge";
+import { findCatalogueDownloads, findReferenceImages, retrieveKnowledgeContext } from "@/server/knowledge";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -668,9 +668,10 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
         ? history.slice(0, -1)
         : history;
 
-    const [chunks, downloads] = await Promise.all([
+    const [chunks, downloads, referenceImages] = await Promise.all([
       retrieveKnowledgeContext(text, 6),
       findCatalogueDownloads(text),
+      findReferenceImages(text, 3),
     ]);
 
     const knowledgeContext = chunks
@@ -686,6 +687,8 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
           .map((c) => ({ title: c.document_title, url: c.download_url as string })),
       ]
         .filter((link, index, arr) => arr.findIndex((x) => x.url === link.url) === index)
+        // Prefer photo bubbles over duplicate image download links
+        .filter((link) => !referenceImages.some((img) => link.url.includes(img.documentId)))
         .slice(0, 5),
     );
 
@@ -701,6 +704,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       history: priorHistory,
       knowledgeContext,
       downloadLinks,
+      referenceImages: referenceImages.map((r) => ({ title: r.title, collection: r.collection })),
       systemPrompt: agentCfg.systemPrompt,
       model: agentCfg.model,
       agentName: agentCfg.agentName,
@@ -712,6 +716,10 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       reply +=
         "\n\nDownloads:\n" +
         downloadLinks.map((l) => `• ${l.title}: ${l.url}`).join("\n");
+    }
+    if (referenceImages.length > 0 && !/reference|photo|image|install/i.test(reply)) {
+      const collections = [...new Set(referenceImages.map((r) => r.collection))];
+      reply += `\n\nSharing ${referenceImages.length} reference photo(s) from ${collections.join(", ")}. Tap a photo to open or download.`;
     }
     const source = ai.source;
     const inspector = buildAnswerInspector({
@@ -733,7 +741,17 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       body: reply,
       confidence: inspector.confidence,
       sources: inspector.sources,
-      metadata: inspector.metadata,
+      metadata: {
+        ...inspector.metadata,
+        reference_images: referenceImages.map((r) => ({
+          url: r.imageUrl,
+          title: r.title,
+          collection: r.collection,
+          file_name: r.fileName,
+          mime_type: r.mimeType,
+          document_id: r.documentId,
+        })),
+      },
     });
     if (aiErr) throw new Error(aiErr.message);
 

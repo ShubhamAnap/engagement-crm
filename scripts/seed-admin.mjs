@@ -50,6 +50,33 @@ async function main() {
 
   let user = listed.users.find((u) => u.email?.toLowerCase() === email.toLowerCase());
 
+  // If email changed in .env, update the existing Admin auth user instead of creating a duplicate.
+  if (!user) {
+    const { data: adminProfiles } = await supabase
+      .from("profiles")
+      .select("id, email, role")
+      .eq("org_id", ORG_ID)
+      .eq("role", "Admin")
+      .limit(1);
+    const adminId = adminProfiles?.[0]?.id;
+    if (adminId) {
+      const existing = listed.users.find((u) => u.id === adminId);
+      if (existing) {
+        const { data: updated, error: updateError } = await supabase.auth.admin.updateUserById(adminId, {
+          email,
+          password,
+          email_confirm: true,
+        });
+        if (updateError) {
+          console.error("updateUser (email change) failed:", updateError.message);
+          process.exit(1);
+        }
+        user = updated.user;
+        console.log(`Moved Admin login to new email: ${user.email}`);
+      }
+    }
+  }
+
   if (!user) {
     const { data: created, error: createError } = await supabase.auth.admin.createUser({
       email,
@@ -63,8 +90,18 @@ async function main() {
     }
     user = created.user;
     console.log(`Created auth user: ${user.email}`);
-  } else {
-    console.log(`Auth user already exists: ${user.email}`);
+  } else if (user.email?.toLowerCase() === email.toLowerCase()) {
+    const { data: updated, error: updateError } = await supabase.auth.admin.updateUserById(user.id, {
+      email,
+      password,
+      email_confirm: true,
+    });
+    if (updateError) {
+      console.error("updateUser failed:", updateError.message);
+      process.exit(1);
+    }
+    user = updated.user;
+    console.log(`Updated auth password for: ${user.email}`);
   }
 
   const { error: profileError } = await supabase.from("profiles").upsert(

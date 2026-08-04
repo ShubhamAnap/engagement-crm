@@ -304,6 +304,7 @@ Brief notes from each working session — append, don't delete.
 
 ### 2026-08-04
 - **Website widget origin allowlist:** Channels → Website → allowed domains (stored in channel `config.allowed_origins`). Empty list blocks every site except always-allowed preview hosts (`enertechups-ai.onrender.com`, localhost, `VITE_APP_URL` host). Subdomains and paths of an allowed apex are included automatically. Embed passes `parentOrigin` via `widget.js`; server checks `pageOrigin` on all widget APIs (`src/lib/widget-origins.ts`, `assertWidgetAccess` in `widget-chat.ts`).
+- **KB reference photos (Website + WhatsApp):** `findReferenceImages` matches application collections (Cold Storage, Petrol Pump, Hospital, Fire, …) when customers ask for install/reference photos. Website chat shows inline image bubbles (tap to open/download). WhatsApp sends real image messages via Cloud API. Upload ready images under Knowledge collections for this to work.
 
 ### 2026-08-03
 - **Website chat visitor UX:** Embed panel uses EnerTech `#0B2388` / white. Required contact = name, email, phone, location (company optional). After save / returning browser session → chat-only + tiny header **Edit**. Circular launcher remains **ASK EnerTech**. Mic = browser speech-to-text (edit then send).

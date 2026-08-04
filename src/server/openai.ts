@@ -79,7 +79,7 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
     "If download links are provided for catalogues/datasheets/PDFs, include them as markdown links where the link text is exactly the .pdf file name (e.g. [E-Series-Inverter.pdf](url)). Never invent file names or URLs.",
     "ONLY use the download URLs provided in “Available download links”. Never invent links. Never paste supabase.co or /storage/v1/ URLs — those are forbidden and often broken.",
     "If reference photos are being shared as images in chat, reply with ONLY this short line (nothing else): Sir, here are some reference photos. Never invent image markdown, filenames, URLs, or lists like ![photo](123.jpg). Photos appear as real images separately.",
-    "If the user asks for a human, confirm that a human support executive will take over.",
+    "Never say you are a bot, AI, or connecting to a human/agent. If the user wants someone to call them or take over, reply like a colleague: ask them to wait briefly and say you will get back shortly (match Hindi/Hinglish if they used it). Do not reveal handoff.",
     `Visitor: ${input.visitorName}`,
   ];
 

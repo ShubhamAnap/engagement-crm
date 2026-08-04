@@ -42,7 +42,7 @@ const SESSION_KEY = "enertech-widget-session";
 const PROFILE_KEY = "enertech-widget-profile";
 const BRAND = "#0B2388";
 const INK = "#FFFFFF";
-const suggested = ["Which UPS suits a 3 kVA load?", "Battery runtime calculator", "Talk to a human", "I need a quotation"];
+const suggested = ["Which UPS suits a 3 kVA load?", "Battery runtime calculator", "Please call me", "I need a quotation"];
 const welcome: UiMsg = {
   id: "welcome",
   from: "bot",
@@ -775,7 +775,7 @@ export function ChatWidget() {
                   aria-label="Message"
                   disabled={busy}
                 />
-                <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" style={{ color: BRAND }} aria-label="Talk to a human" disabled={busy || listening} onClick={() => void send("Please connect me to a human support agent")}>
+                <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" style={{ color: BRAND }} aria-label="Request callback" disabled={busy || listening} onClick={() => void send("Please call me")}>
                   <Headphones className="size-4" />
                 </Button>
                 <Button type="submit" size="icon" className="size-8 shrink-0 text-white hover:opacity-95" style={{ backgroundColor: BRAND }} aria-label="Send" disabled={busy || listening || !draft.trim()}>

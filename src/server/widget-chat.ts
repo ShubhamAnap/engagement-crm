@@ -7,8 +7,17 @@ import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
-import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, REFERENCE_PHOTOS_REPLY, wantsReferenceImages } from "@/server/knowledge";
+import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, REFERENCE_PHOTOS_REPLY, wantsReferenceImages, customerAskedForMorePhotos } from "@/server/knowledge";
 import { isOffTopicMessage, OFF_TOPIC_REPLY, isAckOnlyMessage, isGreetingOnlyMessage, GREETING_REPLY } from "@/lib/enertech-scope";
+import {
+  wantsHumanHandoff,
+  humanWaitReply,
+  isServiceIntent,
+  emptyServiceTicket,
+  mergeServiceTicketFromText,
+  nextServiceTicketPrompt,
+  type ServiceTicket,
+} from "@/lib/conversation-guards";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -631,7 +640,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
 
     const { data: convo, error: convoError } = await supabase
       .from("conversations")
-      .select("id, status, visitor_name, visitor_email, visitor_phone, visitor_company, customer_id, lead_id, tags, metadata, agent_id, channel")
+      .select("id, status, visitor_name, visitor_email, visitor_phone, visitor_company, customer_id, lead_id, tags, metadata, agent_id, channel, unread_count")
       .eq("id", data.conversationId)
       .eq("org_id", ORG_ID)
       .maybeSingle();
@@ -647,9 +656,20 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
     });
     if (customerErr) throw new Error(customerErr.message);
 
+    const unread = Number(convo.unread_count || 0) + 1;
+    await supabase
+      .from("conversations")
+      .update({
+        unread_count: unread,
+        preview: text.slice(0, 160),
+        last_message_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", data.conversationId);
+
     await ensureConversationLinks(supabase, convo, text);
 
-    const escalate = /human|agent|support executive/i.test(text);
+    const escalate = wantsHumanHandoff(text);
     const aiPaused = convo.status === "human" || convo.status === "escalated" || convo.status === "resolved" || convo.status === "closed";
 
     // Human takeover / escalated: save customer message only ? do not call OpenAI.
@@ -661,6 +681,34 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
         .order("created_at", { ascending: true });
       if (error) throw new Error(error.message);
       return { messages: messages ?? [], reply: null, source: "paused", aiPaused: true, status: convo.status };
+    }
+
+    if (escalate) {
+      const wait = humanWaitReply(text);
+      await supabase
+        .from("conversations")
+        .update({ status: "escalated", assignee_label: "Human queue", preview: wait.slice(0, 160) })
+        .eq("id", data.conversationId);
+      await supabase.from("messages").insert({
+        org_id: ORG_ID,
+        conversation_id: data.conversationId,
+        sender: "ai",
+        body: wait,
+        metadata: { handoff: true, human_like_wait: true },
+      });
+      try {
+        const { fireAutomations } = await import("@/server/automation-engine");
+        fireAutomations("conversation_escalated", { conversationId: data.conversationId });
+      } catch (err) {
+        console.error("escalation automation", err);
+      }
+      return {
+        messages: await getConversationMessages(supabase, data.conversationId),
+        reply: wait,
+        source: "fallback",
+        aiPaused: true,
+        status: "escalated",
+      };
     }
 
     const history = await getConversationMessages(supabase, data.conversationId);
@@ -796,14 +844,81 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       };
     }
 
+    // Service ticket intake (structured after-sales)
+    const existingTicket = (prevMeta.service_ticket as ServiceTicket | undefined) || null;
+    if (isServiceIntent(text) || (existingTicket && existingTicket.status === "collecting")) {
+      const base = existingTicket || emptyServiceTicket();
+      const ticket = mergeServiceTicketFromText(base, text);
+      const tags = Array.isArray(convo.tags) ? [...convo.tags] : [];
+      if (!tags.includes("Service")) tags.push("Service");
+      const nextMeta: Record<string, unknown> = { ...prevMeta, service_ticket: ticket };
+      delete nextMeta.pending_catalogue_options;
+      const reply = nextServiceTicketPrompt(ticket);
+      const patch: Record<string, unknown> = {
+        metadata: nextMeta,
+        tags,
+        preview: reply.slice(0, 160),
+        last_message_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      if (ticket.status === "ready") {
+        nextMeta.service_ticket = { ...ticket, status: "handed_off" };
+        patch.metadata = nextMeta;
+        patch.status = "escalated";
+        patch.assignee_label = "Human queue";
+      }
+      await supabase.from("conversations").update(patch).eq("id", data.conversationId);
+      await supabase.from("messages").insert({
+        org_id: ORG_ID,
+        conversation_id: data.conversationId,
+        sender: "ai",
+        body: reply,
+        metadata: { service_ticket: ticket },
+      });
+      if (ticket.status === "ready") {
+        try {
+          const { fireAutomations } = await import("@/server/automation-engine");
+          fireAutomations("conversation_escalated", { conversationId: data.conversationId });
+        } catch (err) {
+          console.error("service escalate automation", err);
+        }
+      }
+      return {
+        messages: await getConversationMessages(supabase, data.conversationId),
+        reply,
+        source: "openai",
+        aiPaused: ticket.status === "ready",
+        status: ticket.status === "ready" ? "escalated" : convo.status,
+      };
+    }
+
+    const sentPhotoIds = Array.isArray(prevMeta.sent_reference_ids)
+      ? (prevMeta.sent_reference_ids as string[])
+      : [];
+    const lastCollection =
+      typeof prevMeta.last_reference_collection === "string"
+        ? prevMeta.last_reference_collection
+        : null;
+    const askingMore = customerAskedForMorePhotos(text);
+
     const [chunks, referenceImages] = await Promise.all([
       retrieveKnowledgeContext(text, 6),
-      findReferenceImages(text),
+      findReferenceImages(text, 3, {
+        excludeDocumentIds: sentPhotoIds,
+        preferCollection: askingMore ? lastCollection : null,
+      }),
     ]);
 
-    if (referenceImages.length > 0 && wantsReferenceImages(text)) {
+    if (
+      referenceImages.length > 0 &&
+      (wantsReferenceImages(text) || (askingMore && lastCollection))
+    ) {
       const photos = referenceImages.slice(0, 3);
-      const reply = REFERENCE_PHOTOS_REPLY;
+      const reply = askingMore
+        ? "Sir, here are some more reference photos."
+        : REFERENCE_PHOTOS_REPLY;
+      const newIds = [...sentPhotoIds, ...photos.map((p) => p.documentId)];
+      const collection = photos[0]?.collection || lastCollection;
       const inspector = buildAnswerInspector({
         chunks: [],
         replySource: "openai",
@@ -814,6 +929,16 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
         downloadCount: 0,
         memoryEnabled: true,
       });
+      await supabase
+        .from("conversations")
+        .update({
+          metadata: {
+            ...prevMeta,
+            sent_reference_ids: newIds.slice(-30),
+            last_reference_collection: collection,
+          },
+        })
+        .eq("id", data.conversationId);
       const { error: photoErr } = await supabase.from("messages").insert({
         org_id: ORG_ID,
         conversation_id: data.conversationId,
@@ -834,6 +959,32 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
         },
       });
       if (photoErr) throw new Error(photoErr.message);
+      await supabase
+        .from("conversations")
+        .update({
+          preview: reply.slice(0, 160),
+          last_message_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", data.conversationId);
+      return {
+        messages: await getConversationMessages(supabase, data.conversationId),
+        reply,
+        source: "openai",
+        aiPaused: false,
+        status: convo.status,
+      };
+    }
+
+    if (askingMore && lastCollection && referenceImages.length === 0) {
+      const reply =
+        "Sir, I have shared all available reference photos for now. Please tell me if you need a catalogue or service help.";
+      await supabase.from("messages").insert({
+        org_id: ORG_ID,
+        conversation_id: data.conversationId,
+        sender: "ai",
+        body: reply,
+      });
       await supabase
         .from("conversations")
         .update({
@@ -967,29 +1118,8 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
         specialist_id: agentCfg.specialistId,
       };
     }
-    if (escalate) {
-      convoPatch.status = "escalated";
-      convoPatch.assignee_label = "Human queue";
-      await supabase.from("messages").insert({
-        org_id: ORG_ID,
-        conversation_id: data.conversationId,
-        sender: "system",
-        body: "Connecting you to a human support executive. An agent will reply here shortly ? you can keep typing while you wait.",
-        metadata: { handoff: true },
-      });
-    }
     if (Object.keys(convoPatch).length > 0) {
       await supabase.from("conversations").update(convoPatch).eq("id", data.conversationId);
-    }
-    if (escalate) {
-      try {
-        const { fireAutomations } = await import("@/server/automation-engine");
-        fireAutomations("conversation_escalated", {
-          conversationId: data.conversationId,
-        });
-      } catch (err) {
-        console.error("escalation automation", err);
-      }
     }
 
     const { data: messages, error } = await supabase
@@ -1004,7 +1134,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       reply,
       source,
       aiPaused: false,
-      status: escalate ? "escalated" : convo.status,
+      status: convo.status,
     };
   });
 

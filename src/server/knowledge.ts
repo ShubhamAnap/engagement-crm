@@ -4,6 +4,7 @@ import { createServiceSupabase } from "@/lib/supabase";
 import { chunkText, embedQuery, embedTexts, estimateTokens } from "@/server/embeddings";
 import { ensurePdfFileLabel, shortDatasheetUrl, shortKnowledgeDocumentUrl } from "@/lib/short-links";
 import { isAckOnlyMessage, isGreetingOnlyMessage } from "@/lib/enertech-scope";
+import { isServiceIntent } from "@/lib/conversation-guards";
 import { shortenStorageUrl } from "@/server/shorten-urls";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
@@ -788,6 +789,7 @@ function toClarifyOption(row: DatasheetRow): CatalogueClarifyOption {
 export function resolveCatalogueChoice(
   query: string,
   pending: Array<{ documentId: string; label: string; title?: string; url?: string; fileName?: string }>,
+  opts?: { numbersAndLabelsOnly?: boolean },
 ): CatalogueSearchResult | null {
   if (!pending.length) return null;
   const q = query.trim().toLowerCase();
@@ -843,15 +845,20 @@ export function resolveCatalogueChoice(
     }
   }
 
+  if (opts?.numbersAndLabelsOnly) return null;
+
   // Soft: family alias against pending labels (prefer best label match, not first)
   for (const family of PRODUCT_FAMILIES) {
     if (!family.ask.test(q)) continue;
+    // Require catalogue-ish intent for soft family pick when message is long
+    if (q.length > 28 && !/catalog|catalogue|pdf|datasheet|brochure|send|share/i.test(q)) {
+      continue;
+    }
     const candidates = pending.filter((p) => family.doc.test(`${p.label} ${p.title || ""}`));
     if (!candidates.length) continue;
     const famHit =
       candidates.find((p) => {
         const hay = `${p.label} ${p.title || ""}`.toLowerCase();
-        // Prefer the dedicated 3PH / 1PH line over "10KW…3PH…" when user typed a short alias
         if (family.id === "3ph") return /^3\s*ph\b/i.test(p.label) && !/10\s*kw|125/i.test(hay);
         if (family.id === "1ph") return /^1\s*ph\b/i.test(p.label);
         return true;
@@ -906,9 +913,18 @@ export async function resolveCatalogueRequest(
     return { mode: "none", downloads: [], clarifyOptions: [], message: "" };
   }
 
+  // Service / fault asks must not pull a pending catalogue PDF
+  const pureNumberPick = /^\d{1,2}$/.test(q);
+  if (isServiceIntent(q) && !pureNumberPick) {
+    return { mode: "none", downloads: [], clarifyOptions: [], message: "" };
+  }
+
   // Follow-up after we listed options
   if (options?.pendingOptions?.length) {
-    const choice = resolveCatalogueChoice(q, options.pendingOptions);
+    // Soft family match only when NOT a service ask (already gated) and not vague noise
+    const choice = resolveCatalogueChoice(q, options.pendingOptions, {
+      numbersAndLabelsOnly: false,
+    });
     if (choice) return choice;
     // Number outside the list — keep the same options visible
     if (/^\d{1,2}$/.test(q)) {
@@ -1122,9 +1138,25 @@ function scoreReferenceDoc(options: {
  * Find ready knowledge-base images for application / installation references.
  * Prefers collections whose names match the ask (Cold Storage, Petrol Pump, Hospital, …).
  */
-export async function findReferenceImages(query: string, limit = REFERENCE_PHOTOS_LIMIT): Promise<ReferenceImage[]> {
-  if (!wantsReferenceImages(query)) return [];
-  const max = Math.min(Math.max(1, limit), customerAskedForMorePhotos(query) ? 6 : REFERENCE_PHOTOS_LIMIT);
+export async function findReferenceImages(
+  query: string,
+  limit = REFERENCE_PHOTOS_LIMIT,
+  options?: {
+    excludeDocumentIds?: string[];
+    preferCollection?: string | null;
+  },
+): Promise<ReferenceImage[]> {
+  const askingMore = customerAskedForMorePhotos(query);
+  const prefer = String(options?.preferCollection || "").trim();
+  const hasPrefer = prefer.length > 0;
+  if (!wantsReferenceImages(query) && !(askingMore && hasPrefer)) return [];
+  const max = Math.min(
+    Math.max(1, limit),
+    askingMore || hasPrefer ? Math.max(REFERENCE_PHOTOS_LIMIT, limit) : REFERENCE_PHOTOS_LIMIT,
+  );
+  const exclude = new Set((options?.excludeDocumentIds || []).map((id) => String(id)));
+  const preferLower = prefer.toLowerCase();
+
   const supabase = createServiceSupabase();
   const { data: docs, error } = await supabase
     .from("knowledge_documents")
@@ -1142,6 +1174,7 @@ export async function findReferenceImages(query: string, limit = REFERENCE_PHOTO
   const scored: Array<ReferenceImage & { score: number }> = [];
 
   for (const doc of docs ?? []) {
+    if (exclude.has(String(doc.id))) continue;
     const mime = (doc.mime_type as string | null) || "";
     const fileName = String((doc.metadata as { fileName?: string; kind?: string } | null)?.fileName || "");
     const kind = String((doc.metadata as { kind?: string } | null)?.kind || "");
@@ -1149,22 +1182,22 @@ export async function findReferenceImages(query: string, limit = REFERENCE_PHOTO
     const collectionName = String(
       Array.isArray(collectionRel) ? collectionRel[0]?.name || "" : collectionRel?.name || "",
     );
+    if (hasPrefer && !collectionName.toLowerCase().includes(preferLower)) continue;
 
     const isImage =
       kind === "image" || isImageFile(fileName, mime) || mime.startsWith("image/");
     if (!isImage) continue;
-
     if (!doc.id || !doc.storage_path) continue;
-    // Serve via app proxy (/d/...) so mobile clients never hit supabase.co directly
     const imageUrl = shortKnowledgeDocumentUrl(String(doc.id));
     if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) continue;
 
-    const score = scoreReferenceDoc({
-      query,
+    let score = scoreReferenceDoc({
+      query: askingMore && hasPrefer ? prefer : query,
       title: String(doc.title || ""),
       fileName,
       collectionName,
     });
+    if (hasPrefer && collectionName.toLowerCase().includes(preferLower)) score += 20;
 
     scored.push({
       documentId: String(doc.id),
@@ -1178,10 +1211,12 @@ export async function findReferenceImages(query: string, limit = REFERENCE_PHOTO
   }
 
   scored.sort((a, b) => b.score - a.score);
-
-  // If the user named an application (hospital, cold storage, …), prefer matches with score >= 5
   const namedApp = COLLECTION_ALIASES.some((a) => a.match.test(query.toLowerCase()));
-  const filtered = namedApp ? scored.filter((s) => s.score >= 5) : scored.filter((s) => s.score >= 1);
+  const filtered = hasPrefer
+    ? scored
+    : namedApp
+      ? scored.filter((s) => s.score >= 5)
+      : scored.filter((s) => s.score >= 1);
   const pool = filtered.length > 0 ? filtered : scored;
 
   const seen = new Set<string>();

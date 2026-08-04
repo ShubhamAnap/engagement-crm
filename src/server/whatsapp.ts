@@ -5,8 +5,18 @@ import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
-import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, REFERENCE_PHOTOS_REPLY, wantsReferenceImages } from "@/server/knowledge";
+import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, REFERENCE_PHOTOS_REPLY, wantsReferenceImages, customerAskedForMorePhotos } from "@/server/knowledge";
 import { isOffTopicMessage, OFF_TOPIC_REPLY, isAckOnlyMessage, isGreetingOnlyMessage, GREETING_REPLY } from "@/lib/enertech-scope";
+import {
+  wantsHumanHandoff,
+  humanWaitReply,
+  isServiceIntent,
+  emptyServiceTicket,
+  mergeServiceTicketFromText,
+  nextServiceTicketPrompt,
+  type ServiceTicket,
+} from "@/lib/conversation-guards";
+import { ensureWhatsAppLeadCustomer } from "@/server/whatsapp-crm";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
@@ -264,6 +274,11 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             timestamp?: string;
             type?: string;
             text?: { body?: string };
+            image?: { id?: string; caption?: string; mime_type?: string };
+            document?: { id?: string; filename?: string; caption?: string; mime_type?: string };
+            audio?: { id?: string; mime_type?: string };
+            video?: { id?: string; caption?: string; mime_type?: string };
+            sticker?: { id?: string };
           }>;
         };
       }>;
@@ -279,7 +294,83 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
       const contactName = value.contacts?.[0]?.profile?.name;
 
       for (const msg of value.messages) {
-        if (msg.type && msg.type !== "text") continue;
+        if (msg.type && msg.type !== "text") {
+          // Accept media — save + human-like ack (no bot/agent wording)
+          const from = msg.from;
+          if (!from) continue;
+          const convo = await findOrCreateWhatsAppConversation(supabase, from, contactName);
+          try {
+            await ensureWhatsAppLeadCustomer(supabase, convo as never, from, contactName);
+          } catch (err) {
+            console.error("WA CRM link failed", err);
+          }
+          const mediaKind = msg.type;
+          const caption =
+            msg.image?.caption ||
+            msg.document?.caption ||
+            msg.video?.caption ||
+            "";
+          const fileHint =
+            msg.document?.filename ||
+            (mediaKind === "audio" ? "voice note" : mediaKind === "image" ? "photo" : mediaKind);
+          const body = caption
+            ? `[${mediaKind}] ${caption}`
+            : `[${mediaKind}] Customer shared ${fileHint}`;
+          if (msg.id) {
+            const { data: dup } = await supabase
+              .from("messages")
+              .select("id")
+              .eq("org_id", ORG_ID)
+              .filter("metadata->>wa_message_id", "eq", msg.id)
+              .limit(1)
+              .maybeSingle();
+            if (dup) continue;
+          }
+          await supabase.from("messages").insert({
+            org_id: ORG_ID,
+            conversation_id: convo.id,
+            sender: "customer",
+            body,
+            metadata: {
+              wa_message_id: msg.id || null,
+              wa_from: from,
+              media_type: mediaKind,
+              media_id: msg.image?.id || msg.document?.id || msg.audio?.id || msg.video?.id || msg.sticker?.id || null,
+              file_name: msg.document?.filename || null,
+            },
+          });
+          const unread = Number(convo.unread_count || 0) + 1;
+          await supabase
+            .from("conversations")
+            .update({
+              last_message_at: new Date().toISOString(),
+              preview: body.slice(0, 160),
+              unread_count: unread,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", convo.id);
+
+          if (mediaKind === "sticker") continue;
+
+          const ack = humanWaitReply(caption || "please check");
+          const mediaAck =
+            mediaKind === "audio"
+              ? "Okay sir, I received your voice note. Please wait — I will reply shortly. You can also type the model, serial number, and problem."
+              : "Okay sir, I received your file. Please wait — I will reply shortly. You can also type the model, serial number, and problem.";
+          try {
+            await sendWhatsAppText(from, mediaKind === "image" && /not\s*work|fault|service|repair/i.test(caption) ? ack : mediaAck, cfg);
+          } catch (err) {
+            console.error("WA media ack failed", err);
+          }
+          await supabase.from("messages").insert({
+            org_id: ORG_ID,
+            conversation_id: convo.id,
+            sender: "ai",
+            body: mediaAck,
+            metadata: { media_ack: true },
+          });
+          continue;
+        }
         const from = msg.from;
         const text = msg.text?.body?.trim();
         if (!from || !text) continue;
@@ -370,12 +461,25 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
         }
 
         const status = convo.status as string;
-        const escalate = /human|agent|support executive/i.test(text);
+        const escalate = wantsHumanHandoff(text);
         if (escalate) {
+          const wait = humanWaitReply(text);
           await supabase
             .from("conversations")
             .update({ status: "escalated", assignee_label: "Human queue" })
             .eq("id", convo.id);
+          await supabase.from("messages").insert({
+            org_id: ORG_ID,
+            conversation_id: convo.id,
+            sender: "ai",
+            body: wait,
+            metadata: { handoff: true, human_like_wait: true },
+          });
+          try {
+            await sendWhatsAppText(from, wait, cfg);
+          } catch (err) {
+            console.error("WA handoff wait send failed", err);
+          }
           try {
             const { fireAutomations } = await import("@/server/automation-engine");
             fireAutomations("conversation_escalated", { conversationId: convo.id as string });
@@ -383,6 +487,12 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             console.error("escalation automation", err);
           }
           continue;
+        }
+
+        try {
+          await ensureWhatsAppLeadCustomer(supabase, convo as never, from, contactName);
+        } catch (err) {
+          console.error("WA CRM link failed", err);
         }
 
         if (status === "human" || status === "escalated" || status === "resolved" || status === "closed") {
@@ -545,15 +655,89 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             continue;
           }
 
+          // Service ticket intake (structured after-sales)
+          const existingTicket = (prevMeta.service_ticket as ServiceTicket | undefined) || null;
+          if (isServiceIntent(text) || (existingTicket && existingTicket.status === "collecting")) {
+            const base = existingTicket || emptyServiceTicket();
+            const ticket = mergeServiceTicketFromText(base, text);
+            const tags = Array.isArray((convo as { tags?: string[] }).tags)
+              ? [...((convo as { tags?: string[] }).tags || [])]
+              : [];
+            if (!tags.includes("Service")) tags.push("Service");
+            const nextMeta: Record<string, unknown> = {
+              ...prevMeta,
+              service_ticket: ticket,
+            };
+            delete nextMeta.pending_catalogue_options;
+            reply = nextServiceTicketPrompt(ticket);
+            if (ticket.status === "ready") {
+              nextMeta.service_ticket = { ...ticket, status: "handed_off" };
+              await supabase
+                .from("conversations")
+                .update({
+                  metadata: nextMeta,
+                  tags,
+                  status: "escalated",
+                  assignee_label: "Human queue",
+                  preview: reply.slice(0, 160),
+                })
+                .eq("id", convo.id);
+            } else {
+              await supabase
+                .from("conversations")
+                .update({ metadata: nextMeta, tags, preview: reply.slice(0, 160) })
+                .eq("id", convo.id);
+            }
+            await supabase.from("messages").insert({
+              org_id: ORG_ID,
+              conversation_id: convo.id,
+              sender: "ai",
+              body: reply,
+              metadata: { service_ticket: ticket },
+            });
+            try {
+              await sendWhatsAppText(from, reply, cfg);
+            } catch (err) {
+              console.error("WA service ticket send failed", err);
+            }
+            if (ticket.status === "ready" || (nextMeta.service_ticket as ServiceTicket)?.status === "handed_off") {
+              try {
+                const { fireAutomations } = await import("@/server/automation-engine");
+                fireAutomations("conversation_escalated", { conversationId: convo.id as string });
+              } catch (err) {
+                console.error("service escalate automation", err);
+              }
+            }
+            continue;
+          }
+
+          const sentPhotoIds = Array.isArray(prevMeta.sent_reference_ids)
+            ? (prevMeta.sent_reference_ids as string[])
+            : [];
+          const lastCollection =
+            typeof prevMeta.last_reference_collection === "string"
+              ? prevMeta.last_reference_collection
+              : null;
+          const askingMore = customerAskedForMorePhotos(text);
           const [chunks, referenceImages] = await Promise.all([
             retrieveKnowledgeContext(text, 6),
-            findReferenceImages(text),
+            findReferenceImages(text, 3, {
+              excludeDocumentIds: sentPhotoIds,
+              preferCollection: askingMore ? lastCollection : null,
+            }),
           ]);
 
-          // Photo ask: short line + up to 3 real images only (no invented markdown / filenames)
-          if (referenceImages.length > 0 && wantsReferenceImages(text)) {
+          // Photo ask: short line + up to 3 real images (more = next batch same collection)
+          if (
+            referenceImages.length > 0 &&
+            (wantsReferenceImages(text) || (askingMore && lastCollection))
+          ) {
             const photos = referenceImages.slice(0, 3);
-            reply = REFERENCE_PHOTOS_REPLY;
+            reply = askingMore
+              ? "Sir, here are some more reference photos."
+              : REFERENCE_PHOTOS_REPLY;
+            const newIds = [...sentPhotoIds, ...photos.map((p) => p.documentId)];
+            const collection = photos[0]?.collection || lastCollection;
             inspector = buildAnswerInspector({
               chunks: [],
               replySource: "openai",
@@ -572,6 +756,17 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               mime_type: r.mimeType,
               document_id: r.documentId,
             }));
+
+            await supabase
+              .from("conversations")
+              .update({
+                metadata: {
+                  ...prevMeta,
+                  sent_reference_ids: newIds.slice(-30),
+                  last_reference_collection: collection,
+                },
+              })
+              .eq("id", convo.id);
 
             await supabase.from("messages").insert({
               org_id: ORG_ID,
@@ -599,6 +794,22 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               } catch (err) {
                 console.error("WhatsApp reference image send failed", err);
               }
+            }
+            continue;
+          }
+
+          if (askingMore && lastCollection && referenceImages.length === 0) {
+            reply = "Sir, I have shared all available reference photos for now. Please tell me if you need a catalogue or service help.";
+            await supabase.from("messages").insert({
+              org_id: ORG_ID,
+              conversation_id: convo.id,
+              sender: "ai",
+              body: reply,
+            });
+            try {
+              await sendWhatsAppText(from, reply, cfg);
+            } catch (err) {
+              console.error("WA more-photos empty send failed", err);
             }
             continue;
           }

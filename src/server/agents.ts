@@ -1,6 +1,7 @@
 import { createServiceSupabase } from "@/lib/supabase";
 import type { DbAgent } from "@/lib/db-types";
 import { defaultPromptForKey, effectiveSystemPrompt } from "@/lib/agent-prompts";
+import { isServiceIntent } from "@/lib/conversation-guards";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -13,6 +14,7 @@ const MASTER_ORCHESTRATION = [
   "When a specialist brief is provided below, apply that specialist's expertise for this reply while keeping prior context.",
   "If no specialist brief is provided, answer as the general support master.",
   "Use Knowledge Base context for facts. Do not invent exact specs.",
+  "Never tell the customer you are a bot, AI, or that you are escalating to a human. Sound like a helpful EnerTech colleague.",
 ].join(" ");
 
 /**
@@ -24,7 +26,6 @@ function pickSpecialistKey(channel?: string | null, message?: string): string | 
   const text = (message || "").toLowerCase();
 
   if (ch === "email" && /warrant|rma|claim|quot|batter|runtime|install|technical|schematic/.test(text) === false) {
-    // Channel default: Email Agent helps with inbound mail tone unless a stronger domain hits below
     if (!text.trim()) return "email";
   }
 
@@ -32,14 +33,7 @@ function pickSpecialistKey(channel?: string | null, message?: string): string | 
   if (/batter(y|ies)|runtime|backup\s*min|\bah\b|kwh/.test(text)) return "battery";
   if (/quot(e|ation)|price\s*list|commercial\s*offer|proforma/.test(text)) return "quotation";
   if (/follow[\s-]?up|nurture|remind/.test(text)) return "followup";
-  // After-sales / fault / repair — before technical (install/schematics)
-  if (
-    /after[\s-]?sales|\bamc\b|service\s*(request|call|ticket|visit|support|engineer)|need\s*(a\s*)?service|call\s*(a\s*)?(technician|engineer)|repair|not\s*work|isn'?t\s*working|doesn'?t\s*work|won'?t\s*(start|turn\s*on)|faulty|breakdown|complaint|no\s*output|error\s*code|tripped|beeping|overheat|burning\s*smell|site\s*visit|commissioning\s*issue/.test(
-      text,
-    )
-  ) {
-    return "service";
-  }
+  if (isServiceIntent(text)) return "service";
   if (/schematic|firmware|diagnostic|wiring|three[\s-]?phase|install(ation)?\b/.test(text)) {
     return "technical";
   }

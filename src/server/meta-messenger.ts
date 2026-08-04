@@ -11,6 +11,7 @@ import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
 import { resolveCatalogueRequest, retrieveKnowledgeContext } from "@/server/knowledge";
 import { isOffTopicMessage, OFF_TOPIC_REPLY } from "@/lib/enertech-scope";
+import { wantsHumanHandoff, humanWaitReply } from "@/lib/conversation-guards";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
@@ -231,20 +232,32 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
     results.push({ conversationId: convo.id as string, messageId: customerMsg.id as string });
 
     const status = convo.status as string;
-    const escalate = /human|agent|support executive/i.test(text);
-        if (escalate) {
-          await supabase
-            .from("conversations")
-            .update({ status: "escalated", assignee_label: "Human queue" })
-            .eq("id", convo.id);
-          try {
-            const { fireAutomations } = await import("@/server/automation-engine");
-            fireAutomations("conversation_escalated", { conversationId: convo.id as string });
-          } catch (err) {
-            console.error("escalation automation", err);
-          }
-          continue;
-        }
+    if (wantsHumanHandoff(text)) {
+      const wait = humanWaitReply(text);
+      await supabase
+        .from("conversations")
+        .update({ status: "escalated", assignee_label: "Human queue", preview: wait.slice(0, 160) })
+        .eq("id", convo.id);
+      await supabase.from("messages").insert({
+        org_id: ORG_ID,
+        conversation_id: convo.id,
+        sender: "ai",
+        body: wait,
+        metadata: { handoff: true, human_like_wait: true },
+      });
+      try {
+        await sendMetaText(type, from, wait, cfg);
+      } catch (err) {
+        console.error("meta handoff wait send failed", err);
+      }
+      try {
+        const { fireAutomations } = await import("@/server/automation-engine");
+        fireAutomations("conversation_escalated", { conversationId: convo.id as string });
+      } catch (err) {
+        console.error("escalation automation", err);
+      }
+      continue;
+    }
 
     if (status === "human" || status === "escalated" || status === "resolved" || status === "closed") {
       continue;

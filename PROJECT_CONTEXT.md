@@ -430,7 +430,28 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 
 ## Next Immediate Step
 
-1. Confirm product image/PDF uploads after `005` + `019` SQL (if not already run).
-2. Run any pending SQL: `015`–`020` as needed for branding, automation wait, WA session, Gmail, merge fields.
-3. Cron: `CRON_URL` + `CRON_SECRET` on the Render cron job (every 5 min).
-4. Later: Settings RBAC / encrypted AI keys / audit logs; Brainmine field map.
+1. Smoke-test on WhatsApp + website: service intent vs catalogue, `ok` silent / `yes` answers, soft wait handoff, more photos, media ack.
+2. Confirm product image/PDF uploads after `005` + `019` SQL (if not already run).
+3. Run any pending SQL: `015`–`020` as needed for branding, automation wait, WA session, Gmail, merge fields.
+4. Cron: `CRON_URL` + `CRON_SECRET` on the Render cron job (every 5 min).
+5. Later: Settings RBAC / encrypted AI keys / audit logs; Brainmine field map.
+
+---
+
+### Session 2026-08-04 — Chat UX batch (human-like handoff + service)
+
+**Customer-facing rule:** Never reveal bot/AI or “connecting to human”. Handoff replies sound like a colleague: *“Okay sir, please wait…”* / Hinglish variant.
+
+| Item | Status |
+|------|--------|
+| 1.1 Service intent beats pending catalogue | DONE (`knowledge.ts` + service ticket path) |
+| 1.2 Ack noise only (`ok`/thanks) — keep yes/no | DONE (`enertech-scope.ts`) |
+| 1.3 Softer commercial scope (delivery/PO/city) | DONE |
+| 1.4 Human-like wait handoff (tight triggers) | DONE (`conversation-guards.ts` + WA/widget/email/meta) |
+| 2.1 WhatsApp Lead + Customer | DONE (`whatsapp-crm.ts`) |
+| 2.2 Website unread bump | DONE (`widget-chat.ts`) |
+| 3.1 More photos same collection | DONE (WA + widget) |
+| 3.2 WA media inbound ack | DONE |
+| 4.1 Service structured ticket → quiet escalate | DONE (WA + widget) |
+
+**Key files:** `src/lib/conversation-guards.ts`, `src/lib/enertech-scope.ts`, `src/server/whatsapp.ts`, `src/server/widget-chat.ts`, `src/server/whatsapp-crm.ts`, `src/server/knowledge.ts`

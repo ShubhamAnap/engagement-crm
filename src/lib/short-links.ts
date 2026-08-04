@@ -89,7 +89,9 @@ export function shortKnowledgeDocumentPath(documentId: string): string {
 export function shortKnowledgeDocumentUrl(documentId: string): string {
   const path = shortKnowledgeDocumentPath(documentId);
   if (!path) return "";
-  return withBase(path);
+  const base = getAppBaseUrl();
+  if (base) return `${base}${path}`;
+  return path;
 }
 
 /** Detect Supabase public knowledge-bucket URLs. */

@@ -1,17 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createServiceSupabase } from "@/lib/supabase";
+import { proxyStorageObject } from "@/server/storage-proxy";
 
 /**
- * Short knowledge-document redirect: /d/{documentId} → Storage PDF/image URL.
- * Public (no auth). Used when sharing KB files in chat / WhatsApp.
+ * Short knowledge-document link: /d/{documentId}
+ * Streams file through this app (no redirect to supabase.co).
  */
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
-const BUCKET = "knowledge";
-
-function publicFileUrl(path: string): string {
-  const base = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
-  return `${base.replace(/\/$/, "")}/storage/v1/object/public/${BUCKET}/${path}`;
-}
 
 export const Route = createFileRoute("/d/$documentId")({
   server: {
@@ -26,29 +21,25 @@ export const Route = createFileRoute("/d/$documentId")({
           const supabase = createServiceSupabase();
           const { data: doc } = await supabase
             .from("knowledge_documents")
-            .select("storage_path, source_url, status")
+            .select("storage_path, mime_type, title, metadata, status")
             .eq("org_id", ORG_ID)
             .eq("id", documentId)
             .maybeSingle();
 
-          if (!doc || String(doc.status) === "failed") {
+          if (!doc?.storage_path || String(doc.status) === "failed") {
             return new Response("File not found", { status: 404 });
           }
 
-          const target =
-            (doc.storage_path ? publicFileUrl(doc.storage_path as string) : null) ||
-            (doc.source_url as string | null);
+          const metaName = String((doc.metadata as { fileName?: string } | null)?.fileName || "");
+          const downloadName =
+            metaName ||
+            (String(doc.title || "document").trim() +
+              (/\.pdf$/i.test(String(doc.title || "")) ? "" : ".pdf"));
 
-          if (!target) {
-            return new Response("File not found", { status: 404 });
-          }
-
-          return new Response(null, {
-            status: 302,
-            headers: {
-              Location: target,
-              "Cache-Control": "public, max-age=300",
-            },
+          return proxyStorageObject({
+            storagePath: doc.storage_path as string,
+            downloadName,
+            mimeType: (doc.mime_type as string | null) || undefined,
           });
         } catch (err) {
           console.error("knowledge short-link error", err);

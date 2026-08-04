@@ -1,17 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createServiceSupabase } from "@/lib/supabase";
+import { proxyStorageObject } from "@/server/storage-proxy";
 
 /**
- * Friendly datasheet redirect: /f/E-Series-Solar-aaf86f2d.pdf → Storage PDF.
- * Public (no auth). Looks like a real PDF filename in chat / WhatsApp.
+ * Friendly datasheet link: /f/BESS-Product-catalouge-645405bf.pdf
+ * Streams the PDF from Storage through this app (no redirect to supabase.co).
  */
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
-const BUCKET = "knowledge";
-
-function publicFileUrl(path: string): string {
-  const base = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
-  return `${base.replace(/\/$/, "")}/storage/v1/object/public/${BUCKET}/${path}`;
-}
 
 export const Route = createFileRoute("/f/$fileSlug")({
   server: {
@@ -27,18 +22,19 @@ export const Route = createFileRoute("/f/$fileSlug")({
           const idMatch = fileSlug.match(/-([0-9a-f]{8})(?:\.pdf)?$/i);
           const shortId = idMatch?.[1]?.toLowerCase();
 
-          let doc:
-            | {
-                storage_path?: string | null;
-                source_url?: string | null;
-                status?: string | null;
-              }
-            | null = null;
+          let doc: {
+            id?: string;
+            storage_path?: string | null;
+            mime_type?: string | null;
+            title?: string | null;
+            metadata?: { fileName?: string } | null;
+            status?: string | null;
+          } | null = null;
 
           if (shortId) {
             const { data: rows } = await supabase
               .from("knowledge_documents")
-              .select("id, storage_path, source_url, status")
+              .select("id, storage_path, mime_type, title, metadata, status")
               .eq("org_id", ORG_ID)
               .like("id", `${shortId}%`)
               .limit(5);
@@ -48,28 +44,21 @@ export const Route = createFileRoute("/f/$fileSlug")({
               null;
           }
 
-          if (!doc) {
-            return new Response("File not found", { status: 404 });
-          }
-          if (String(doc.status) === "failed") {
+          if (!doc?.storage_path || String(doc.status) === "failed") {
             return new Response("File not found", { status: 404 });
           }
 
-          const target =
-            (doc.storage_path ? publicFileUrl(doc.storage_path as string) : null) ||
-            (doc.source_url as string | null);
+          const metaName = String((doc.metadata as { fileName?: string } | null)?.fileName || "");
+          const downloadName =
+            metaName ||
+            (String(doc.title || "").trim()
+              ? `${String(doc.title).trim()}${/\.pdf$/i.test(String(doc.title)) ? "" : ".pdf"}`
+              : fileSlug);
 
-          if (!target) {
-            return new Response("File not found", { status: 404 });
-          }
-
-          return new Response(null, {
-            status: 302,
-            headers: {
-              Location: target,
-              "Cache-Control": "public, max-age=300",
-              "Content-Disposition": `inline; filename="${fileSlug.replace(/"/g, "")}"`,
-            },
+          return proxyStorageObject({
+            storagePath: doc.storage_path as string,
+            downloadName,
+            mimeType: (doc.mime_type as string | null) || "application/pdf",
           });
         } catch (err) {
           console.error("datasheet short-link error", err);

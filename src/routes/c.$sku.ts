@@ -1,18 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createServiceSupabase } from "@/lib/supabase";
+import { proxyStorageObject } from "@/server/storage-proxy";
 
 /**
- * Short catalogue redirect: /c/{sku} → Supabase Storage PDF URL.
- * Public (no auth). Used in WhatsApp / chat so links stay short.
- * Example: https://your-app.onrender.com/c/EN-3000X
+ * Short catalogue link: /c/{sku}
+ * Streams PDF through this app (no redirect to supabase.co).
  */
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
-const BUCKET = "knowledge";
-
-function publicFileUrl(path: string): string {
-  const base = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
-  return `${base.replace(/\/$/, "")}/storage/v1/object/public/${BUCKET}/${path}`;
-}
 
 export const Route = createFileRoute("/c/$sku")({
   server: {
@@ -26,6 +20,7 @@ export const Route = createFileRoute("/c/$sku")({
         try {
           const supabase = createServiceSupabase();
           let product: {
+            name?: string | null;
             catalog_pdf_url?: string | null;
             catalog_pdf_path?: string | null;
             is_active?: boolean | null;
@@ -33,7 +28,7 @@ export const Route = createFileRoute("/c/$sku")({
 
           const exact = await supabase
             .from("products")
-            .select("catalog_pdf_url, catalog_pdf_path, is_active")
+            .select("name, catalog_pdf_url, catalog_pdf_path, is_active")
             .eq("org_id", ORG_ID)
             .eq("sku", sku)
             .maybeSingle();
@@ -41,10 +36,9 @@ export const Route = createFileRoute("/c/$sku")({
           if (exact.data) {
             product = exact.data;
           } else {
-            // Case-insensitive fallback
             const fuzzy = await supabase
               .from("products")
-              .select("catalog_pdf_url, catalog_pdf_path, is_active")
+              .select("name, catalog_pdf_url, catalog_pdf_path, is_active")
               .eq("org_id", ORG_ID)
               .ilike("sku", sku)
               .limit(1)
@@ -56,20 +50,23 @@ export const Route = createFileRoute("/c/$sku")({
             return new Response("Catalogue not found", { status: 404 });
           }
 
-          const target =
-            (product.catalog_pdf_url as string | null) ||
-            (product.catalog_pdf_path ? publicFileUrl(product.catalog_pdf_path as string) : null);
+          let storagePath = (product.catalog_pdf_path as string | null) || null;
+          if (!storagePath && product.catalog_pdf_url) {
+            const m = String(product.catalog_pdf_url).match(
+              /\/storage\/v1\/object\/public\/knowledge\/(.+?)(?:\?|#|$)/i,
+            );
+            storagePath = m?.[1] ? decodeURIComponent(m[1]) : null;
+          }
 
-          if (!target) {
+          if (!storagePath) {
             return new Response("Catalogue not found", { status: 404 });
           }
 
-          return new Response(null, {
-            status: 302,
-            headers: {
-              Location: target,
-              "Cache-Control": "public, max-age=300",
-            },
+          const downloadName = `${String(product.name || sku).trim() || "catalogue"}.pdf`;
+          return proxyStorageObject({
+            storagePath,
+            downloadName,
+            mimeType: "application/pdf",
           });
         } catch (err) {
           console.error("catalogue short-link error", err);

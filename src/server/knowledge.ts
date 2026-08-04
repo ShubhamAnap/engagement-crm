@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import { chunkText, embedQuery, embedTexts, estimateTokens } from "@/server/embeddings";
-import { ensurePdfFileLabel, shortDatasheetUrl, shortProductCatalogueUrl } from "@/lib/short-links";
+import { ensurePdfFileLabel, shortDatasheetUrl, shortKnowledgeDocumentUrl, shortProductCatalogueUrl } from "@/lib/short-links";
 import { shortenStorageUrl } from "@/server/shorten-urls";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
@@ -782,9 +782,9 @@ export async function findReferenceImages(query: string, limit = 3): Promise<Ref
       kind === "image" || isImageFile(fileName, mime) || mime.startsWith("image/");
     if (!isImage) continue;
 
-    const imageUrl = doc.storage_path
-      ? publicFileUrl(doc.storage_path as string)
-      : (doc.source_url as string | null);
+    if (!doc.id || !doc.storage_path) continue;
+    // Serve via app proxy (/d/...) so mobile clients never hit supabase.co directly
+    const imageUrl = shortKnowledgeDocumentUrl(String(doc.id));
     if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) continue;
 
     const score = scoreReferenceDoc({

@@ -307,6 +307,7 @@ Brief notes from each working session — append, don't delete.
 - **KB reference photos (Website + WhatsApp):** `findReferenceImages` matches application collections (Cold Storage, Petrol Pump, Hospital, Fire, …) when customers ask for install/reference photos. Website chat shows inline image bubbles (tap to open/download). WhatsApp sends real image messages via Cloud API. Upload ready images under Knowledge collections for this to work.
 - **Datasheet catalogues:** Catalogue/PDF asks pull from Knowledge **Datasheets** collection. Short links look like `/f/File-Name-aaf86f2d.pdf`. Website shows PDF download chips labeled with the datasheet `.pdf` name (not long Storage URLs).
 - **No raw Supabase file URLs to customers:** Replies scrub `/storage/v1/object/public/knowledge/...` (often invented/broken). Verified Datasheets links are appended as absolute app `/f/...pdf` URLs (WhatsApp + Website).
+- **File proxy:** `/f/`, `/d/`, `/c/` stream files through Render (service-role download) instead of 302 → supabase.co — fixes mobile `ERR_ADDRESS_UNREACHABLE` when Storage host is blocked.
 
 ### 2026-08-03
 - **Website chat visitor UX:** Embed panel uses EnerTech `#0B2388` / white. Required contact = name, email, phone, location (company optional). After save / returning browser session → chat-only + tiny header **Edit**. Circular launcher remains **ASK EnerTech**. Mic = browser speech-to-text (edit then send).

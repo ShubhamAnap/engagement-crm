@@ -9,6 +9,7 @@ import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
 import { resolveCatalogueRequest, retrieveKnowledgeContext } from "@/server/knowledge";
+import { isOffTopicMessage, OFF_TOPIC_REPLY } from "@/lib/enertech-scope";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -338,6 +339,17 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
         visitorName: (convo.visitor_name as string) || fromName || fromEmail,
         downloadCount: downloadLinks.length,
       });
+    } else if (isOffTopicMessage(text)) {
+      reply = OFF_TOPIC_REPLY;
+      inspector = buildAnswerInspector({
+        chunks: [],
+        replySource: "fallback",
+        model: "gpt-4o-mini",
+        agentName: agentCfg.agentName,
+        channel: "email",
+        downloadCount: 0,
+      });
+      (inspector.metadata as Record<string, unknown>).off_topic = true;
     } else {
       const downloadLinks: Array<{ title: string; url: string }> = [];
       const generated = await generateOpenAiReply({

@@ -9,7 +9,8 @@ import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
-import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext } from "@/server/knowledge";
+import { resolveCatalogueRequest, retrieveKnowledgeContext } from "@/server/knowledge";
+import { isOffTopicMessage, OFF_TOPIC_REPLY } from "@/lib/enertech-scope";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
@@ -318,6 +319,17 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
           channel: type,
           downloadCount: downloadLinks.length,
         });
+      } else if (isOffTopicMessage(text)) {
+        reply = OFF_TOPIC_REPLY;
+        inspector = buildAnswerInspector({
+          chunks: [],
+          replySource: "fallback",
+          model: "gpt-4o-mini",
+          agentName: "EnerBot",
+          channel: type,
+          downloadCount: 0,
+        });
+        (inspector.metadata as Record<string, unknown>).off_topic = true;
       } else {
       const [chunks] = await Promise.all([retrieveKnowledgeContext(text, 6)]);
       const stack = await resolveAgentStack({ channel: type, message: text });

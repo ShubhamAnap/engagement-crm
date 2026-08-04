@@ -314,6 +314,7 @@ Brief notes from each working session — append, don't delete.
 - **Service Agent (after-sales):** Specialist key `service` — routed on fault/service intent (not working, repair, AMC, complaint, technician visit, …). Edit goal/mission prompt in Agents → Configure. Migration `022_service_agent.sql`.
 - **Reference photos UX:** Photo asks reply with only “Sir, here are some reference photos.” + max **3** real images. No invented `![…](164.jpg)` markdown, no “Reference photo: 394 (Cold Storage)” text, no image captions with filenames.
 - **Catalogue list memory:** After customer picks from a numbered catalogue list, keep that list so they can reply `2`, `3`, … for another product without asking again.
+- **Off-topic guard:** WhatsApp / website / Meta / email refuse general questions (politics, news, etc.) with: “I can only help you with EnerTech products and services. Thank you.” Catalogues, service, photos, greetings still allowed.
 
 ### 2026-08-03
 - **Website chat visitor UX:** Embed panel uses EnerTech `#0B2388` / white. Required contact = name, email, phone, location (company optional). After save / returning browser session → chat-only + tiny header **Edit**. Circular launcher remains **ASK EnerTech**. Mic = browser speech-to-text (edit then send).

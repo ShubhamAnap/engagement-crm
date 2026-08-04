@@ -8,6 +8,7 @@ import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
 import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, REFERENCE_PHOTOS_REPLY, wantsReferenceImages } from "@/server/knowledge";
+import { isOffTopicMessage, OFF_TOPIC_REPLY } from "@/lib/enertech-scope";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -520,7 +521,7 @@ export const widgetGetOrCreateConversation = createServerFn({ method: "POST" })
         channel: "website",
         external_ref: `CV-${Date.now().toString().slice(-6)}`,
         status: "ai",
-        assignee_label: "AI � GPT-4o-mini",
+        assignee_label: "AI ? GPT-4o-mini",
         visitor_name: visitor.visitor_name || matched?.name || "Website visitor",
         visitor_email: visitor.visitor_email || matched?.email,
         visitor_phone: visitor.visitor_phone || matched?.phone,
@@ -651,7 +652,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
     const escalate = /human|agent|support executive/i.test(text);
     const aiPaused = convo.status === "human" || convo.status === "escalated" || convo.status === "resolved" || convo.status === "closed";
 
-    // Human takeover / escalated: save customer message only � do not call OpenAI.
+    // Human takeover / escalated: save customer message only ? do not call OpenAI.
     if (aiPaused) {
       const { data: messages, error } = await supabase
         .from("messages")
@@ -813,6 +814,45 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       };
     }
 
+    if (isOffTopicMessage(text)) {
+      const reply = OFF_TOPIC_REPLY;
+      const inspector = buildAnswerInspector({
+        chunks: [],
+        replySource: "fallback",
+        model: "gpt-4o-mini",
+        agentName: "EnerBot",
+        channel: (convo.channel as string) || "website",
+        visitorName: convo.visitor_name || "Website visitor",
+        downloadCount: 0,
+        memoryEnabled: true,
+      });
+      const { error: offErr } = await supabase.from("messages").insert({
+        org_id: ORG_ID,
+        conversation_id: data.conversationId,
+        sender: "ai",
+        body: reply,
+        confidence: inspector.confidence,
+        sources: inspector.sources,
+        metadata: { ...inspector.metadata, off_topic: true },
+      });
+      if (offErr) throw new Error(offErr.message);
+      await supabase
+        .from("conversations")
+        .update({
+          preview: reply.slice(0, 160),
+          last_message_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", data.conversationId);
+      return {
+        messages: await getConversationMessages(supabase, data.conversationId),
+        reply,
+        source: "fallback",
+        aiPaused: false,
+        status: convo.status,
+      };
+    }
+
     const knowledgeContext = chunks
       .map((c, i) => `[${i + 1}] (${c.document_title}, relevance ${c.similarity.toFixed(2)})\n${c.content}`)
       .join("\n\n")
@@ -897,7 +937,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
         org_id: ORG_ID,
         conversation_id: data.conversationId,
         sender: "system",
-        body: "Connecting you to a human support executive. An agent will reply here shortly � you can keep typing while you wait.",
+        body: "Connecting you to a human support executive. An agent will reply here shortly ? you can keep typing while you wait.",
         metadata: { handoff: true },
       });
     }
@@ -1023,7 +1063,7 @@ export const widgetUploadAttachment = createServerFn({ method: "POST" })
     let reply: string | null = null;
     if (!aiPaused) {
       reply =
-        "Thanks � I received your file. Our team can review it in the inbox. Tell me what you need help with, or ask to talk to a human.";
+        "Thanks ? I received your file. Our team can review it in the inbox. Tell me what you need help with, or ask to talk to a human.";
       await supabase.from("messages").insert({
         org_id: ORG_ID,
         conversation_id: data.conversationId,

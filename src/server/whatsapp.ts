@@ -6,6 +6,7 @@ import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
 import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, REFERENCE_PHOTOS_REPLY, wantsReferenceImages } from "@/server/knowledge";
+import { isOffTopicMessage, OFF_TOPIC_REPLY } from "@/lib/enertech-scope";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
@@ -574,6 +575,36 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               } catch (err) {
                 console.error("WhatsApp reference image send failed", err);
               }
+            }
+            continue;
+          }
+
+          if (isOffTopicMessage(text)) {
+            reply = OFF_TOPIC_REPLY;
+            inspector = buildAnswerInspector({
+              chunks: [],
+              replySource: "fallback",
+              model: "gpt-4o-mini",
+              agentName: "EnerBot",
+              channel: "whatsapp",
+              visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
+              downloadCount: 0,
+              memoryEnabled: true,
+            });
+            (inspector.metadata as Record<string, unknown>).off_topic = true;
+            await supabase.from("messages").insert({
+              org_id: ORG_ID,
+              conversation_id: convo.id,
+              sender: "ai",
+              body: reply,
+              confidence: inspector.confidence,
+              sources: inspector.sources,
+              metadata: inspector.metadata,
+            });
+            try {
+              await sendWhatsAppText(from, reply, cfg);
+            } catch (err) {
+              console.error("WhatsApp outbound AI send failed", err);
             }
             continue;
           }

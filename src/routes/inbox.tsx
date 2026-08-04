@@ -274,6 +274,13 @@ function Page() {
     return null;
   }, [messagesQuery.data]);
 
+  /** Show Return to AI when human owns the thread (status or agent messages). */
+  const showReturnToAi = useMemo(() => {
+    if (!selected) return false;
+    if (selected.status === "human" || selected.status === "escalated") return true;
+    return (messagesQuery.data ?? []).some((m) => m.sender === "agent");
+  }, [selected, messagesQuery.data]);
+
   const waOutbound = Boolean(selected && conversationRepliesViaWhatsApp(selected));
   const waPhone = selected ? normalizeWhatsAppDigits(selected.visitor_phone) : null;
   const marketplaceLead = Boolean(selected && isMarketplaceLeadChannel(selected.channel));
@@ -520,7 +527,6 @@ function Page() {
 
   async function onReturnToAi() {
     if (!selected) return;
-    if (selected.status !== "human" && selected.status !== "escalated") return;
     setReturningToAi(true);
     try {
       await returnConversationToAi(selected.id);
@@ -700,7 +706,7 @@ function Page() {
                 {waWindow.label}
               </Pill>
             ) : null}
-            {selected && (selected.status === "human" || selected.status === "escalated") ? (
+            {showReturnToAi ? (
               <Button
                 type="button"
                 size="sm"
@@ -711,7 +717,7 @@ function Page() {
                 title="Return this chat to AI"
               >
                 <Bot className={`size-3.5 ${returningToAi ? "animate-pulse" : ""}`} />
-                <span className="hidden sm:inline">Return to AI</span>
+                <span className="max-sm:sr-only">Return to AI</span>
               </Button>
             ) : null}
           </div>
@@ -821,16 +827,16 @@ function Page() {
           </div>
 
           <div className="z-10 shrink-0 border-t border-border bg-card p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
-            {selected.status === "human" || selected.status === "escalated" ? (
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-secondary/40 px-2.5 py-2 text-xs sm:text-sm">
-                <p className="text-muted-foreground">
-                  Human handling — AI is paused for this chat.
+            {showReturnToAi ? (
+              <div className="mb-2 flex flex-col gap-2 rounded-lg border border-primary/30 bg-primary/5 px-2.5 py-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-muted-foreground sm:text-sm">
+                  Human handling — AI is paused. Tap below to let EnerBot reply again.
                 </p>
                 <Button
                   type="button"
                   size="sm"
-                  variant="secondary"
-                  className="h-8 gap-1.5"
+                  variant="default"
+                  className="h-9 w-full gap-1.5 sm:h-8 sm:w-auto"
                   disabled={returningToAi || sending}
                   onClick={() => void onReturnToAi()}
                 >
@@ -897,7 +903,7 @@ function Page() {
                   if (file) void onAttachFile(file);
                 }}
               />
-              {selected.status === "human" || selected.status === "escalated" ? (
+              {showReturnToAi ? (
                 <Button
                   variant="ghost"
                   size="icon"

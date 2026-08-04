@@ -709,15 +709,15 @@ function Page() {
             {showReturnToAi ? (
               <Button
                 type="button"
-                size="sm"
+                size="icon"
                 variant="outline"
-                className="h-9 gap-1.5 touch-manipulation"
+                className="size-9 touch-manipulation"
                 disabled={returningToAi || sending}
                 onClick={() => void onReturnToAi()}
-                title="Return this chat to AI"
+                title="Return to AI"
+                aria-label="Return to AI"
               >
-                <Bot className={`size-3.5 ${returningToAi ? "animate-pulse" : ""}`} />
-                <span className="max-sm:sr-only">Return to AI</span>
+                <Bot className={`size-4 ${returningToAi ? "animate-pulse" : ""}`} />
               </Button>
             ) : null}
           </div>
@@ -827,24 +827,6 @@ function Page() {
           </div>
 
           <div className="z-10 shrink-0 border-t border-border bg-card p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
-            {showReturnToAi ? (
-              <div className="mb-2 flex flex-col gap-2 rounded-lg border border-primary/30 bg-primary/5 px-2.5 py-2 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs text-muted-foreground sm:text-sm">
-                  Human handling — AI is paused. Tap below to let EnerBot reply again.
-                </p>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="default"
-                  className="h-9 w-full gap-1.5 sm:h-8 sm:w-auto"
-                  disabled={returningToAi || sending}
-                  onClick={() => void onReturnToAi()}
-                >
-                  <Bot className={`size-3.5 ${returningToAi ? "animate-pulse" : ""}`} />
-                  Return to AI
-                </Button>
-              </div>
-            ) : null}
             {marketplaceLead && !waPhone ? (
               <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
                 <p className="font-medium text-destructive">No mobile number on this lead</p>
@@ -903,19 +885,6 @@ function Page() {
                   if (file) void onAttachFile(file);
                 }}
               />
-              {showReturnToAi ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-10 shrink-0 touch-manipulation sm:size-9"
-                  aria-label="Return to AI"
-                  title="Return to AI"
-                  disabled={returningToAi || sending}
-                  onClick={() => void onReturnToAi()}
-                >
-                  <Bot className={`size-4 ${returningToAi ? "animate-pulse" : ""}`} />
-                </Button>
-              ) : null}
               <Button
                 variant="ghost"
                 size="icon"

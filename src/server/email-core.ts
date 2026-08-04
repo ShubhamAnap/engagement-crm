@@ -9,8 +9,9 @@ import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
 import { resolveCatalogueRequest, retrieveKnowledgeContext } from "@/server/knowledge";
-import { isOffTopicMessage, OFF_TOPIC_REPLY } from "@/lib/enertech-scope";
-import { wantsHumanHandoff, humanWaitReply } from "@/lib/conversation-guards";
+import { wantsHumanHandoff } from "@/lib/conversation-guards";
+import { humanWaitReplyForLang, sessionLangFromHistory, normalizeStoredLang, offTopicReplyForLang } from "@/lib/session-language";
+import { isOffTopicMessage } from "@/lib/enertech-scope";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -271,18 +272,39 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
   if (msgError) throw new Error(msgError.message);
 
   const status = convo.status as string;
+  const prevMetaLang =
+    convo.metadata && typeof convo.metadata === "object"
+      ? (convo.metadata as Record<string, unknown>)
+      : {};
+  const { data: langHist } = await supabase
+    .from("messages")
+    .select("sender, body")
+    .eq("conversation_id", convo.id)
+    .order("created_at", { ascending: true })
+    .limit(24);
+  const sessionLang = sessionLangFromHistory(
+    text,
+    langHist,
+    normalizeStoredLang(prevMetaLang.preferred_lang),
+  );
+
   if (wantsHumanHandoff(text)) {
-    const wait = humanWaitReply(text);
+    const wait = humanWaitReplyForLang(sessionLang);
     await supabase
       .from("conversations")
-      .update({ status: "escalated", assignee_label: "Human queue", preview: wait.slice(0, 160) })
+      .update({
+        status: "escalated",
+        assignee_label: "Human queue",
+        preview: wait.slice(0, 160),
+        metadata: { ...prevMetaLang, preferred_lang: sessionLang },
+      })
       .eq("id", convo.id);
     await supabase.from("messages").insert({
       org_id: ORG_ID,
       conversation_id: convo.id,
       sender: "ai",
       body: wait,
-      metadata: { handoff: true, human_like_wait: true },
+      metadata: { handoff: true, human_like_wait: true, lang: sessionLang },
     });
     try {
       const cfg = await loadEmailConfig();
@@ -360,7 +382,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
         downloadCount: downloadLinks.length,
       });
     } else if (isOffTopicMessage(text)) {
-      reply = OFF_TOPIC_REPLY;
+      reply = offTopicReplyForLang(sessionLang);
       inspector = buildAnswerInspector({
         chunks: [],
         replySource: "fallback",
@@ -390,6 +412,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
         agentName: agentCfg.agentName,
         memoryEnabled: agentCfg.memoryEnabled,
         toolKeys: await resolveAgentToolKeys({ allowedOnAgent: agentCfg.allowedTools }),
+        replyLanguage: sessionLang,
       });
       reply = await sanitizeAssistantFileLinks(generated.reply, downloadLinks, { channel: "website" });
       inspector = buildAnswerInspector({

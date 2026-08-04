@@ -7,19 +7,26 @@ import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
-import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, REFERENCE_PHOTOS_REPLY, wantsReferenceImages, customerAskedForMorePhotos } from "@/server/knowledge";
-import { isOffTopicMessage, OFF_TOPIC_REPLY, isAckOnlyMessage, isGreetingOnlyMessage, GREETING_REPLY } from "@/lib/enertech-scope";
+import { isOffTopicMessage, isAckOnlyMessage, isGreetingOnlyMessage } from "@/lib/enertech-scope";
 import {
   wantsHumanHandoff,
-  humanWaitReply,
   isServiceIntent,
   emptyServiceTicket,
   mergeServiceTicketFromText,
   nextServiceTicketPrompt,
-  wantsEnglishReply,
-  englishLanguageAck,
+  explicitLanguageRequest,
+  languageSwitchAck,
   type ServiceTicket,
 } from "@/lib/conversation-guards";
+import {
+  greetingReplyForLang,
+  offTopicReplyForLang,
+  referencePhotosReplyForLang,
+  normalizeStoredLang,
+  sessionLangFromHistory,
+  humanWaitReplyForLang,
+} from "@/lib/session-language";
+import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, wantsReferenceImages, customerAskedForMorePhotos } from "@/server/knowledge";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -672,23 +679,39 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
     await ensureConversationLinks(supabase, convo, text);
 
     const escalate = wantsHumanHandoff(text);
-    const aiPaused = convo.status === "human" || convo.status === "escalated" || convo.status === "resolved" || convo.status === "closed";
+    const aiPaused =
+      convo.status === "human" ||
+      convo.status === "escalated" ||
+      convo.status === "resolved" ||
+      convo.status === "closed";
     const prevMetaEarly =
       convo.metadata && typeof convo.metadata === "object"
         ? (convo.metadata as Record<string, unknown>)
         : {};
 
-    // Human takeover / escalated: save customer message only ? except language switch to English
+    const historyEarly = await getConversationMessages(supabase, data.conversationId);
+    const sessionLang = sessionLangFromHistory(
+      text,
+      historyEarly,
+      normalizeStoredLang(prevMetaEarly.preferred_lang),
+    );
+    if (prevMetaEarly.preferred_lang !== sessionLang) {
+      prevMetaEarly.preferred_lang = sessionLang;
+      await supabase
+        .from("conversations")
+        .update({ metadata: { ...prevMetaEarly, preferred_lang: sessionLang } })
+        .eq("id", data.conversationId);
+    }
+
+    // Human takeover / escalated: save only ? except explicit language switch
     if (aiPaused) {
-      if (
-        (convo.status === "human" || convo.status === "escalated") &&
-        wantsEnglishReply(text)
-      ) {
-        const ack = englishLanguageAck();
+      const switchTo = explicitLanguageRequest(text);
+      if ((convo.status === "human" || convo.status === "escalated") && switchTo) {
+        const ack = languageSwitchAck(switchTo);
         await supabase
           .from("conversations")
           .update({
-            metadata: { ...prevMetaEarly, preferred_lang: "en" },
+            metadata: { ...prevMetaEarly, preferred_lang: switchTo },
             preview: ack.slice(0, 160),
           })
           .eq("id", data.conversationId);
@@ -697,7 +720,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
           conversation_id: data.conversationId,
           sender: "ai",
           body: ack,
-          metadata: { language_ack: true },
+          metadata: { language_ack: true, lang: switchTo },
         });
         return {
           messages: await getConversationMessages(supabase, data.conversationId),
@@ -707,28 +730,24 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
           status: convo.status,
         };
       }
-      const { data: messages, error } = await supabase
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", data.conversationId)
-        .order("created_at", { ascending: true });
-      if (error) throw new Error(error.message);
-      return { messages: messages ?? [], reply: null, source: "paused", aiPaused: true, status: convo.status };
+      return {
+        messages: historyEarly,
+        reply: null,
+        source: "paused",
+        aiPaused: true,
+        status: convo.status,
+      };
     }
 
     if (escalate) {
-      const preferredLang =
-        prevMetaEarly.preferred_lang === "hi" || prevMetaEarly.preferred_lang === "en"
-          ? (prevMetaEarly.preferred_lang as "en" | "hi")
-          : null;
-      const wait = humanWaitReply(text, preferredLang);
+      const wait = humanWaitReplyForLang(sessionLang);
       await supabase
         .from("conversations")
         .update({
           status: "escalated",
           assignee_label: "Human queue",
           preview: wait.slice(0, 160),
-          metadata: { ...prevMetaEarly, preferred_lang: "en" },
+          metadata: { ...prevMetaEarly, preferred_lang: sessionLang },
         })
         .eq("id", data.conversationId);
       await supabase.from("messages").insert({
@@ -736,7 +755,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
         conversation_id: data.conversationId,
         sender: "ai",
         body: wait,
-        metadata: { handoff: true, human_like_wait: true },
+        metadata: { handoff: true, human_like_wait: true, lang: sessionLang },
       });
       try {
         const { fireAutomations } = await import("@/server/automation-engine");
@@ -753,16 +772,13 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       };
     }
 
-    const history = await getConversationMessages(supabase, data.conversationId);
+    const history = historyEarly;
     const priorHistory =
       history[history.length - 1]?.sender === "customer" && history[history.length - 1]?.body === text
         ? history.slice(0, -1)
         : history;
 
-    const prevMeta =
-      convo.metadata && typeof convo.metadata === "object"
-        ? (convo.metadata as Record<string, unknown>)
-        : {};
+    const prevMeta = { ...prevMetaEarly };
 
     if (isAckOnlyMessage(text)) {
       return {
@@ -775,7 +791,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
     }
 
     if (isGreetingOnlyMessage(text)) {
-      const reply = GREETING_REPLY;
+      const reply = greetingReplyForLang(sessionLang);
       await supabase.from("messages").insert({
         org_id: ORG_ID,
         conversation_id: data.conversationId,
@@ -895,7 +911,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       if (!tags.includes("Service")) tags.push("Service");
       const nextMeta: Record<string, unknown> = { ...prevMeta, service_ticket: ticket };
       delete nextMeta.pending_catalogue_options;
-      const reply = nextServiceTicketPrompt(ticket);
+      const reply = nextServiceTicketPrompt(ticket, sessionLang);
       const patch: Record<string, unknown> = {
         metadata: nextMeta,
         tags,
@@ -957,8 +973,8 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
     ) {
       const photos = referenceImages.slice(0, 3);
       const reply = askingMore
-        ? "Sir, here are some more reference photos."
-        : REFERENCE_PHOTOS_REPLY;
+        ? referencePhotosReplyForLang(sessionLang, true)
+        : referencePhotosReplyForLang(sessionLang, false);
       const newIds = [...sentPhotoIds, ...photos.map((p) => p.documentId)];
       const collection = photos[0]?.collection || lastCollection;
       const inspector = buildAnswerInspector({
@@ -1020,7 +1036,11 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
 
     if (askingMore && lastCollection && referenceImages.length === 0) {
       const reply =
-        "Sir, I have shared all available reference photos for now. Please tell me if you need a catalogue or service help.";
+        sessionLang === "hi" || sessionLang === "mixed"
+          ? "Sir, abhi ke liye saari available reference photos share kar di. Catalogue ya service chahiye to bataiye."
+          : sessionLang === "mr"
+            ? "Sir, atapare available reference photos share kele. Catalogue kinva service pahije asel tar sanga."
+            : "Sir, I have shared all available reference photos for now. Please tell me if you need a catalogue or service help.";
       await supabase.from("messages").insert({
         org_id: ORG_ID,
         conversation_id: data.conversationId,
@@ -1045,7 +1065,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
     }
 
     if (isOffTopicMessage(text)) {
-      const reply = OFF_TOPIC_REPLY;
+      const reply = offTopicReplyForLang(sessionLang);
       const inspector = buildAnswerInspector({
         chunks: [],
         replySource: "fallback",
@@ -1109,6 +1129,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       agentName: agentCfg.agentName,
       memoryEnabled: agentCfg.memoryEnabled,
       toolKeys: await resolveAgentToolKeys({ allowedOnAgent: agentCfg.allowedTools }),
+      replyLanguage: sessionLang,
     });
     const reply = await sanitizeAssistantFileLinks(
       ai.reply || buildPlaceholderAiReply(text),
@@ -1156,6 +1177,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       convoPatch.assignee_label = agentCfg.assigneeLabel;
       convoPatch.metadata = {
         ...prevMeta,
+        preferred_lang: sessionLang,
         specialist_key: agentCfg.specialistKey,
         specialist_id: agentCfg.specialistId,
       };

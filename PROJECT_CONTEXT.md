@@ -453,5 +453,4 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 | 3.1 More photos same collection | DONE (WA + widget) |
 | 3.2 WA media inbound ack | DONE |
 | 4.1 Service structured ticket → quiet escalate | DONE (WA + widget) |
-
-**Key files:** `src/lib/conversation-guards.ts`, `src/lib/enertech-scope.ts`, `src/server/whatsapp.ts`, `src/server/widget-chat.ts`, `src/server/whatsapp-crm.ts`, `src/server/knowledge.ts`
+| Session language (EN / HI / MR / mixed) | DONE (`src/lib/session-language.ts`) — replies follow conversation language; stored as `metadata.preferred_lang` |

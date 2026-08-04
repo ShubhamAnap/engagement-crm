@@ -1,7 +1,25 @@
 /**
  * Shared conversation guards: service vs catalogue, handoff, wait copy.
  * Keep customer-facing tone human — never say "bot" or "human agent".
+ * Language: match session (EN / HI / MR / mixed) via session-language.ts
  */
+
+import {
+  resolveSessionLang,
+  humanWaitReplyForLang,
+  languageSwitchAck,
+  serviceTicketPromptForLang,
+  explicitLanguageRequest,
+  type SessionLang,
+} from "@/lib/session-language";
+
+export type { SessionLang };
+export {
+  resolveSessionLang,
+  explicitLanguageRequest,
+  languageSwitchAck,
+  humanWaitReplyForLang,
+} from "@/lib/session-language";
 
 export function isServiceIntent(text: string): boolean {
   const q = String(text || "").toLowerCase();
@@ -10,10 +28,7 @@ export function isServiceIntent(text: string): boolean {
   );
 }
 
-/**
- * Tight handoff — escalate only on clear requests.
- * Do NOT match bare "agent" (product talk). Customer never hears "bot/human".
- */
+/** Tight handoff — escalate only on clear requests. */
 export function wantsHumanHandoff(text: string): boolean {
   const q = String(text || "").toLowerCase();
   return (
@@ -26,43 +41,36 @@ export function wantsHumanHandoff(text: string): boolean {
   );
 }
 
-/**
- * Prefer English by default. Hindi/Hinglish only when clearly used
- * (Devanagari or real Hindi words — NOT "please"/"plz"/"sir").
- */
-export function prefersHindiReply(text: string): boolean {
-  const q = String(text || "").toLowerCase();
-  if (wantsEnglishReply(text)) return false;
-  if (/[\u0900-\u097F]/.test(text)) return true;
-  return /\b(haan|han|nahi|nahin|theek|thoda|kijiye|kripya|kripa|baat|karo|karna|jaldi|abhi|aapko|mujhe|mera|kharab|dikhao|bhejo|chahiye|namaste|namaskar|bhai|ji)\b/i.test(
-    q,
-  );
-}
-
-/** Customer explicitly asks for English. */
+/** @deprecated use resolveSessionLang / explicitLanguageRequest */
 export function wantsEnglishReply(text: string): boolean {
-  return /\b(in\s*english|talk\s*in\s*english|speak\s*(in\s*)?english|english\s*(please|plz)|reply\s*in\s*english)\b/i.test(
-    String(text || ""),
-  );
+  return explicitLanguageRequest(text) === "en";
+}
+
+/** @deprecated use resolveSessionLang */
+export function prefersHindiReply(text: string): boolean {
+  const lang = resolveSessionLang({ latestText: text });
+  return lang === "hi" || lang === "mixed" || lang === "mr";
 }
 
 /**
- * Human-sounding "please wait" — no bot/agent reveal.
- * Match session language: English unless customer is clearly in Hindi/Hinglish.
+ * Human-sounding wait — language from session context.
+ * Pass recentCustomerTexts + storedLang for accurate matching.
  */
-export function humanWaitReply(text: string, preferredLang?: "en" | "hi" | null): string {
-  if (preferredLang === "en" || wantsEnglishReply(text)) {
-    return "Okay sir, please wait a moment — I will get back to you shortly.";
-  }
-  if (preferredLang === "hi" || prefersHindiReply(text)) {
-    return "Theek hai sir, please thoda wait kijiye — main aapko jaldi reply karta hoon.";
-  }
-  return "Okay sir, please wait a moment — I will get back to you shortly.";
+export function humanWaitReply(
+  text: string,
+  preferredLang?: SessionLang | "en" | "hi" | null,
+  recentCustomerTexts?: string[],
+): string {
+  const lang = resolveSessionLang({
+    latestText: text,
+    storedLang: preferredLang,
+    recentCustomerTexts,
+  });
+  return humanWaitReplyForLang(lang);
 }
 
-/** Short ack when customer asks to switch to English (after a Hindi wait, etc.). */
 export function englishLanguageAck(): string {
-  return "Sure sir — I'll reply in English. Please wait a moment, I will get back to you shortly.";
+  return languageSwitchAck("en");
 }
 
 export type ServiceTicket = {
@@ -112,7 +120,6 @@ export function mergeServiceTicketFromText(ticket: ServiceTicket, text: string):
     next.model = t.slice(0, 120);
   }
 
-  // If still missing and message is short, assign to first missing slot
   const missing = serviceTicketMissing(next);
   if (missing.length && t.length >= 2 && t.length <= 80 && !/^(hi|hello|ok|thanks)/i.test(t)) {
     const slot = missing[0]!;
@@ -127,14 +134,12 @@ export function mergeServiceTicketFromText(ticket: ServiceTicket, text: string):
   return next;
 }
 
-export function nextServiceTicketPrompt(ticket: ServiceTicket): string {
+export function nextServiceTicketPrompt(ticket: ServiceTicket, lang: SessionLang = "en"): string {
   const missing = serviceTicketMissing(ticket);
-  if (!missing.length) {
-    return "Thank you sir — I have noted the details. Please wait a moment, I will update you shortly.";
+  if (!missing.length) return serviceTicketPromptForLang(lang, "done");
+  const first = missing[0]!;
+  if (first === "model" || first === "serial" || first === "fault" || first === "city") {
+    return serviceTicketPromptForLang(lang, first);
   }
-  const first = missing[0];
-  if (first === "model") return "Sure sir — please share the product model (e.g. inverter / UPS model).";
-  if (first === "serial") return "Please share the serial number from the product label (if available).";
-  if (first === "fault") return "Please describe the problem briefly (what is not working / any error).";
-  return "Please share the site city / location.";
+  return serviceTicketPromptForLang(lang, "city");
 }

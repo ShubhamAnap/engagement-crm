@@ -4,6 +4,17 @@ import {
   runAiTool,
   type OpenAiToolDef,
 } from "@/server/ai-tools";
+import { languageSystemInstruction, offTopicReplyForLang, type SessionLang } from "@/lib/session-language";
+
+function languageInstructionFor(lang?: string): string {
+  const l = (lang === "hi" || lang === "mr" || lang === "mixed" || lang === "en" ? lang : "en") as SessionLang;
+  return languageSystemInstruction(l);
+}
+
+function offTopicExact(lang?: string): string {
+  const l = (lang === "hi" || lang === "mr" || lang === "mixed" || lang === "en" ? lang : "en") as SessionLang;
+  return offTopicReplyForLang(l);
+}
 
 type HistoryMessage = {
   sender: string;
@@ -39,6 +50,8 @@ type GenerateReplyInput = {
   memoryEnabled?: boolean;
   /** Globally enabled ∩ agent-allowed tool keys */
   toolKeys?: string[];
+  /** Session reply language (en / hi / mr / mixed) */
+  replyLanguage?: string;
 };
 
 const MAX_TOOL_ROUNDS = 3;
@@ -73,13 +86,14 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
   const systemParts = [
     basePrompt,
     `You are acting as: ${agentLabel} for EnerTech UPS Pvt. Ltd.`,
-    "Stay strictly on EnerTech UPS products and services (sales, catalogues, installation references, service/repair, warranty, battery runtime, quotations). If the user asks anything unrelated (politics, news, general knowledge, other brands, homework, entertainment), reply with ONLY this exact sentence: I can only help you with EnerTech products and services. Thank you.",
+    `Stay strictly on EnerTech UPS products and services (sales, catalogues, installation references, service/repair, warranty, battery runtime, quotations). If the user asks anything unrelated (politics, news, general knowledge, other brands, homework, entertainment), reply with ONLY this exact sentence: ${offTopicExact(input.replyLanguage)}`,
     "If you are uncertain about EnerTech facts, say so briefly and ask one clarifying question.",
     "Prefer facts from the provided Knowledge Base context when available. Do not invent exact technical specs.",
     "If download links are provided for catalogues/datasheets/PDFs, include them as markdown links where the link text is exactly the .pdf file name (e.g. [E-Series-Inverter.pdf](url)). Never invent file names or URLs.",
     "ONLY use the download URLs provided in “Available download links”. Never invent links. Never paste supabase.co or /storage/v1/ URLs — those are forbidden and often broken.",
     "If reference photos are being shared as images in chat, reply with ONLY this short line (nothing else): Sir, here are some reference photos. Never invent image markdown, filenames, URLs, or lists like ![photo](123.jpg). Photos appear as real images separately.",
-    "Never say you are a bot, AI, or connecting to a human/agent. If the user wants someone to call them or take over, reply like a colleague: ask them to wait briefly and say you will get back shortly (match Hindi/Hinglish if they used it). Do not reveal handoff.",
+    "Never say you are a bot, AI, or connecting to a human/agent. If the user wants someone to call them or take over, reply like a colleague: ask them to wait briefly and say you will get back shortly. Do not reveal handoff.",
+    languageInstructionFor(input.replyLanguage),
     `Visitor: ${input.visitorName}`,
   ];
 

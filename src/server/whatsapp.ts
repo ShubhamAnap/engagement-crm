@@ -5,20 +5,27 @@ import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
-import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, REFERENCE_PHOTOS_REPLY, wantsReferenceImages, customerAskedForMorePhotos } from "@/server/knowledge";
-import { isOffTopicMessage, OFF_TOPIC_REPLY, isAckOnlyMessage, isGreetingOnlyMessage, GREETING_REPLY } from "@/lib/enertech-scope";
+import { isOffTopicMessage, isAckOnlyMessage, isGreetingOnlyMessage } from "@/lib/enertech-scope";
 import {
   wantsHumanHandoff,
-  humanWaitReply,
   isServiceIntent,
   emptyServiceTicket,
   mergeServiceTicketFromText,
   nextServiceTicketPrompt,
-  wantsEnglishReply,
-  englishLanguageAck,
+  explicitLanguageRequest,
+  languageSwitchAck,
   type ServiceTicket,
 } from "@/lib/conversation-guards";
+import {
+  greetingReplyForLang,
+  offTopicReplyForLang,
+  referencePhotosReplyForLang,
+  normalizeStoredLang,
+  sessionLangFromHistory,
+  humanWaitReplyForLang,
+} from "@/lib/session-language";
 import { ensureWhatsAppLeadCustomer } from "@/server/whatsapp-crm";
+import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, wantsReferenceImages, customerAskedForMorePhotos } from "@/server/knowledge";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
@@ -354,11 +361,28 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
 
           if (mediaKind === "sticker") continue;
 
-          const ack = humanWaitReply(caption || "please check");
+          const mediaLang = sessionLangFromHistory(
+            caption || "please check",
+            null,
+            normalizeStoredLang(
+              convo.metadata && typeof convo.metadata === "object"
+                ? (convo.metadata as Record<string, unknown>).preferred_lang
+                : null,
+            ),
+          );
+          const ack = humanWaitReplyForLang(mediaLang);
           const mediaAck =
             mediaKind === "audio"
-              ? "Okay sir, I received your voice note. Please wait — I will reply shortly. You can also type the model, serial number, and problem."
-              : "Okay sir, I received your file. Please wait — I will reply shortly. You can also type the model, serial number, and problem.";
+              ? mediaLang === "hi" || mediaLang === "mixed"
+                ? "Okay sir, voice note mil gaya. Please thoda wait — main jaldi reply karta hoon. Model, serial aur problem type bhi kar sakte ho."
+                : mediaLang === "mr"
+                  ? "Okay sir, voice note milala. Thoda thamba — mi lavkar reply karto. Model, serial ani problem type karu shakta."
+                  : "Okay sir, I received your voice note. Please wait — I will reply shortly. You can also type the model, serial number, and problem."
+              : mediaLang === "hi" || mediaLang === "mixed"
+                ? "Okay sir, file mil gaya. Please thoda wait — main jaldi reply karta hoon. Model, serial aur problem type bhi kar sakte ho."
+                : mediaLang === "mr"
+                  ? "Okay sir, file milali. Thoda thamba — mi lavkar reply karto. Model, serial ani problem type karu shakta."
+                  : "Okay sir, I received your file. Please wait — I will reply shortly. You can also type the model, serial number, and problem.";
           try {
             await sendWhatsAppText(from, mediaKind === "image" && /not\s*work|fault|service|repair/i.test(caption) ? ack : mediaAck, cfg);
           } catch (err) {
@@ -463,24 +487,42 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
         }
 
         const status = convo.status as string;
+        const prevMetaEsc =
+          convo.metadata && typeof convo.metadata === "object"
+            ? (convo.metadata as Record<string, unknown>)
+            : {};
+
+        // Recent customer lines for session language (before full AI path)
+        const { data: langHist } = await supabase
+          .from("messages")
+          .select("sender, body")
+          .eq("conversation_id", convo.id)
+          .order("created_at", { ascending: true })
+          .limit(24);
+        const sessionLang = sessionLangFromHistory(
+          text,
+          langHist,
+          normalizeStoredLang(prevMetaEsc.preferred_lang),
+        );
+
+        // Persist detected language on every inbound
+        if (prevMetaEsc.preferred_lang !== sessionLang) {
+          await supabase
+            .from("conversations")
+            .update({ metadata: { ...prevMetaEsc, preferred_lang: sessionLang } })
+            .eq("id", convo.id);
+          prevMetaEsc.preferred_lang = sessionLang;
+        }
+
         const escalate = wantsHumanHandoff(text);
         if (escalate) {
-          const prevMetaEsc =
-            convo.metadata && typeof convo.metadata === "object"
-              ? (convo.metadata as Record<string, unknown>)
-              : {};
-          const preferredLang =
-            prevMetaEsc.preferred_lang === "hi" || prevMetaEsc.preferred_lang === "en"
-              ? (prevMetaEsc.preferred_lang as "en" | "hi")
-              : null;
-          const wait = humanWaitReply(text, preferredLang);
-          const lang = wantsEnglishReply(text) ? "en" : preferredLang || "en";
+          const wait = humanWaitReplyForLang(sessionLang);
           await supabase
             .from("conversations")
             .update({
               status: "escalated",
               assignee_label: "Human queue",
-              metadata: { ...prevMetaEsc, preferred_lang: lang },
+              metadata: { ...prevMetaEsc, preferred_lang: sessionLang },
               preview: wait.slice(0, 160),
             })
             .eq("id", convo.id);
@@ -489,7 +531,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             conversation_id: convo.id,
             sender: "ai",
             body: wait,
-            metadata: { handoff: true, human_like_wait: true },
+            metadata: { handoff: true, human_like_wait: true, lang: sessionLang },
           });
           try {
             await sendWhatsAppText(from, wait, cfg);
@@ -511,18 +553,15 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           console.error("WA CRM link failed", err);
         }
 
-        // Escalated/human: still answer "talk in english" so customer isn't stuck after a Hindi wait
+        // Escalated/human: still answer explicit language switch
         if (status === "human" || status === "escalated") {
-          if (wantsEnglishReply(text)) {
-            const ack = englishLanguageAck();
-            const prevMetaLang =
-              convo.metadata && typeof convo.metadata === "object"
-                ? (convo.metadata as Record<string, unknown>)
-                : {};
+          const switchTo = explicitLanguageRequest(text);
+          if (switchTo) {
+            const ack = languageSwitchAck(switchTo);
             await supabase
               .from("conversations")
               .update({
-                metadata: { ...prevMetaLang, preferred_lang: "en" },
+                metadata: { ...prevMetaEsc, preferred_lang: switchTo },
                 preview: ack.slice(0, 160),
               })
               .eq("id", convo.id);
@@ -531,12 +570,12 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               conversation_id: convo.id,
               sender: "ai",
               body: ack,
-              metadata: { language_ack: true },
+              metadata: { language_ack: true, lang: switchTo },
             });
             try {
               await sendWhatsAppText(from, ack, cfg);
             } catch (err) {
-              console.error("WA english ack send failed", err);
+              console.error("WA language ack send failed", err);
             }
           }
           continue;
@@ -575,7 +614,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
 
           // Short greeting only
           if (isGreetingOnlyMessage(text)) {
-            reply = GREETING_REPLY;
+            reply = greetingReplyForLang(sessionLang);
             await supabase.from("messages").insert({
               org_id: ORG_ID,
               conversation_id: convo.id,
@@ -716,7 +755,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               service_ticket: ticket,
             };
             delete nextMeta.pending_catalogue_options;
-            reply = nextServiceTicketPrompt(ticket);
+            reply = nextServiceTicketPrompt(ticket, sessionLang);
             if (ticket.status === "ready") {
               nextMeta.service_ticket = { ...ticket, status: "handed_off" };
               await supabase
@@ -781,8 +820,8 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           ) {
             const photos = referenceImages.slice(0, 3);
             reply = askingMore
-              ? "Sir, here are some more reference photos."
-              : REFERENCE_PHOTOS_REPLY;
+              ? referencePhotosReplyForLang(sessionLang, true)
+              : referencePhotosReplyForLang(sessionLang, false);
             const newIds = [...sentPhotoIds, ...photos.map((p) => p.documentId)];
             const collection = photos[0]?.collection || lastCollection;
             inspector = buildAnswerInspector({
@@ -846,7 +885,12 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           }
 
           if (askingMore && lastCollection && referenceImages.length === 0) {
-            reply = "Sir, I have shared all available reference photos for now. Please tell me if you need a catalogue or service help.";
+            reply =
+              sessionLang === "hi" || sessionLang === "mixed"
+                ? "Sir, abhi ke liye saari available reference photos share kar di. Catalogue ya service chahiye to bataiye."
+                : sessionLang === "mr"
+                  ? "Sir, atapare available reference photos share kele. Catalogue kinva service pahije asel tar sanga."
+                  : "Sir, I have shared all available reference photos for now. Please tell me if you need a catalogue or service help.";
             await supabase.from("messages").insert({
               org_id: ORG_ID,
               conversation_id: convo.id,
@@ -862,7 +906,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           }
 
           if (isOffTopicMessage(text)) {
-            reply = OFF_TOPIC_REPLY;
+            reply = offTopicReplyForLang(sessionLang);
             inspector = buildAnswerInspector({
               chunks: [],
               replySource: "fallback",
@@ -918,6 +962,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             agentName: agentCfg.agentName,
             memoryEnabled: agentCfg.memoryEnabled,
             toolKeys: await resolveAgentToolKeys({ allowedOnAgent: agentCfg.allowedTools }),
+            replyLanguage: sessionLang,
           });
           reply = await sanitizeAssistantFileLinks(generated.reply, downloadLinks, { channel: "whatsapp" });
           inspector = buildAnswerInspector({
@@ -939,6 +984,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
                 assignee_label: agentCfg.assigneeLabel,
                 metadata: {
                   ...prevMeta,
+                  preferred_lang: sessionLang,
                   specialist_key: agentCfg.specialistKey,
                   specialist_id: agentCfg.specialistId,
                 },

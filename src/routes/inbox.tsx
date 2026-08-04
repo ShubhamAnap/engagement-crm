@@ -15,7 +15,7 @@ import {
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Clock, ExternalLink, LayoutGrid, Package, Paperclip, RefreshCw, Send, ArrowLeft, User } from "lucide-react";
+import { Clock, ExternalLink, LayoutGrid, Package, Paperclip, RefreshCw, Send, ArrowLeft, User, Bot } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import {
@@ -25,6 +25,7 @@ import {
   listConversations,
   listMessages,
   markConversationRead,
+  returnConversationToAi,
   sendAgentMessage,
   uploadAgentAttachment,
 } from "@/lib/chat-api";
@@ -154,6 +155,7 @@ function Page() {
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [sendingProduct, setSendingProduct] = useState(false);
   const [productModalOpen, setProductModalOpen] = useState(false);
+  const [returningToAi, setReturningToAi] = useState(false);
   const attachInputRef = useRef<HTMLInputElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const [leadStatus, setLeadStatus] = useState<LeadStatus>("New");
@@ -516,6 +518,26 @@ function Page() {
     }
   }
 
+  async function onReturnToAi() {
+    if (!selected) return;
+    if (selected.status !== "human" && selected.status !== "escalated") return;
+    setReturningToAi(true);
+    try {
+      await returnConversationToAi(selected.id);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["conversations", orgId] }),
+        queryClient.invalidateQueries({ queryKey: ["messages", selected.id] }),
+        queryClient.invalidateQueries({ queryKey: ["handoff-queue", orgId] }),
+      ]);
+      toast.success("Returned to AI — EnerBot will reply on the next customer message");
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "Return to AI failed");
+    } finally {
+      setReturningToAi(false);
+    }
+  }
+
   const refreshing = conversationsQuery.isFetching || messagesQuery.isFetching;
 
   const conversationList = (
@@ -678,6 +700,20 @@ function Page() {
                 {waWindow.label}
               </Pill>
             ) : null}
+            {selected && (selected.status === "human" || selected.status === "escalated") ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-9 gap-1.5 touch-manipulation"
+                disabled={returningToAi || sending}
+                onClick={() => void onReturnToAi()}
+                title="Return this chat to AI"
+              >
+                <Bot className={`size-3.5 ${returningToAi ? "animate-pulse" : ""}`} />
+                <span className="hidden sm:inline">Return to AI</span>
+              </Button>
+            ) : null}
           </div>
         </div>
       </header>
@@ -785,6 +821,24 @@ function Page() {
           </div>
 
           <div className="z-10 shrink-0 border-t border-border bg-card p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
+            {selected.status === "human" || selected.status === "escalated" ? (
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-secondary/40 px-2.5 py-2 text-xs sm:text-sm">
+                <p className="text-muted-foreground">
+                  Human handling — AI is paused for this chat.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="h-8 gap-1.5"
+                  disabled={returningToAi || sending}
+                  onClick={() => void onReturnToAi()}
+                >
+                  <Bot className={`size-3.5 ${returningToAi ? "animate-pulse" : ""}`} />
+                  Return to AI
+                </Button>
+              </div>
+            ) : null}
             {marketplaceLead && !waPhone ? (
               <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
                 <p className="font-medium text-destructive">No mobile number on this lead</p>
@@ -843,6 +897,19 @@ function Page() {
                   if (file) void onAttachFile(file);
                 }}
               />
+              {selected.status === "human" || selected.status === "escalated" ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-10 shrink-0 touch-manipulation sm:size-9"
+                  aria-label="Return to AI"
+                  title="Return to AI"
+                  disabled={returningToAi || sending}
+                  onClick={() => void onReturnToAi()}
+                >
+                  <Bot className={`size-4 ${returningToAi ? "animate-pulse" : ""}`} />
+                </Button>
+              ) : null}
               <Button
                 variant="ghost"
                 size="icon"

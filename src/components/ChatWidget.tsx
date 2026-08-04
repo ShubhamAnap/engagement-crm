@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import {
   createSpeechRecognition,
+  ensureMicrophonePermission,
   speechRecognitionSupported,
   type SpeechRecognitionLike,
 } from "@/lib/speech-to-text";
@@ -160,7 +161,7 @@ export function ChatWidget() {
     setListening(false);
   }
 
-  function toggleMic() {
+  async function toggleMic() {
     if (busy) return;
     if (listening) {
       stopListening();
@@ -171,7 +172,18 @@ export function ChatWidget() {
       return;
     }
 
+    toast.message("When the browser asks, tap Allow so we can hear your message.");
     draftBeforeListenRef.current = draft.trim();
+
+    try {
+      await ensureMicrophonePermission();
+    } catch {
+      toast.error(
+        "Microphone blocked. Click the lock/mic icon in the browser address bar and choose Allow, then try again.",
+      );
+      return;
+    }
+
     const recognition = createSpeechRecognition({
       lang,
       onInterim: (text) => {

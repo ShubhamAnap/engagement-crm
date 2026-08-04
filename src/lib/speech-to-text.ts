@@ -39,6 +39,18 @@ export function speechLangFromUi(lang?: string): string {
   return "en-IN";
 }
 
+/**
+ * Ask the browser for mic access first so the native Allow/Deny prompt appears
+ * (especially important when the chat runs inside an iframe).
+ */
+export async function ensureMicrophonePermission(): Promise<void> {
+  if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+    throw new Error("Microphone is not available in this browser.");
+  }
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  for (const track of stream.getTracks()) track.stop();
+}
+
 export function createSpeechRecognition(options: {
   lang?: string;
   onInterim?: (text: string) => void;
@@ -73,7 +85,9 @@ export function createSpeechRecognition(options: {
       return;
     }
     if (code === "not-allowed") {
-      options.onError("Microphone permission denied. Allow mic access in the browser.");
+      options.onError(
+        "Microphone blocked. Click the lock/mic icon in the browser address bar and choose Allow, then try again.",
+      );
     } else {
       options.onError(`Speech recognition failed (${code}). Try again or type your message.`);
     }

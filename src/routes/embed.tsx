@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
   createSpeechRecognition,
+  ensureMicrophonePermission,
   speechRecognitionSupported,
   type SpeechRecognitionLike,
 } from "@/lib/speech-to-text";
@@ -125,6 +126,7 @@ function EmbedChat() {
   const [profile, setProfile] = useState<VisitorProfile>(stored);
   const [editingContact, setEditingContact] = useState(!isProfileComplete(stored));
   const [listening, setListening] = useState(false);
+  const [micHint, setMicHint] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef(profile);
   const lookedUpRef = useRef("");
@@ -175,10 +177,11 @@ function EmbedChat() {
     setListening(false);
   }
 
-  function toggleMic() {
+  async function toggleMic() {
     if (busy || !key) return;
     if (listening) {
       stopListening();
+      setMicHint(null);
       return;
     }
     if (!micSupported) {
@@ -186,7 +189,21 @@ function EmbedChat() {
       return;
     }
 
+    setError(null);
+    setMicHint("When the browser asks, tap Allow so we can hear your message.");
     draftBeforeListenRef.current = draft.trim();
+
+    try {
+      await ensureMicrophonePermission();
+    } catch {
+      setListening(false);
+      setMicHint(null);
+      setError(
+        "Microphone blocked. Click the lock/mic icon in the browser address bar and choose Allow, then try again.",
+      );
+      return;
+    }
+
     const recognition = createSpeechRecognition({
       lang: "EN",
       onInterim: (text) => {
@@ -199,24 +216,30 @@ function EmbedChat() {
         setDraft(next);
         draftBeforeListenRef.current = next;
       },
-      onError: (message) => setError(message),
+      onError: (message) => {
+        setMicHint(null);
+        setError(message);
+      },
       onEnd: () => {
         recognitionRef.current = null;
         setListening(false);
+        setMicHint(null);
       },
     });
     if (!recognition) {
+      setMicHint(null);
       setError("Voice input is not available in this browser.");
       return;
     }
 
     recognitionRef.current = recognition;
-    setError(null);
     setListening(true);
     try {
       recognition.start();
+      setMicHint("Listening… speak now, then edit the text and tap Send.");
     } catch {
       setListening(false);
+      setMicHint(null);
       setError("Could not start the microphone. Check browser permissions.");
     }
   }
@@ -610,6 +633,11 @@ function EmbedChat() {
               <div ref={endRef} />
             </div>
 
+            {micHint ? (
+              <div className="border-t px-3 py-1.5 text-[11px]" style={{ borderColor: `${BRAND}22`, backgroundColor: "#EEF1FA", color: BRAND }}>
+                {micHint}
+              </div>
+            ) : null}
             <form
               className="flex items-center gap-1.5 border-t p-2.5"
               style={{ borderColor: `${BRAND}22`, backgroundColor: INK }}

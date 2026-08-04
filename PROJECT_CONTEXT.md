@@ -308,6 +308,7 @@ Brief notes from each working session — append, don't delete.
 - **Datasheet catalogues:** Catalogue/PDF asks pull from Knowledge **Datasheets** collection. Short links look like `/f/File-Name-aaf86f2d.pdf`. Website shows PDF download chips labeled with the datasheet `.pdf` name (not long Storage URLs).
 - **No raw Supabase file URLs to customers:** Replies scrub `/storage/v1/object/public/knowledge/...` (often invented/broken). Verified Datasheets links are appended as absolute app `/f/...pdf` URLs (WhatsApp + Website).
 - **File proxy:** `/f/`, `/d/`, `/c/` stream files through Render (service-role download) instead of 302 → supabase.co — fixes mobile `ERR_ADDRESS_UNREACHABLE` when Storage host is blocked.
+- **Datasheet `/f/` UUID lookup fix:** Postgres `uuid` does not support `LIKE`; short-id resolve uses UUID range + JS prefix match. Verified all 9 ready Datasheets (incl. BESS) look up and stream (~773KB PDF) on live `enertechups-ai.onrender.com`.
 
 ### 2026-08-03
 - **Website chat visitor UX:** Embed panel uses EnerTech `#0B2388` / white. Required contact = name, email, phone, location (company optional). After save / returning browser session → chat-only + tiny header **Edit**. Circular launcher remains **ASK EnerTech**. Mic = browser speech-to-text (edit then send).

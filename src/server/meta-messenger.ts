@@ -306,7 +306,9 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
           channel: "whatsapp",
         });
         const nextMeta = { ...prevMeta };
-        delete nextMeta.pending_catalogue_options;
+        if (!catalogue.fromPending) {
+          delete nextMeta.pending_catalogue_options;
+        }
         await supabase.from("conversations").update({ metadata: nextMeta }).eq("id", convo.id);
         inspector = buildAnswerInspector({
           chunks: [],

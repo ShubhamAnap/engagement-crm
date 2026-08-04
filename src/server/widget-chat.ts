@@ -703,7 +703,9 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
           url: o.url,
           fileName: o.fileName,
         }));
-      } else {
+      } else if (catalogue.mode === "match" && catalogue.fromPending) {
+        // Keep list for another number pick
+      } else if (catalogue.mode === "match") {
         delete nextMeta.pending_catalogue_options;
       }
       await supabase.from("conversations").update({ metadata: nextMeta }).eq("id", data.conversationId);

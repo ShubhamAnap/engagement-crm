@@ -553,6 +553,8 @@ export type CatalogueSearchResult = {
   clarifyOptions: CatalogueClarifyOption[];
   /** Short customer-facing text (options list or empty) */
   message: string;
+  /** True when match came from a prior numbered/name pick — keep the list for another pick */
+  fromPending?: boolean;
 };
 
 type DatasheetRow = {
@@ -808,6 +810,7 @@ export function resolveCatalogueChoice(
         ],
         clarifyOptions: [],
         message: "Here is the catalogue.",
+        fromPending: true,
       };
     }
   }
@@ -831,13 +834,23 @@ export function resolveCatalogueChoice(
       ],
       clarifyOptions: [],
       message: "Here is the catalogue.",
+      fromPending: true,
     };
   }
 
-  // Soft: family alias against pending labels
+  // Soft: family alias against pending labels (prefer best label match, not first)
   for (const family of PRODUCT_FAMILIES) {
     if (!family.ask.test(q)) continue;
-    const famHit = pending.find((p) => family.doc.test(`${p.label} ${p.title || ""}`));
+    const candidates = pending.filter((p) => family.doc.test(`${p.label} ${p.title || ""}`));
+    if (!candidates.length) continue;
+    const famHit =
+      candidates.find((p) => {
+        const hay = `${p.label} ${p.title || ""}`.toLowerCase();
+        // Prefer the dedicated 3PH / 1PH line over "10KW…3PH…" when user typed a short alias
+        if (family.id === "3ph") return /^3\s*ph\b/i.test(p.label) && !/10\s*kw|125/i.test(hay);
+        if (family.id === "1ph") return /^1\s*ph\b/i.test(p.label);
+        return true;
+      }) || candidates[0];
     if (famHit?.documentId && famHit.url) {
       const title = famHit.fileName || famHit.title || `${famHit.label}.pdf`;
       return {
@@ -852,6 +865,7 @@ export function resolveCatalogueChoice(
         ],
         clarifyOptions: [],
         message: "Here is the catalogue.",
+        fromPending: true,
       };
     }
   }
@@ -886,7 +900,22 @@ export async function resolveCatalogueRequest(
   if (options?.pendingOptions?.length) {
     const choice = resolveCatalogueChoice(q, options.pendingOptions);
     if (choice) return choice;
-    // If they ask a new specific catalogue, fall through; if still vague, re-ask
+    // Number outside the list — keep the same options visible
+    if (/^\d{1,2}$/.test(q)) {
+      const clarifyOptions: CatalogueClarifyOption[] = options.pendingOptions.map((p) => ({
+        label: p.label,
+        documentId: p.documentId,
+        title: p.title || p.label,
+        url: p.url || "",
+        fileName: p.fileName || p.title || `${p.label}.pdf`,
+      }));
+      return {
+        mode: "clarify",
+        downloads: [],
+        clarifyOptions,
+        message: buildClarifyMessage(clarifyOptions),
+      };
+    }
   }
 
   const wantsCatalogue =

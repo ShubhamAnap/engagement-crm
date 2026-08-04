@@ -461,7 +461,9 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
                 url: o.url,
                 fileName: o.fileName,
               }));
-            } else {
+            } else if (catalogue.mode === "match" && catalogue.fromPending) {
+              // Keep the numbered list so customer can reply 2, 3, … for another PDF
+            } else if (catalogue.mode === "match") {
               delete nextMeta.pending_catalogue_options;
             }
             await supabase

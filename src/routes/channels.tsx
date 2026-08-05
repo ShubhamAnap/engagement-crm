@@ -2098,30 +2098,6 @@ function Page() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {[
-                  { v: 1, u: "hr" as const, label: "1 hr" },
-                  { v: 2, u: "hr" as const, label: "2 hr" },
-                  { v: 3, u: "hr" as const, label: "3 hr" },
-                  { v: 6, u: "hr" as const, label: "6 hr" },
-                  { v: 30, u: "min" as const, label: "30 min" },
-                ].map((p) => (
-                  <Button
-                    key={p.label}
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-8"
-                    disabled={!bmSetupQuery.data?.configured || bmAutoSyncMutation.isPending}
-                    onClick={() => {
-                      setBmIntervalValue(String(p.v));
-                      setBmIntervalUnit(p.u);
-                    }}
-                  >
-                    {p.label}
-                  </Button>
-                ))}
-              </div>
               <Button
                 size="sm"
                 disabled={

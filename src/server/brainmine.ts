@@ -157,7 +157,7 @@ const DEFAULT_FIELD_MAP: Required<BrainmineFieldMap> = {
   location: "city",
   state: "state",
   country: "country",
-  requirement: "notes",
+  requirement: "query_about",
   sales_person: "owner",
   lead_owner: "lead_owner",
   status: "status",
@@ -206,7 +206,12 @@ export async function loadBrainmineConfig(): Promise<BrainmineChannelConfig> {
       auth_style: cfg.auth_style || fromEnv.auth_style || "token",
       leads_path: cfg.leads_path || fromEnv.leads_path || "/api/resource/Lead",
       query_key_param: cfg.query_key_param || "api_key",
-      field_map: { ...DEFAULT_FIELD_MAP, ...(cfg.field_map || {}) },
+      field_map: {
+        ...DEFAULT_FIELD_MAP,
+        ...(cfg.field_map || {}),
+        // Engage Requirement ← Brainmine query_about (do not fall back to notes)
+        requirement: "query_about",
+      },
       last_sync_at: cfg.last_sync_at,
       list_key: cfg.list_key || "data",
       sync_limit: clampSyncLimit(
@@ -377,6 +382,7 @@ export async function fetchBrainmineLeads(
               "territory",
               "website",
               "annual_revenue",
+              "query_about",
               "modified",
               "creation",
             ]
@@ -401,6 +407,7 @@ export async function fetchBrainmineLeads(
               "territory",
               "type",
               "annual_revenue",
+              "query_about",
               "modified",
               "creation",
             ],
@@ -647,11 +654,16 @@ function mapRow(
   const country = asString(getByPath(row, fm.country));
   const location =
     [city, state, country].filter(Boolean).join(", ") || null;
-  const requirement = asString(getByPath(row, fm.requirement));
+  const requirement =
+    asString(getByPath(row, fm.requirement)) ||
+    asString(row.query_about) ||
+    asString(row.custom_query_about) ||
+    null;
   const leadOwner = asString(getByPath(row, fm.lead_owner));
   const owner = asString(getByPath(row, fm.sales_person));
   const salesPerson = leadOwner || owner;
   const status = mapBrainmineStatus(asString(getByPath(row, fm.status)));
+  // Notes stay separate from Requirement (query_about)
   const notes = asString(getByPath(row, fm.notes));
   const crmSource = asString(getByPath(row, fm.crm_source));
   const tagRaw = asString(getByPath(row, fm.tags));
@@ -690,6 +702,7 @@ function mapRow(
       territory,
       lead_type: leadType,
       annual_revenue: annualRevenue,
+      query_about: requirement,
       city,
       state,
       country,
@@ -894,7 +907,11 @@ export const saveBrainmineChannelConfig = createServerFn({ method: "POST" })
       leads_path: data.leadsPath?.trim() || prev.leads_path || "/api/resource/Lead",
       list_key: data.listKey?.trim() || prev.list_key || "data",
       sync_limit: clampSyncLimit(data.syncLimit ?? prev.sync_limit ?? DEFAULT_SYNC_LIMIT),
-      field_map: { ...DEFAULT_FIELD_MAP, ...(prev.field_map || {}) },
+      field_map: {
+        ...DEFAULT_FIELD_MAP,
+        ...(prev.field_map || {}),
+        requirement: "query_about",
+      },
     };
 
     const { error } = await supabase

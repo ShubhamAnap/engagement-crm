@@ -1,7 +1,7 @@
 # EnerTech Engage — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
-> **Last updated:** 2026-08-04
+> **Last updated:** 2026-08-05
 
 ---
 
@@ -443,6 +443,37 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 3. Confirm product image/PDF uploads / pending SQL as needed.
 4. Cron: `CRON_URL` + `CRON_SECRET` on Render (every 5 min).
 5. Later: DigitalOcean cutover (keep Render until DO proven); Settings RBAC.
+
+---
+
+### Session 2026-08-05 — Use Products + Knowledge Base together
+
+**Principle:** Bot already has Products + KB — objective is a satisfactory answer from that data, not interrogation.
+
+**Fix:** Every AI reply (website / WA / email / Meta) now gets `productsContext` + Knowledge Base. Prompt: answer from both; wait-only if both empty.
+
+---
+
+### Session 2026-08-05 — Auto product pack on kW / price ask
+
+**Request:** “3kw / 4kw / 5kw inverter price” → send full Products pack (photo, catalogue PDF, price, description) — don’t interrogate.
+
+**Fix:** `src/server/product-pack.ts` matches active Products by kW + category; wired before catalogue/AI on website (`widget-chat`) and WhatsApp. Clarify list when several close SKUs; numbered reply picks one.
+
+**Needs:** Products rows with image + PDF + price filled in Products module.
+
+---
+
+### Session 2026-08-05 — Chat: stop breaking conversation
+
+**Problem:** Bot refused “I need inverters” / “Resident” as off-topic; sales flow kept asking location/application/name-style intake after price.
+
+**Fix:**
+- `enertech-scope.ts` — plurals (`inverters?`), cities/residential in-scope; active chats don’t hard-block short follow-ups
+- Agent + OpenAI prompts — never ask name/email/phone; no price questionnaires; engage with product/catalogue/price from context
+- `ENGAGEMENT_LOCK` appended last in `agentReplyConfig` so DB custom prompts can’t override
+
+**Shipped next:** Auto product pack on kW/price (see session above). OpenAI now always receives Products catalogue + Knowledge Base together.
 
 ---
 

@@ -381,7 +381,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
         visitorName: (convo.visitor_name as string) || fromName || fromEmail,
         downloadCount: downloadLinks.length,
       });
-    } else if (isOffTopicMessage(text)) {
+    } else if (isOffTopicMessage(text, { conversationActive: true })) {
       reply = offTopicReplyForLang(sessionLang);
       inspector = buildAnswerInspector({
         chunks: [],
@@ -394,6 +394,8 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
       (inspector.metadata as Record<string, unknown>).off_topic = true;
     } else {
       const downloadLinks: Array<{ title: string; url: string }> = [];
+      const { buildProductsContextForAi } = await import("@/server/product-pack");
+      const productsContext = await buildProductsContextForAi(text);
       const generated = await generateOpenAiReply({
         visitorName: (convo.visitor_name as string) || fromName || fromEmail,
         latestUserMessage: text,
@@ -406,6 +408,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
           .map((c) => c.content)
           .join("\n\n")
           .replace(/https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi, "[file]"),
+        productsContext,
         downloadLinks,
         systemPrompt: agentCfg.systemPrompt,
         model: agentCfg.model,

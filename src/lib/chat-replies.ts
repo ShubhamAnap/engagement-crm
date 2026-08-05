@@ -5,7 +5,7 @@ export function buildPlaceholderAiReply(customerText: string): string {
     return "Thanks for your question about runtime. Based on typical EnerTech configurations, an EN-3000X with 8 × 42Ah batteries gives ~42–48 minutes at 60% load. A specialist can refine this for your exact load — I've logged your message in our inbox.";
   }
   if (t.includes("price") || t.includes("quote") || t.includes("quotation")) {
-    return "I can help with a quotation. Please share the kVA rating, phase (1φ/3φ), and preferred backup time. Your request is now visible to our sales team in EnerTech Engage.";
+    return "Happy to help with pricing. If you already shared the product or kW, our sales team will confirm the commercial offer shortly — your request is in EnerTech Engage.";
   }
   if (t.includes("human") || t.includes("call me") || t.includes("talk to")) {
     return "Okay sir, please wait a moment — I will get back to you shortly.";

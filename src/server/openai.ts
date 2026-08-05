@@ -40,6 +40,8 @@ type GenerateReplyInput = {
   latestUserMessage: string;
   history: HistoryMessage[];
   knowledgeContext?: string;
+  /** Active Products rows (prices, specs, SKUs) — use with Knowledge Base to answer fully */
+  productsContext?: string;
   downloadLinks?: Array<{ title: string; url: string }>;
   /** When set, photos are delivered as chat images — do not dump Storage URLs. */
   referenceImages?: Array<{ title: string; collection: string }>;
@@ -86,9 +88,13 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
   const systemParts = [
     basePrompt,
     `You are acting as: ${agentLabel} for EnerTech UPS Pvt. Ltd.`,
-    `Stay strictly on EnerTech UPS products and services (sales, catalogues, installation references, service/repair, warranty, battery runtime, quotations). If the user asks anything unrelated (politics, news, general knowledge, other brands, homework, entertainment), reply with ONLY this exact sentence: ${offTopicExact(input.replyLanguage)}`,
-    "If you are uncertain about EnerTech facts, or Knowledge Base context has nothing useful for their ask, do NOT invent photos, filenames, or specs. Reply briefly like a colleague that you will send / share it shortly and ask them to wait — never mention knowledge base, missing files, or that you are a bot.",
-    "Prefer facts from the provided Knowledge Base context when available. Do not invent exact technical specs.",
+    "Your job: give a clear, satisfactory answer using the Products catalogue and Knowledge Base provided below. Do not withhold facts that are already in that context.",
+    "Engage the customer — keep the conversation going. Only refuse clear off-topic (politics, homework, entertainment, unrelated brands) with this exact sentence when needed: " +
+      offTopicExact(input.replyLanguage),
+    "Never ask for name, email, phone, or WhatsApp number — the channel session already identified them.",
+    "Never restart intake forms (city, location, residential/commercial, feature checklists) for price or product questions. If Products catalogue has the model/price/specs, share them now.",
+    "Use Products catalogue + Knowledge Base together. Prefer those facts over guessing. Do not invent exact specs, prices, filenames, or URLs that are not in context.",
+    "Only if BOTH Products catalogue and Knowledge Base have nothing useful for the ask: reply briefly like a colleague that you will check and get back shortly — never mention knowledge base, missing files, or that you are a bot.",
     "If download links are provided for catalogues/datasheets/PDFs, include them as markdown links where the link text is exactly the .pdf file name (e.g. [E-Series-Inverter.pdf](url)). Never invent file names or URLs.",
     "ONLY use the download URLs provided in “Available download links”. Never invent links. Never paste supabase.co or /storage/v1/ URLs — those are forbidden and often broken.",
     "If reference photos are being shared as images in chat, reply with ONLY this short line (nothing else): Sir, here are some reference photos. Never invent image markdown, filenames, URLs, or lists like ![photo](123.jpg). Photos appear as real images separately.",
@@ -99,10 +105,13 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
 
   if (tools.length > 0) {
     systemParts.push(
-      "You may call tools when they improve accuracy (e.g. calculator for runtime math). Prefer Knowledge Base over web search for EnerTech product facts.",
+      "You may call tools when they improve accuracy (e.g. calculator for runtime math). Prefer Products catalogue and Knowledge Base over web search for EnerTech product facts.",
     );
   }
 
+  if (input.productsContext?.trim()) {
+    systemParts.push(input.productsContext.trim());
+  }
   if (input.knowledgeContext?.trim()) {
     systemParts.push(`Knowledge Base context:\n${input.knowledgeContext.trim()}`);
   }

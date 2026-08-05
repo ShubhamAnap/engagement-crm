@@ -27,6 +27,7 @@ import {
 } from "@/lib/session-language";
 import { ensureWhatsAppLeadCustomer } from "@/server/whatsapp-crm";
 import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, wantsReferenceImages, customerAskedForMorePhotos } from "@/server/knowledge";
+import { resolveProductPackRequest, buildProductPackMedia, buildProductsContextForAi } from "@/server/product-pack";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
@@ -641,6 +642,125 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               }>)
             : [];
 
+          const pendingProducts = Array.isArray(prevMeta.pending_product_options)
+            ? (prevMeta.pending_product_options as Array<{ id: string; name: string }>)
+            : [];
+
+          const productPack = await resolveProductPackRequest(text, { pendingProducts });
+          if (productPack.mode === "clarify" || productPack.mode === "match") {
+            const nextMeta: Record<string, unknown> = { ...prevMeta };
+            if (productPack.mode === "clarify") {
+              nextMeta.pending_product_options = productPack.products.map((p) => ({
+                id: p.id,
+                name: p.name,
+              }));
+            } else {
+              delete nextMeta.pending_product_options;
+            }
+            await supabase.from("conversations").update({ metadata: nextMeta }).eq("id", convo.id);
+
+            const media =
+              productPack.mode === "match" ? buildProductPackMedia(productPack.products) : [];
+            reply =
+              productPack.mode === "clarify"
+                ? productPack.message
+                : media.length === 1
+                  ? "Here is the product details."
+                  : "Here are the matching products.";
+
+            inspector = buildAnswerInspector({
+              chunks: [],
+              replySource: "openai",
+              model: "gpt-4o-mini",
+              agentName: "EnerBot",
+              channel: "whatsapp",
+              visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
+              downloadCount: media.filter((m) => m.catalogueUrl).length,
+              memoryEnabled: true,
+            });
+            (inspector.metadata as Record<string, unknown>).product_pack = true;
+            (inspector.metadata as Record<string, unknown>).product_pack_mode = productPack.mode;
+            (inspector.metadata as Record<string, unknown>).product_ids = productPack.products.map(
+              (p) => p.id,
+            );
+            (inspector.metadata as Record<string, unknown>).reference_images = media
+              .filter((m) => m.imageUrl)
+              .map((m) => ({
+                url: m.imageUrl,
+                title: m.productName,
+                file_name: `${m.productName}.jpg`,
+              }));
+            (inspector.metadata as Record<string, unknown>).download_links = media
+              .filter((m) => m.catalogueUrl)
+              .map((m) => ({
+                title: m.catalogueFileName || `${m.productName}.pdf`,
+                url: m.catalogueUrl,
+                file_name: m.catalogueFileName || `${m.productName}.pdf`,
+              }));
+
+            await supabase.from("messages").insert({
+              org_id: ORG_ID,
+              conversation_id: convo.id,
+              sender: "ai",
+              body:
+                productPack.mode === "clarify"
+                  ? productPack.message
+                  : media.map((m) => m.caption).join("\n\n---\n\n").slice(0, 8000) || reply,
+              confidence: inspector.confidence,
+              sources: inspector.sources,
+              metadata: inspector.metadata,
+            });
+
+            try {
+              if (productPack.mode === "clarify") {
+                await sendWhatsAppText(from, productPack.message, cfg);
+              } else {
+                await sendWhatsAppText(from, reply, cfg);
+                for (const item of media.slice(0, 3)) {
+                  if (item.imageUrl && /^https:\/\//i.test(item.imageUrl)) {
+                    try {
+                      await sendWhatsAppImage({
+                        toPhone: from,
+                        imageUrl: item.imageUrl,
+                        caption: item.caption,
+                        cfg,
+                      });
+                    } catch (err) {
+                      console.error("WA product image send failed", err);
+                      try {
+                        await sendWhatsAppText(from, item.caption, cfg);
+                      } catch (err2) {
+                        console.error("WA product caption fallback failed", err2);
+                      }
+                    }
+                  } else {
+                    try {
+                      await sendWhatsAppText(from, item.caption, cfg);
+                    } catch (err) {
+                      console.error("WA product text send failed", err);
+                    }
+                  }
+                  if (item.catalogueUrl && /^https:\/\//i.test(item.catalogueUrl)) {
+                    try {
+                      await sendWhatsAppDocument({
+                        toPhone: from,
+                        documentUrl: item.catalogueUrl,
+                        fileName: item.catalogueFileName || "catalogue.pdf",
+                        caption: `${item.productName} catalogue`,
+                        cfg,
+                      });
+                    } catch (err) {
+                      console.error("WA product catalogue send failed", err);
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              console.error("WhatsApp product pack send failed", err);
+            }
+            continue;
+          }
+
           const catalogue = await resolveCatalogueRequest(text, {
             pendingOptions: pendingCatalogue,
           });
@@ -956,7 +1076,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             continue;
           }
 
-          if (isOffTopicMessage(text)) {
+          if (isOffTopicMessage(text, { conversationActive: true })) {
             reply = offTopicReplyForLang(sessionLang);
             inspector = buildAnswerInspector({
               chunks: [],
@@ -990,6 +1110,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             .map((c) => c.content)
             .join("\n\n")
             .replace(/https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi, "[file]");
+          const productsContext = await buildProductsContextForAi(text);
           const stack = await resolveAgentStack({
             channel: "whatsapp",
             message: text,
@@ -1006,6 +1127,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               created_at: m.created_at as string,
             })),
             knowledgeContext,
+            productsContext,
             downloadLinks,
             referenceImages: [],
             systemPrompt: agentCfg.systemPrompt,
@@ -1324,14 +1446,10 @@ export const sendWhatsAppProductRecommendation = createServerFn({ method: "POST"
     if (productError) throw new Error(productError.message);
     if (!product) throw new Error("Product not found");
 
-    const { formatProductRecommendationCaption } = await import("@/lib/product-card");
+    const { formatProductRecommendationCaption, resolveProductImageUrl } = await import("@/lib/product-card");
     const caption = formatProductRecommendationCaption(product as import("@/lib/db-types").DbProduct);
 
-    let imageUrl =
-      (typeof product.image_url === "string" && product.image_url) ||
-      (typeof product.image_path === "string" && product.image_path
-        ? `${String(process.env.VITE_SUPABASE_URL || "").replace(/\/$/, "")}/storage/v1/object/public/knowledge/${product.image_path}`
-        : null);
+    let imageUrl = resolveProductImageUrl(product as import("@/lib/db-types").DbProduct);
 
     if (imageUrl && !/^https:\/\//i.test(imageUrl)) {
       throw new Error("Product image URL must be public HTTPS (run 019 and upload an image on Products)");

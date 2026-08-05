@@ -381,7 +381,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
           channel: type,
           downloadCount: downloadLinks.length,
         });
-      } else if (isOffTopicMessage(text)) {
+      } else if (isOffTopicMessage(text, { conversationActive: true })) {
         reply = offTopicReplyForLang(sessionLang);
         inspector = buildAnswerInspector({
           chunks: [],
@@ -397,6 +397,8 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
       const stack = await resolveAgentStack({ channel: type, message: text });
       const agentCfg = agentReplyConfig(stack);
       const { sanitizeAssistantFileLinks } = await import("@/server/shorten-urls");
+      const { buildProductsContextForAi } = await import("@/server/product-pack");
+      const productsContext = await buildProductsContextForAi(text);
       const downloadLinks: Array<{ title: string; url: string }> = [];
       const generated = await generateOpenAiReply({
         visitorName: (convo.visitor_name as string) || "Customer",
@@ -410,6 +412,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
           .map((c) => c.content)
           .join("\n\n")
           .replace(/https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi, "[file]"),
+        productsContext,
         downloadLinks,
         systemPrompt: agentCfg.systemPrompt,
         model: agentCfg.model,

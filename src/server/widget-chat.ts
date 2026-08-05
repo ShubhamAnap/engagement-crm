@@ -28,6 +28,7 @@ import {
   humanWaitReplyForLang,
 } from "@/lib/session-language";
 import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, wantsReferenceImages, customerAskedForMorePhotos } from "@/server/knowledge";
+import { resolveProductPackRequest, buildProductPackMedia, buildProductsContextForAi } from "@/server/product-pack";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -827,6 +828,93 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
         }>)
       : [];
 
+    const pendingProducts = Array.isArray(prevMeta.pending_product_options)
+      ? (prevMeta.pending_product_options as Array<{ id: string; name: string }>)
+      : [];
+
+    // Products catalogue pack: photo + price + description + PDF (e.g. "3kw inverter price")
+    const productPack = await resolveProductPackRequest(text, { pendingProducts });
+    if (productPack.mode === "clarify" || productPack.mode === "match") {
+      const nextMeta: Record<string, unknown> = { ...prevMeta };
+      if (productPack.mode === "clarify") {
+        nextMeta.pending_product_options = productPack.products.map((p) => ({
+          id: p.id,
+          name: p.name,
+        }));
+      } else {
+        delete nextMeta.pending_product_options;
+      }
+      await supabase.from("conversations").update({ metadata: nextMeta }).eq("id", data.conversationId);
+
+      const media =
+        productPack.mode === "match" ? buildProductPackMedia(productPack.products) : [];
+      const images = media
+        .filter((m) => m.imageUrl)
+        .map((m) => ({
+          url: m.imageUrl as string,
+          title: m.productName,
+          file_name: `${m.productName}.jpg`,
+        }));
+      const downloadLinks = media
+        .filter((m) => m.catalogueUrl)
+        .map((m) => ({
+          title: m.catalogueFileName || `${m.productName}.pdf`,
+          url: m.catalogueUrl as string,
+          file_name: m.catalogueFileName || `${m.productName}.pdf`,
+        }));
+
+      const inspector = buildAnswerInspector({
+        chunks: [],
+        replySource: "openai",
+        model: "gpt-4o-mini",
+        agentName: "EnerBot",
+        channel: (convo.channel as string) || "website",
+        visitorName: convo.visitor_name || "Website visitor",
+        downloadCount: downloadLinks.length,
+        memoryEnabled: true,
+      });
+
+      const reply = productPack.message;
+      const { error: packErr } = await supabase.from("messages").insert({
+        org_id: ORG_ID,
+        conversation_id: data.conversationId,
+        sender: "ai",
+        body: reply,
+        confidence: inspector.confidence,
+        sources: inspector.sources,
+        metadata: {
+          ...inspector.metadata,
+          product_pack: true,
+          product_pack_mode: productPack.mode,
+          product_ids: productPack.products.map((p) => p.id),
+          reference_images: images,
+          download_links: downloadLinks.map((l) => ({
+            title: l.title,
+            url: l.url,
+            file_name: l.file_name,
+          })),
+        },
+      });
+      if (packErr) throw new Error(packErr.message);
+
+      await supabase
+        .from("conversations")
+        .update({
+          preview: reply.slice(0, 160),
+          last_message_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", data.conversationId);
+
+      return {
+        messages: await getConversationMessages(supabase, data.conversationId),
+        reply,
+        source: "openai",
+        aiPaused: false,
+        status: convo.status,
+      };
+    }
+
     const catalogue = await resolveCatalogueRequest(text, { pendingOptions: pendingCatalogue });
 
     // Catalogue intent: short reply + at most one PDF (or numbered choices)
@@ -1116,7 +1204,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       };
     }
 
-    if (isOffTopicMessage(text)) {
+    if (isOffTopicMessage(text, { conversationActive: priorHistory.length > 0 })) {
       const reply = offTopicReplyForLang(sessionLang);
       const inspector = buildAnswerInspector({
         chunks: [],
@@ -1160,6 +1248,8 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       .join("\n\n")
       .replace(/https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi, "[file]");
 
+    const productsContext = await buildProductsContextForAi(text);
+
     const { sanitizeAssistantFileLinks } = await import("@/server/shorten-urls");
     const downloadLinks: Array<{ title: string; url: string; fileName?: string }> = [];
 
@@ -1174,6 +1264,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       latestUserMessage: text,
       history: priorHistory,
       knowledgeContext,
+      productsContext,
       downloadLinks,
       referenceImages: [],
       systemPrompt: agentCfg.systemPrompt,

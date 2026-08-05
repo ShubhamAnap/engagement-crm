@@ -1,0 +1,369 @@
+/**
+ * Match Products catalogue rows to customer asks like "3kw inverter price".
+ * Used by website chat + WhatsApp to send photo, price, description, catalogue PDF.
+ */
+
+import type { DbProduct } from "@/lib/db-types";
+import { isAckOnlyMessage, isGreetingOnlyMessage } from "@/lib/enertech-scope";
+import { isServiceIntent } from "@/lib/conversation-guards";
+import { createServiceSupabase } from "@/lib/supabase";
+import {
+  formatProductPackBody,
+  formatProductRecommendationCaption,
+  resolveProductCatalogueUrl,
+  resolveProductImageUrl,
+} from "@/lib/product-card";
+
+const ORG_ID = "a0000000-0000-4000-8000-000000000001";
+
+const KW_RE = /(\d+(?:\.\d+)?)\s*(k\.?\s*w|k\.?\s*va|kw|kva)\b/i;
+const PRODUCT_WORD_RE =
+  /\b(inverters?|ups|hybrids?|batter(?:y|ies)|bess|ongrid|on[\s-]?grid|off[\s-]?grid|solar|e[\s-]?series|reefi|stabilizers?|chargers?|sfc|products?|models?)\b/i;
+const DETAIL_RE =
+  /\b(price|pricing|cost|rate|quote|quotation|kitna|kitne|rs\.?|₹|inr|details?|specs?|specification|send|bhejo|dikhao|info|information|available|stock)\b/i;
+const PRICE_RE = /\b(price|pricing|cost|rate|quote|quotation|kitna|kitne|rs\.?|₹|inr)\b/i;
+
+export type ProductPackResult =
+  | { mode: "none" }
+  | {
+      mode: "match";
+      products: DbProduct[];
+      message: string;
+    }
+  | {
+      mode: "clarify";
+      products: DbProduct[];
+      message: string;
+    };
+
+export function extractRequestedKw(text: string): number | null {
+  const m = String(text || "").match(KW_RE);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Infer kW/kVA from product fields (name "3kW Hybrid", SKU EN-3000 → 3). */
+export function productPowerKw(product: DbProduct): number | null {
+  const blob = [
+    product.name,
+    product.sku,
+    product.category,
+    product.description,
+    product.battery_spec,
+    product.runtime_spec,
+    JSON.stringify(product.specs || {}),
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const direct = extractRequestedKw(blob);
+  if (direct != null) return direct;
+
+  const sku = String(product.sku || "");
+  const skuKw = sku.match(/(\d+(?:\.\d+)?)\s*k/i);
+  if (skuKw) {
+    const n = Number(skuKw[1]);
+    if (Number.isFinite(n) && n > 0 && n <= 500) return n;
+  }
+
+  // EN-3000 / 5000X style → kVA = value/1000
+  const rating = sku.match(/(?:^|[-_\s])(\d{3,5})(?:[-_x]|$)/i);
+  if (rating) {
+    const v = Number(rating[1]);
+    if (v >= 500 && v <= 50000) return Math.round((v / 1000) * 100) / 100;
+  }
+
+  return null;
+}
+
+function categoryHint(text: string): string | null {
+  const t = text.toLowerCase();
+  if (/\bhybrids?\b/.test(t)) return "hybrid";
+  if (/\bongrid|on[\s-]?grid\b/.test(t)) return "ongrid";
+  if (/\boff[\s-]?grid\b/.test(t)) return "offgrid";
+  if (/\bbess\b/.test(t)) return "bess";
+  if (/\bbatter(?:y|ies)\b/.test(t)) return "battery";
+  if (/\bups\b/.test(t)) return "ups";
+  if (/\binverters?\b/.test(t)) return "inverter";
+  if (/\bsolar\b/.test(t)) return "solar";
+  return null;
+}
+
+/** True when customer is asking for a product / price pack from the Products list. */
+export function wantsProductPack(text: string): boolean {
+  const q = String(text || "").trim();
+  if (!q || q.length > 280) return false;
+  if (isAckOnlyMessage(q) || isGreetingOnlyMessage(q)) return false;
+  if (isServiceIntent(q)) return false;
+
+  const hasKw = KW_RE.test(q);
+  const hasProduct = PRODUCT_WORD_RE.test(q);
+  const priceAsk = PRICE_RE.test(q);
+  const wantsDetail = DETAIL_RE.test(q);
+
+  // "3kw inverter price", "5 kw hybrid", "4kW inverter"
+  if (hasKw && (hasProduct || priceAsk || wantsDetail)) return true;
+  if (hasKw && q.length <= 48) return true;
+  // "inverter price" without kW — still try Products (leave bare "catalogue" to KB)
+  if (hasProduct && priceAsk) return true;
+  return false;
+}
+
+function scoreProduct(product: DbProduct, query: string, requestedKw: number | null, hint: string | null): number {
+  const blob = `${product.name} ${product.sku} ${product.category || ""} ${product.description || ""}`.toLowerCase();
+  let score = 0;
+
+  if (requestedKw != null) {
+    const pKw = productPowerKw(product);
+    if (pKw != null) {
+      const diff = Math.abs(pKw - requestedKw);
+      if (diff < 0.05) score += 100;
+      else if (diff <= 0.25) score += 80;
+      else if (diff <= 0.5) score += 50;
+      else if (diff <= 1) score += 20;
+      else score -= 40;
+    } else {
+      score -= 5;
+    }
+  }
+
+  if (hint) {
+    if (blob.includes(hint)) score += 35;
+    else if (hint === "inverter" && /inverter|hybrid|solar|ongrid|offgrid/.test(blob)) score += 20;
+    else if (hint === "ups" && /\bups\b/.test(blob)) score += 35;
+  }
+
+  const tokens = query
+    .toLowerCase()
+    .replace(/[^a-z0-9.\s-]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length >= 3 && !/^(the|and|for|with|price|cost|want|need|send|please|kitna|inverter|inverters)$/.test(t));
+
+  for (const tok of tokens) {
+    if (blob.includes(tok)) score += 8;
+    if (product.sku.toLowerCase().includes(tok)) score += 15;
+  }
+
+  score += Math.round(Number(product.ai_weight || 0.5) * 10);
+  if (product.image_url || product.image_path) score += 5;
+  if (product.catalog_pdf_url || product.catalog_pdf_path) score += 5;
+  if (product.price_label || product.price_paise) score += 5;
+
+  return score;
+}
+
+export function rankProductsForQuery(products: DbProduct[], query: string): DbProduct[] {
+  const requestedKw = extractRequestedKw(query);
+  const hint = categoryHint(query);
+  return [...products]
+    .map((p) => ({ p, score: scoreProduct(p, query, requestedKw, hint) }))
+    .filter((row) => {
+      if (requestedKw != null) {
+        const pKw = productPowerKw(row.p);
+        // Keep near matches; if no power on product, still allow name hits
+        if (pKw != null && Math.abs(pKw - requestedKw) > 1.01) return false;
+        return row.score >= 40;
+      }
+      return row.score >= 30;
+    })
+    .sort((a, b) => b.score - a.score)
+    .map((row) => row.p);
+}
+
+function clarifyMessage(products: DbProduct[]): string {
+  const lines = products.slice(0, 8).map((p, i) => {
+    const kw = productPowerKw(p);
+    const price = p.price_label ? ` — ${p.price_label}` : "";
+    const power = kw != null ? ` · ${kw} kW` : "";
+    return `${i + 1}. ${p.name}${power}${price}`;
+  });
+  return `I found a few matching products. Which one do you want?\n${lines.join("\n")}\n\nReply with the number or product name.`;
+}
+
+function matchIntro(products: DbProduct[]): string {
+  if (products.length === 1) {
+    return formatProductPackBody(products[0]!);
+  }
+  const blocks = products.map((p, i) => `---\n${i + 1}. ${formatProductPackBody(p)}`);
+  return `Here are the matching products:\n\n${blocks.join("\n\n")}`;
+}
+
+/**
+ * Resolve product pack from active Products rows.
+ * Pending numbered picks: reply "1" / "2" after clarify.
+ */
+export async function resolveProductPackRequest(
+  query: string,
+  options?: {
+    pendingProducts?: Array<{ id: string; name: string }>;
+  },
+): Promise<ProductPackResult> {
+  const q = String(query || "").trim();
+  if (!q) return { mode: "none" };
+  if (isAckOnlyMessage(q) || isGreetingOnlyMessage(q)) return { mode: "none" };
+  if (isServiceIntent(q) && !/^\d{1,2}$/.test(q)) return { mode: "none" };
+
+  const supabase = createServiceSupabase();
+
+  // Follow-up pick after clarify list
+  if (options?.pendingProducts?.length) {
+    const num = q.match(/^(\d{1,2})$/);
+    if (num) {
+      const idx = Number(num[1]) - 1;
+      const pick = options.pendingProducts[idx];
+      if (pick) {
+        const { data } = await supabase
+          .from("products")
+          .select("*")
+          .eq("org_id", ORG_ID)
+          .eq("id", pick.id)
+          .eq("is_active", true)
+          .maybeSingle();
+        if (data) {
+          const product = data as DbProduct;
+          return { mode: "match", products: [product], message: formatProductPackBody(product) };
+        }
+      }
+    }
+    const lower = q.toLowerCase();
+    const byName = options.pendingProducts.find(
+      (p) => lower.includes(p.name.toLowerCase()) || p.name.toLowerCase().includes(lower),
+    );
+    if (byName) {
+      const { data } = await supabase
+        .from("products")
+        .select("*")
+        .eq("org_id", ORG_ID)
+        .eq("id", byName.id)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (data) {
+        const product = data as DbProduct;
+        return { mode: "match", products: [product], message: formatProductPackBody(product) };
+      }
+    }
+  }
+
+  if (!wantsProductPack(q) && !options?.pendingProducts?.length) {
+    return { mode: "none" };
+  }
+
+  const { data, error } = await supabase
+    .from("products")
+    .select("*")
+    .eq("org_id", ORG_ID)
+    .eq("is_active", true)
+    .order("ai_weight", { ascending: false })
+    .limit(80);
+
+  if (error) throw new Error(error.message);
+  const products = (data || []) as DbProduct[];
+  if (!products.length) return { mode: "none" };
+
+  const ranked = rankProductsForQuery(products, q);
+  if (!ranked.length) return { mode: "none" };
+
+  if (ranked.length === 1) {
+    return { mode: "match", products: ranked.slice(0, 1), message: matchIntro(ranked.slice(0, 1)) };
+  }
+
+  // Same kW family with multiple SKUs → clarify unless query named one clearly
+  const top = ranked.slice(0, 6);
+  const topScoreGap =
+    scoreProduct(top[0]!, q, extractRequestedKw(q), categoryHint(q)) -
+    scoreProduct(top[1]!, q, extractRequestedKw(q), categoryHint(q));
+
+  if (topScoreGap >= 40) {
+    return { mode: "match", products: top.slice(0, 1), message: matchIntro(top.slice(0, 1)) };
+  }
+
+  // Strong single winner already handled; 2–3 close matches → send all packs (max 3)
+  if (top.length <= 3 && extractRequestedKw(q) != null) {
+    return { mode: "match", products: top, message: matchIntro(top) };
+  }
+
+  return { mode: "clarify", products: top, message: clarifyMessage(top) };
+}
+
+export type ProductPackMedia = {
+  productId: string;
+  productName: string;
+  caption: string;
+  body: string;
+  imageUrl: string | null;
+  catalogueUrl: string | null;
+  catalogueFileName: string | null;
+};
+
+export function buildProductPackMedia(products: DbProduct[]): ProductPackMedia[] {
+  return products.map((p) => {
+    const catalogueUrl = resolveProductCatalogueUrl(p);
+    return {
+      productId: p.id,
+      productName: p.name,
+      caption: formatProductRecommendationCaption(p),
+      body: formatProductPackBody(p),
+      imageUrl: resolveProductImageUrl(p),
+      catalogueUrl,
+      catalogueFileName: catalogueUrl ? `${(p.sku || p.name).replace(/[^\w.-]+/g, "-")}.pdf` : null,
+    };
+  });
+}
+
+function formatProductContextLine(p: DbProduct): string {
+  const kw = productPowerKw(p);
+  const parts = [
+    p.name,
+    p.sku ? `SKU ${p.sku}` : null,
+    p.category ? `Category ${p.category}` : null,
+    kw != null ? `${kw} kW/kVA` : null,
+    p.price_label
+      ? `Price ${p.price_label}`
+      : p.price_paise != null
+        ? `Price ₹${(p.price_paise / 100).toLocaleString("en-IN")}`
+        : null,
+    p.stock_status ? `Stock ${p.stock_status}` : null,
+    p.battery_spec ? `Battery ${p.battery_spec}` : null,
+    p.runtime_spec ? `Runtime ${p.runtime_spec}` : null,
+  ].filter(Boolean);
+  const catalog = resolveProductCatalogueUrl(p);
+  const desc = p.description?.trim().replace(/\s+/g, " ").slice(0, 220);
+  return [
+    `- ${parts.join(" · ")}`,
+    desc ? `  ${desc}` : null,
+    catalog ? `  Catalogue: ${catalog}` : null,
+    p.image_url || p.image_path ? `  Photo: available` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * Products catalogue text for OpenAI — always available alongside Knowledge Base.
+ * Prefer query-ranked matches; otherwise top weighted active products.
+ */
+export async function buildProductsContextForAi(query: string, limit = 10): Promise<string> {
+  const supabase = createServiceSupabase();
+  const { data, error } = await supabase
+    .from("products")
+    .select("*")
+    .eq("org_id", ORG_ID)
+    .eq("is_active", true)
+    .order("ai_weight", { ascending: false })
+    .limit(80);
+
+  if (error) {
+    console.error("buildProductsContextForAi", error.message);
+    return "";
+  }
+  const products = (data || []) as DbProduct[];
+  if (!products.length) return "";
+
+  const ranked = rankProductsForQuery(products, query);
+  const list = (ranked.length ? ranked : products).slice(0, limit);
+  const header = ranked.length
+    ? "Products catalogue (matched to this question — use these facts to answer; share name, price, specs, catalogue):"
+    : "Products catalogue (active EnerTech products — use when relevant):";
+  return `${header}\n${list.map(formatProductContextLine).join("\n")}`;
+}

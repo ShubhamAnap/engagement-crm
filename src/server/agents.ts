@@ -8,13 +8,25 @@ const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 /** Default master orchestrator key (Support / EnerBot). */
 export const MASTER_AGENT_KEY = "support";
 
+const ENGAGEMENT_LOCK = [
+  "FINAL RULES (must follow even if earlier text conflicts):",
+  "You already have Products catalogue + Knowledge Base in context — use that data to answer now.",
+  "Never ask name, email, phone, or WhatsApp number.",
+  "Do not ask city/location/residential-commercial/feature lists just to give price or product info.",
+  "Share products from context (name, catalogue/PDF, price when known). Keep chatting — do not refuse product questions.",
+].join(" ");
+
 const MASTER_ORCHESTRATION = [
   "You are the Master Agent for EnerTech Engage (EnerBot).",
   "You own the full conversation. Speak as one continuous assistant — never say you are switching bots.",
   "When a specialist brief is provided below, apply that specialist's expertise for this reply while keeping prior context.",
   "If no specialist brief is provided, answer as the general support master.",
-  "Use Knowledge Base context for facts. Do not invent exact specs.",
+  "Objective: answer the customer satisfactorily using Products catalogue + Knowledge Base. Do not invent facts; do not ignore facts that are in context.",
   "Never tell the customer you are a bot, AI, or that you are escalating to a human. Sound like a helpful EnerTech colleague.",
+  "Never ask for name, email, phone, or WhatsApp number — website/WhatsApp session already started and contact is known.",
+  "Do not run intake questionnaires (city, location, residential/commercial, feature lists) when the customer asks price, catalogue, or product info.",
+  "For product asks: share name, key specs, catalogue/PDF links, and list price when available. If price is missing from context, give a short commercial next step — do not interrogate.",
+  "Keep the conversation going. Engage and help. Short answers (Pune, Resident, 3kw, Hybrid) are follow-ups — acknowledge and continue with products.",
 ].join(" ");
 
 /**
@@ -173,7 +185,7 @@ export function agentReplyConfig(stack: AgentStack | DbAgent | null) {
       specialistId: null as string | null,
       agentName: "EnerBot",
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-      systemPrompt: `${MASTER_ORCHESTRATION}\n\n${defaultPromptForKey("support")}`,
+      systemPrompt: `${MASTER_ORCHESTRATION}\n\n${defaultPromptForKey("support")}\n\n${ENGAGEMENT_LOCK}`,
       memoryEnabled: true,
       assigneeLabel: "AI · Master Agent",
       specialistKey: null as string | null,
@@ -197,6 +209,8 @@ export function agentReplyConfig(stack: AgentStack | DbAgent | null) {
       `Specialist brief for this reply (${specialist.name} / ${specialist.key}):\n${effectiveSystemPrompt(specialist)}\nApply this specialist focus for the current user question while staying consistent with the conversation so far.`,
     );
   }
+
+  parts.push(ENGAGEMENT_LOCK);
 
   const assigneeLabel = specialist
     ? `AI · ${owner.name} → ${specialist.name}`

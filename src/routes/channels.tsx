@@ -165,6 +165,7 @@ function Page() {
   const [bmApiSecret, setBmApiSecret] = useState("");
   const [bmAuthStyle, setBmAuthStyle] = useState<BrainmineAuthStyle>("token");
   const [bmLeadsPath, setBmLeadsPath] = useState("/api/resource/Lead");
+  const [bmSyncLimit, setBmSyncLimit] = useState("30");
   const [websiteOriginsText, setWebsiteOriginsText] = useState("");
   const [websiteOriginsLoaded, setWebsiteOriginsLoaded] = useState(false);
 
@@ -518,18 +519,27 @@ function Page() {
           api_base_url?: string;
           api_key?: string;
           api_secret?: string;
+          sync_limit?: number;
         };
-        const base = bmApiBaseUrl.trim() || existing.api_base_url || "";
+        const base =
+          bmApiBaseUrl.trim() ||
+          existing.api_base_url ||
+          bmSetupQuery.data?.apiBaseUrl ||
+          "";
         const key = bmApiKey.trim() || existing.api_key || "";
         if (!base) throw new Error("Brainmine API base URL is required");
-        if (!key) throw new Error("Brainmine API key is required");
+        if (!key && !bmSetupQuery.data?.hasKey) {
+          throw new Error("Brainmine API key is required (UI or BRAINMINE_API_KEY in .env)");
+        }
+        const syncLimit = Number(bmSyncLimit) || bmSetupQuery.data?.syncLimit || 30;
         return saveBrainmineChannelConfig({
           data: {
             apiBaseUrl: base,
-            apiKey: key,
+            apiKey: key || undefined,
             apiSecret: bmApiSecret.trim() || existing.api_secret || undefined,
             authStyle: bmAuthStyle,
             leadsPath: bmLeadsPath.trim() || "/api/resource/Lead",
+            syncLimit,
             enable: true,
           },
         });
@@ -639,12 +649,14 @@ function Page() {
         api_secret?: string;
         auth_style?: BrainmineAuthStyle;
         leads_path?: string;
+        sync_limit?: number;
       };
-      setBmApiBaseUrl(cfg.api_base_url || "");
+      setBmApiBaseUrl(cfg.api_base_url || bmSetupQuery.data?.apiBaseUrl || "https://brainmineai.in");
       setBmApiKey("");
       setBmApiSecret("");
-      setBmAuthStyle(cfg.auth_style || "token");
-      setBmLeadsPath(cfg.leads_path || "/api/resource/Lead");
+      setBmAuthStyle(cfg.auth_style || (bmSetupQuery.data?.authStyle as BrainmineAuthStyle) || "token");
+      setBmLeadsPath(cfg.leads_path || bmSetupQuery.data?.leadsPath || "/api/resource/Lead");
+      setBmSyncLimit(String(cfg.sync_limit || bmSetupQuery.data?.syncLimit || 30));
     }
   }
 
@@ -1991,14 +2003,14 @@ function Page() {
               const toggling = toggleMutation.isPending && toggleMutation.variables?.channel.id === c.id;
               return (
                 <Panel key={c.id} bodyClassName="p-4">
-                  <div className="flex items-start gap-3">
+              <div className="flex items-start gap-3">
                     <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-secondary">
                       <ChannelIcon channel={c.type} className="text-muted-foreground" />
-                    </div>
+              </div>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold">{c.name}</p>
                       <p className="truncate text-xs text-muted-foreground">{c.detail || c.type}</p>
-                    </div>
+              </div>
                     <Switch
                       checked={Boolean(c.is_enabled)}
                       disabled={toggling}
@@ -2046,7 +2058,7 @@ function Page() {
                       <Pencil className="size-3" /> Configure
                     </Button>
                   </div>
-                </Panel>
+            </Panel>
               );
             })
           )}
@@ -2382,7 +2394,7 @@ function Page() {
                   id="bm-base"
                   value={bmApiBaseUrl}
                   onChange={(e) => setBmApiBaseUrl(e.target.value)}
-                  placeholder="https://your-crm.example.com"
+                  placeholder="https://brainmineai.in"
                 />
               </div>
               <div className="space-y-2">
@@ -2393,20 +2405,24 @@ function Page() {
                   value={bmApiKey}
                   onChange={(e) => setBmApiKey(e.target.value)}
                   placeholder={
-                    (editing.config as { api_key?: string } | null)?.api_key
-                      ? "Leave blank to keep existing key"
+                    bmSetupQuery.data?.hasKey
+                      ? "Leave blank to keep existing / .env key"
                       : "API key"
                   }
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="bm-secret">API secret (optional — token auth)</Label>
+                <Label htmlFor="bm-secret">API secret (token auth)</Label>
                 <Input
                   id="bm-secret"
                   type="password"
                   value={bmApiSecret}
                   onChange={(e) => setBmApiSecret(e.target.value)}
-                  placeholder="ERPNext-style api_secret"
+                  placeholder={
+                    bmSetupQuery.data?.hasSecret
+                      ? "Leave blank to keep existing / .env secret"
+                      : "ERPNext-style api_secret"
+                  }
                 />
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -2437,8 +2453,31 @@ function Page() {
                   />
                 </div>
               </div>
+              <div className="space-y-2">
+                <Label>Leads per sync</Label>
+                <Select value={bmSyncLimit} onValueChange={setBmSyncLimit}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {["10", "20", "30", "50", "100", "200"].map((n) => (
+                      <SelectItem key={n} value={n}>
+                        {n} leads
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <p className="text-xs text-muted-foreground">
-                Read-only sync into master Leads. Adjust path/auth when Brainmine shares official docs.
+                Values here override{" "}
+                <code className="text-[10px]">BRAINMINE_*</code> in{" "}
+                <code className="text-[10px]">.env</code> / Render. Default base:{" "}
+                <code className="text-[10px]">https://brainmineai.in</code>. If Lead
+                list is empty, try{" "}
+                <code className="text-[10px]">/api/resource/Opportunity</code>.
+                {bmSetupQuery.data?.fromEnv?.key || bmSetupQuery.data?.fromEnv?.baseUrl
+                  ? " Env credentials detected."
+                  : null}
               </p>
             </div>
           ) : (
@@ -2471,7 +2510,7 @@ function Page() {
                       ))}
                     </SelectContent>
                   </Select>
-                </div>
+        </div>
                 <div className="space-y-2">
                   <Label htmlFor="ch-health">Health (0–100)</Label>
                   <Input
@@ -2482,7 +2521,7 @@ function Page() {
                     value={formHealth}
                     onChange={(e) => setFormHealth(e.target.value)}
                   />
-                </div>
+      </div>
               </div>
             </div>
           )}

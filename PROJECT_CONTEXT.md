@@ -302,6 +302,9 @@ Record decisions here so we don't re-debate.
 
 Brief notes from each working session — append, don't delete.
 
+### 2026-07-30
+- **Brainmine sync limit + env/UI:** Channels Configure can set leads-per-sync (10–200, default 30). `BRAINMINE_SYNC_LIMIT` in `.env`; UI overrides env. Base URL hint `https://brainmineai.in`. Blank key/secret keeps existing or env credentials.
+
 ### 2026-08-04
 - **Website widget origin allowlist:** Channels → Website → allowed domains (stored in channel `config.allowed_origins`). Empty list blocks every site except always-allowed preview hosts (`enertechups-ai.onrender.com`, localhost, `VITE_APP_URL` host). Subdomains and paths of an allowed apex are included automatically. Embed passes `parentOrigin` via `widget.js`; server checks `pageOrigin` on all widget APIs (`src/lib/widget-origins.ts`, `assertWidgetAccess` in `widget-chat.ts`).
 - **KB reference photos (Website + WhatsApp):** `findReferenceImages` matches application collections (Cold Storage, Petrol Pump, Hospital, Fire, …) when customers ask for install/reference photos. Website chat shows inline image bubbles (tap to open/download). WhatsApp sends real image messages via Cloud API. Upload ready images under Knowledge collections for this to work.
@@ -403,7 +406,7 @@ Brief notes from each working session — append, don't delete.
 - **Automation canvas:** visual trigger→action nodes on `/automation` (edit dialog + detail), reorder actions.
 - **Broadcasting:** `/broadcasting` — WhatsApp message templates (create + submit to Meta, Sync from Meta), campaigns to leads/customers/IndiaMART/manual phones. Migration `009_broadcasting.sql`. Needs WABA ID on Channels → WhatsApp.
 - **Leads master:** `/leads` is the master enquiry sheet (Company, Name, Email, Phone, Location, Source, Requirement, Sales Person, Status, Note, Tags). Migration `010_leads_master.sql`. Status changes ready for Automation follow-ups later.
-- **Brainmine CRM+:** Channels card + Sync now (read-only pull → master leads, source `brainmine`). Configurable URL/auth/path (ERPNext Lead defaults). Migrations `011` + `011b`. Wire exact field map when API docs arrive.
+- **Brainmine CRM+:** Channels card + Sync now (read-only pull → master leads, source `brainmine`). Configurable URL/auth/path (ERPNext Lead defaults). **Leads per sync** (UI + `BRAINMINE_SYNC_LIMIT`, default 30). UI overrides `.env`. Migrations `011` + `011b`. Wire exact field map when API docs arrive.
 - **TradeIndia:** Channels card + Sync now (My Inquiry API pull → Leads + Inbox). Dedup by `rfi_id`. **Historical backfill** = one calendar day per pull (~1 min gap), progress on `config.backfill`; cron ticks too. Maps sample fields (sender_*, product_name, subject, message HTML-stripped, inquiry_type). Migrations `014` / `014b` / `014c` (`tradeindia_lead` trigger). Credentials via Channels UI or `TRADEINDIA_*` env — never commit keys.
 
 ---

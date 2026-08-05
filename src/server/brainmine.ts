@@ -46,7 +46,18 @@ export type BrainmineChannelConfig = {
   last_sync_at?: string;
   /** Optional JSON-path-ish list key: data | data.message | leads | results */
   list_key?: string;
+  /** Max leads pulled per Sync now (ERPNext limit_page_length). Default 30. */
+  sync_limit?: number;
 };
+
+const DEFAULT_SYNC_LIMIT = 30;
+const MAX_SYNC_LIMIT = 200;
+
+function clampSyncLimit(raw: unknown): number {
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_SYNC_LIMIT;
+  return Math.min(MAX_SYNC_LIMIT, Math.floor(n));
+}
 
 const DEFAULT_FIELD_MAP: Required<BrainmineFieldMap> = {
   id: "name",
@@ -69,6 +80,9 @@ function envConfig(): BrainmineChannelConfig {
     api_secret: process.env.BRAINMINE_API_SECRET || undefined,
     auth_style: (process.env.BRAINMINE_AUTH_STYLE as BrainmineAuthStyle) || "token",
     leads_path: process.env.BRAINMINE_LEADS_PATH || "/api/resource/Lead",
+    sync_limit: process.env.BRAINMINE_SYNC_LIMIT
+      ? clampSyncLimit(process.env.BRAINMINE_SYNC_LIMIT)
+      : undefined,
   };
 }
 
@@ -83,6 +97,7 @@ export async function loadBrainmineConfig(): Promise<BrainmineChannelConfig> {
       .eq("type", "brainmine")
       .maybeSingle();
     const cfg = ((data?.config as BrainmineChannelConfig) || {}) as BrainmineChannelConfig;
+    // UI/channel config overrides env when both are set.
     return {
       api_base_url: cfg.api_base_url || fromEnv.api_base_url,
       api_key: cfg.api_key || fromEnv.api_key,
@@ -93,6 +108,9 @@ export async function loadBrainmineConfig(): Promise<BrainmineChannelConfig> {
       field_map: { ...DEFAULT_FIELD_MAP, ...(cfg.field_map || {}) },
       last_sync_at: cfg.last_sync_at,
       list_key: cfg.list_key || "data",
+      sync_limit: clampSyncLimit(
+        cfg.sync_limit ?? fromEnv.sync_limit ?? DEFAULT_SYNC_LIMIT,
+      ),
     };
   } catch {
     return {
@@ -101,6 +119,7 @@ export async function loadBrainmineConfig(): Promise<BrainmineChannelConfig> {
       list_key: "data",
       leads_path: fromEnv.leads_path || "/api/resource/Lead",
       auth_style: fromEnv.auth_style || "token",
+      sync_limit: clampSyncLimit(fromEnv.sync_limit ?? DEFAULT_SYNC_LIMIT),
     };
   }
 }
@@ -188,9 +207,12 @@ export async function fetchBrainmineLeads(cfg: BrainmineChannelConfig): Promise<
     : `/${cfg.leads_path}`;
   const url = new URL(`${base}${path}`);
 
-  // ERPNext list: fields + limit
+  // ERPNext list: fields + limit (UI/env sync_limit, default 30, max 200)
   if (!url.searchParams.has("limit_page_length")) {
-    url.searchParams.set("limit_page_length", "200");
+    url.searchParams.set(
+      "limit_page_length",
+      String(clampSyncLimit(cfg.sync_limit ?? DEFAULT_SYNC_LIMIT)),
+    );
   }
   if (!url.searchParams.has("fields") && path.includes("/Lead")) {
     url.searchParams.set(
@@ -397,7 +419,15 @@ export const getBrainmineSetup = createServerFn({ method: "GET" }).handler(async
     authStyle: cfg.auth_style || "token",
     leadsPath: cfg.leads_path || "/api/resource/Lead",
     apiBaseUrl: cfg.api_base_url || "",
+    syncLimit: clampSyncLimit(cfg.sync_limit ?? DEFAULT_SYNC_LIMIT),
     hasKey: Boolean(cfg.api_key),
+    hasSecret: Boolean(cfg.api_secret),
+    fromEnv: {
+      baseUrl: Boolean(process.env.BRAINMINE_API_BASE_URL?.trim()),
+      key: Boolean(process.env.BRAINMINE_API_KEY?.trim()),
+      secret: Boolean(process.env.BRAINMINE_API_SECRET?.trim()),
+      syncLimit: Boolean(process.env.BRAINMINE_SYNC_LIMIT?.trim()),
+    },
   };
 });
 
@@ -439,25 +469,30 @@ export const saveBrainmineChannelConfig = createServerFn({ method: "POST" })
   .validator(
     z.object({
       apiBaseUrl: z.string().url().max(400),
-      apiKey: z.string().min(1).max(500),
+      /** Omit or blank to keep existing channel/env key */
+      apiKey: z.string().max(500).optional(),
       apiSecret: z.string().max(500).optional(),
       authStyle: z.enum(["bearer", "token", "x-api-key", "query"]).default("token"),
       leadsPath: z.string().max(300).optional(),
       listKey: z.string().max(80).optional(),
+      syncLimit: z.number().int().min(1).max(200).optional(),
       enable: z.boolean().optional(),
     }),
   )
   .handler(async ({ data }) => {
     const supabase = createServiceSupabase();
     const prev = await loadBrainmineConfig();
+    const nextKey = data.apiKey?.trim() || prev.api_key;
+    if (!nextKey) throw new Error("Brainmine API key is required (Channels UI or BRAINMINE_API_KEY).");
     const config: BrainmineChannelConfig = {
       ...prev,
       api_base_url: data.apiBaseUrl.replace(/\/$/, ""),
-      api_key: data.apiKey.trim(),
+      api_key: nextKey,
       api_secret: data.apiSecret?.trim() || prev.api_secret,
       auth_style: data.authStyle,
       leads_path: data.leadsPath?.trim() || prev.leads_path || "/api/resource/Lead",
       list_key: data.listKey?.trim() || prev.list_key || "data",
+      sync_limit: clampSyncLimit(data.syncLimit ?? prev.sync_limit ?? DEFAULT_SYNC_LIMIT),
       field_map: { ...DEFAULT_FIELD_MAP, ...(prev.field_map || {}) },
     };
 
@@ -465,7 +500,7 @@ export const saveBrainmineChannelConfig = createServerFn({ method: "POST" })
       .from("channels")
       .update({
         config,
-        detail: `Brainmine · ${config.api_base_url}`,
+        detail: `Brainmine · ${config.api_base_url} · ${config.sync_limit}/sync`,
         status: "Connected",
         health: 100,
         is_enabled: data.enable ?? true,

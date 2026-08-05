@@ -21,7 +21,7 @@ export const Route = createFileRoute("/api/cron/automations")({
       GET: async ({ request }) => {
         const ok = authorize(request);
         if (!ok) return new Response("Unauthorized", { status: 401 });
-        const [followUps, waits, indiamart, tradeindia, imAuto, tiAuto, emailBc] =
+        const [followUps, waits, indiamart, tradeindia, imAuto, tiAuto, emailBc, dailyFollow] =
           await Promise.all([
             processDueFollowUps(),
             processScheduledAutomationSteps().catch((err) => ({
@@ -42,6 +42,11 @@ export const Route = createFileRoute("/api/cron/automations")({
             tickPendingEmailBroadcasts().catch((err) => ({
               error: err instanceof Error ? err.message : "email broadcast tick failed",
             })),
+            import("@/server/followup-agent")
+              .then((m) => m.proposeDailyFollowUpCampaign())
+              .catch((err) => ({
+                error: err instanceof Error ? err.message : "daily follow-up propose failed",
+              })),
           ]);
         return Response.json({
           success: true,
@@ -52,12 +57,13 @@ export const Route = createFileRoute("/api/cron/automations")({
           indiamartAutoSync: imAuto,
           tradeindiaAutoSync: tiAuto,
           emailBroadcasts: emailBc,
+          dailyFollowUp: dailyFollow,
         });
       },
       POST: async ({ request }) => {
         const ok = authorize(request);
         if (!ok) return new Response("Unauthorized", { status: 401 });
-        const [followUps, waits, indiamart, tradeindia, imAuto, tiAuto, emailBc] =
+        const [followUps, waits, indiamart, tradeindia, imAuto, tiAuto, emailBc, dailyFollow] =
           await Promise.all([
             processDueFollowUps(),
             processScheduledAutomationSteps().catch((err) => ({
@@ -78,6 +84,11 @@ export const Route = createFileRoute("/api/cron/automations")({
             tickPendingEmailBroadcasts().catch((err) => ({
               error: err instanceof Error ? err.message : "email broadcast tick failed",
             })),
+            import("@/server/followup-agent")
+              .then((m) => m.proposeDailyFollowUpCampaign())
+              .catch((err) => ({
+                error: err instanceof Error ? err.message : "daily follow-up propose failed",
+              })),
           ]);
         return Response.json({
           success: true,
@@ -88,6 +99,7 @@ export const Route = createFileRoute("/api/cron/automations")({
           indiamartAutoSync: imAuto,
           tradeindiaAutoSync: tiAuto,
           emailBroadcasts: emailBc,
+          dailyFollowUp: dailyFollow,
         });
       },
     },

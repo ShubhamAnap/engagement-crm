@@ -430,11 +430,25 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 
 ## Next Immediate Step
 
-1. **Discuss then build (user paused):** Human Support queue — latest activity on top (`last_message_at`); keep human-handled threads visible; confirm whether to keep “resolved today”.
-2. Smoke-test language + handoff on WhatsApp after Render deploy.
-3. Confirm product image/PDF uploads after `005` + `019` SQL (if not already run).
+1. **Follow-up Agent daily campaigns** — use Automation → “Suggest today’s follow-up”, or ensure Render cron hits `/api/cron/automations`. Approve in amber bar. Optional `FOLLOWUP_WA_TEMPLATE_NAME`.
+2. **Discuss then build:** Human Support queue — latest activity on top; keep human-handled visible.
+3. Confirm product image/PDF uploads / pending SQL as needed.
 4. Cron: `CRON_URL` + `CRON_SECRET` on Render (every 5 min).
-5. Later: Settings RBAC / encrypted AI keys / audit logs; Brainmine field map.
+5. Later: DigitalOcean cutover (keep Render until DO proven); Settings RBAC.
+
+---
+
+### Session 2026-08-05 — Follow-up Agent daily proposals
+
+**Root cause:** Agents → Follow-up was only a **chat prompt**. Editing it to “suggest daily campaigns” did nothing — no cron, no broadcasting, no approval enqueue.
+
+**Fix:** `src/server/followup-agent.ts`
+- Daily (cron) or manual **Suggest today’s follow-up** picks open leads needing a nudge
+- Creates **one** `automation_approvals` row (amber bar / TopBar shield)
+- On Approve → WhatsApp template (or email fallback) per lead + note + next follow-up 48h
+- Auto-creates Live workflow “Follow-up Agent · Daily campaign”
+
+**Still true:** Per-lead `next_follow_up_at` + `follow_up_due` workflows remain for scheduled one-by-one follow-ups.
 
 ---
 

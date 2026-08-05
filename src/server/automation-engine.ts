@@ -704,6 +704,19 @@ export async function runSingleAutomation(
   );
 }
 
+/**
+ * Run a workflow action list against one lead (used by daily Follow-up Agent batch).
+ */
+export async function runActionSequenceForLead(
+  leadId: string,
+  actions: AutomationAction[],
+  meta: { automationId: string; automationName: string },
+): Promise<{ steps: string[]; paused?: boolean }> {
+  const supabase = createServiceSupabase();
+  const enriched = await enrichContext(supabase, { leadId });
+  return runActionSequence(supabase, actions, enriched, meta);
+}
+
 export async function approveAutomationApproval(
   approvalId: string,
   resolvedBy?: string | null,
@@ -720,7 +733,17 @@ export async function approveAutomationApproval(
   if (!row) throw new Error("Approval not found");
   if (row.status !== "pending") throw new Error(`Already ${row.status}`);
 
-  const ctx = (row.context || {}) as AutomationContext;
+  const ctx = (row.context || {}) as AutomationContext & {
+    mode?: string;
+    leadIds?: string[];
+  };
+
+  if (ctx.mode === "daily_followup_batch" || row.trigger_type === "daily_followup") {
+    const { executeDailyFollowUpBatch } = await import("@/server/followup-agent");
+    const batch = await executeDailyFollowUpBatch(approvalId, resolvedBy);
+    return { ok: batch.ok, steps: batch.steps, error: batch.error };
+  }
+
   const result = await runSingleAutomation(row.automation_id as string, ctx, {
     triggerLabel: `${row.trigger_type}:approved`,
   });
@@ -735,7 +758,6 @@ export async function approveAutomationApproval(
     .eq("id", approvalId);
 
   if (!result.ok) {
-    // Still mark approved (user chose to run); failure is in run log
     return result;
   }
   return result;

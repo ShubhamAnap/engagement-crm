@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Pencil, Play, Plus, RefreshCw, Timer, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Bot, Pencil, Play, Plus, RefreshCw, Timer, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -46,6 +46,7 @@ import {
   listAutomationRuns,
   listAutomations,
   processDueFollowUpsFn,
+  proposeDailyFollowUpCampaignFn,
   setAutomationStatus,
   successRate,
   testAutomationRun,
@@ -689,6 +690,32 @@ function Page() {
       toast.error(error instanceof Error ? error.message : "Could not process follow-ups"),
   });
 
+  const dailyFollowMutation = useMutation({
+    mutationFn: () => proposeDailyFollowUpCampaignFn({ data: { force: true } }),
+    onSuccess: async (result) => {
+      await invalidate();
+      void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      void queryClient.invalidateQueries({ queryKey: ["automation-approvals"] });
+      if (result.skipped === "no_leads_need_follow_up") {
+        toast.message("Follow-up Agent: no open leads need a nudge today");
+        return;
+      }
+      if (result.skipped === "already_proposed_today" && result.approvalId) {
+        toast.message("Today’s follow-up proposal is already waiting for approval");
+        return;
+      }
+      if (result.approvalId) {
+        toast.success(
+          `Follow-up Agent proposed ${result.leadCount ?? 0} lead(s) — approve in the amber bar`,
+        );
+        return;
+      }
+      toast.message(result.skipped || "No proposal created");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Follow-up Agent proposal failed"),
+  });
+
   const dialogOpen = creating || Boolean(editing);
 
   return (
@@ -715,6 +742,17 @@ function Page() {
             >
               <Timer className={`size-3.5 ${dueMutation.isPending ? "animate-spin" : ""}`} />
               Process due + waits
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              disabled={dailyFollowMutation.isPending}
+              onClick={() => dailyFollowMutation.mutate()}
+              title="Follow-up Agent picks open leads and queues one campaign for your approval"
+            >
+              <Bot className={`size-3.5 ${dailyFollowMutation.isPending ? "animate-pulse" : ""}`} />
+              Suggest today’s follow-up
             </Button>
             <Button
               size="sm"
@@ -759,6 +797,13 @@ function Page() {
             IndiaMART remarketing, WhatsApp, email, etc. Run{" "}
             <code className="rounded bg-secondary px-1 text-xs">013_automation_approvals.sql</code>{" "}
             in Supabase. Cron still detects due follow-ups, but campaigns wait for your approval.
+            <br />
+            <br />
+            <strong>Follow-up Agent</strong> (daily): cron or{" "}
+            <em>Suggest today’s follow-up</em> picks open leads that need a nudge, queues{" "}
+            <strong>one</strong> approval. After you Approve, it WhatsApps (or emails) each lead.
+            Optional env: <code className="rounded bg-secondary px-1 text-xs">FOLLOWUP_WA_TEMPLATE_NAME</code>.
+            The Agents page “followup” prompt is only for chat — it does not create campaigns by itself.
           </p>
         </Panel>
 

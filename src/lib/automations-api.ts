@@ -294,6 +294,14 @@ export const processDueFollowUpsFn = createServerFn({ method: "POST" }).handler(
   return { ...followUps, waits };
 });
 
+/** Follow-up Agent: propose today's campaign for Approve/Reject (also called by cron once/day). */
+export const proposeDailyFollowUpCampaignFn = createServerFn({ method: "POST" })
+  .validator(z.object({ force: z.boolean().optional() }))
+  .handler(async ({ data }) => {
+    const { proposeDailyFollowUpCampaign } = await import("@/server/followup-agent");
+    return proposeDailyFollowUpCampaign({ force: data.force });
+  });
+
 export async function listPendingApprovals(
   orgId: string = ENERTECH_ORG_ID,
 ): Promise<DbAutomationApproval[]> {

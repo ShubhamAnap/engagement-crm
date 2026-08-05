@@ -300,22 +300,135 @@ function extractList(json: unknown, listKey: string): Record<string, unknown>[] 
   return [];
 }
 
+function sanitizeCred(raw: string | undefined | null): string {
+  return (raw || "")
+    .replace(/^\uFEFF/, "")
+    .replace(/[\r\n\t]/g, "")
+    .trim();
+}
+
+function formatBrainmineApiError(json: unknown, status: number, bodyText: string): string {
+  const blob =
+    bodyText ||
+    JSON.stringify(json) ||
+    "";
+  if (/AuthenticationError|validate_api_key_secret|401/i.test(blob) || status === 401) {
+    return (
+      "Brainmine authentication failed. Open Channels → Configure Brainmine and re-save both " +
+      "API key and API secret (auth style: token key:secret). Also confirm the same keys work in Brainmine."
+    );
+  }
+  const permitted = blob.match(/Field not permitted in query:\s*([a-zA-Z0-9_]+)/i);
+  if (permitted?.[1]) {
+    return `Field not permitted in query: ${permitted[1]}`;
+  }
+  const msg = getByPath(json, "message");
+  if (typeof msg === "string" && msg.trim()) return msg.trim();
+  if (Array.isArray(msg) && msg.length) {
+    const joined = msg.map((m) => (typeof m === "string" ? m : JSON.stringify(m))).join("\n");
+    const again = joined.match(/Field not permitted in query:\s*([a-zA-Z0-9_]+)/i);
+    if (again?.[1]) return `Field not permitted in query: ${again[1]}`;
+    if (/AuthenticationError/i.test(joined)) {
+      return (
+        "Brainmine authentication failed. Re-save API key + API secret under Channels → Configure Brainmine."
+      );
+    }
+    return joined.slice(0, 400);
+  }
+  return (
+    asString(getByPath(json, "error")) ||
+    asString(getByPath(json, "exc")) ||
+    `Brainmine API error (${status})`
+  );
+}
+
 function buildAuthHeaders(cfg: BrainmineChannelConfig): Record<string, string> {
-  const key = cfg.api_key!.trim();
-  const secret = cfg.api_secret?.trim();
+  const key = sanitizeCred(cfg.api_key);
+  const secret = sanitizeCred(cfg.api_secret);
   const style = cfg.auth_style || "token";
+  if (!key) {
+    throw new Error("Brainmine API key is missing. Save it under Channels → Configure Brainmine.");
+  }
   if (style === "bearer") {
     return { Authorization: `Bearer ${key}` };
   }
   if (style === "token") {
-    // ERPNext: token api_key:api_secret
-    const token = secret ? `${key}:${secret}` : key;
-    return { Authorization: `token ${token}` };
+    // ERPNext: Authorization: token api_key:api_secret
+    if (!secret) {
+      throw new Error(
+        "Brainmine API secret is missing. For token auth, save both API key and API secret under Channels → Configure Brainmine.",
+      );
+    }
+    // If user pasted "key:secret" into the key field alone, don't double-append secret
+    if (key.includes(":") && !secret) {
+      return { Authorization: `token ${key}` };
+    }
+    if (key.includes(":")) {
+      return { Authorization: `token ${key}` };
+    }
+    return { Authorization: `token ${key}:${secret}` };
   }
   if (style === "x-api-key") {
     return { "X-API-Key": key };
   }
   return {};
+}
+
+function leadListFields(isOpp: boolean): string[] {
+  // Only request fields that commonly exist. Invalid ones are dropped automatically on retry.
+  return isOpp
+    ? [
+        "name",
+        "party_name",
+        "customer_name",
+        "contact_email",
+        "contact_mobile",
+        "city",
+        "state",
+        "country",
+        "status",
+        "source",
+        "notes",
+        "owner",
+        "opportunity_owner",
+        "industry",
+        "territory",
+        "website",
+        "annual_revenue",
+        "query_about",
+        "modified",
+        "creation",
+      ]
+    : [
+        "name",
+        "lead_name",
+        "company_name",
+        "email_id",
+        "mobile_no",
+        "phone",
+        "city",
+        "state",
+        "country",
+        "status",
+        "source",
+        "notes",
+        "owner",
+        "lead_owner",
+        "industry",
+        "job_title",
+        "website",
+        "territory",
+        "type",
+        "annual_revenue",
+        "query_about",
+        "modified",
+        "creation",
+      ];
+}
+
+function extractNotPermittedField(text: string, json: unknown): string | null {
+  const blob = `${text || ""}\n${JSON.stringify(json ?? {})}`;
+  return blob.match(/Field not permitted in query:\s*([a-zA-Z0-9_]+)/i)?.[1] || null;
 }
 
 export async function fetchBrainmineLeads(
@@ -344,78 +457,11 @@ export async function fetchBrainmineLeads(
   const path = (cfg.leads_path || "/api/resource/Lead").startsWith("/")
     ? cfg.leads_path || "/api/resource/Lead"
     : `/${cfg.leads_path}`;
-  const url = new URL(`${base}${path}`);
   const pageSize = clampSyncLimit(
     options?.pageSize ?? cfg.sync_limit ?? DEFAULT_SYNC_LIMIT,
   );
-
-  url.searchParams.set("limit_page_length", String(pageSize));
-  if (options?.limitStart && options.limitStart > 0) {
-    url.searchParams.set("limit_start", String(options.limitStart));
-  }
-  url.searchParams.set(
-    "order_by",
-    options?.orderBy || (options?.from || options?.to ? "creation desc" : "modified desc"),
-  );
-
-  // Prefer Lead field list; Opportunity / other doctypes still get creation/modified via filters.
-  if (!url.searchParams.has("fields") && /\/(Lead|Opportunity)/i.test(path)) {
-    const isOpp = /Opportunity/i.test(path);
-    url.searchParams.set(
-      "fields",
-      JSON.stringify(
-        isOpp
-          ? [
-              "name",
-              "party_name",
-              "customer_name",
-              "contact_email",
-              "contact_mobile",
-              "contact_phone",
-              "city",
-              "state",
-              "country",
-              "status",
-              "source",
-              "notes",
-              "owner",
-              "opportunity_owner",
-              "industry",
-              "territory",
-              "website",
-              "annual_revenue",
-              "query_about",
-              "modified",
-              "creation",
-            ]
-          : [
-              "name",
-              "lead_name",
-              "company_name",
-              "email_id",
-              "mobile_no",
-              "phone",
-              "city",
-              "state",
-              "country",
-              "status",
-              "source",
-              "notes",
-              "owner",
-              "lead_owner",
-              "industry",
-              "job_title",
-              "website",
-              "territory",
-              "type",
-              "annual_revenue",
-              "query_about",
-              "modified",
-              "creation",
-            ],
-      ),
-    );
-  }
+  const isOpp = /Opportunity/i.test(path);
+  let fields = /\/(Lead|Opportunity)/i.test(path) ? leadListFields(isOpp) : null;
 
   const filters: unknown[] = [];
   if (options?.from || options?.to) {
@@ -436,36 +482,59 @@ export async function fetchBrainmineLeads(
       cfg.last_sync_at.replace("T", " ").slice(0, 19),
     ]);
   }
-  if (filters.length) {
-    url.searchParams.set("filters", JSON.stringify(filters));
-  }
-
-  if (cfg.auth_style === "query") {
-    url.searchParams.set(cfg.query_key_param || "api_key", cfg.api_key!);
-  }
 
   const headers: Record<string, string> = {
     Accept: "application/json",
     ...buildAuthHeaders(cfg),
   };
 
-  const res = await fetch(url.toString(), { method: "GET", headers });
-  const text = await res.text();
-  let json: unknown = {};
-  try {
-    json = text ? JSON.parse(text) : {};
-  } catch {
-    throw new Error(`Brainmine returned non-JSON (${res.status}): ${text.slice(0, 200)}`);
+  // Retry when CRM rejects a field name (e.g. contact_phone / opportunity_owner)
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const url = new URL(`${base}${path}`);
+    url.searchParams.set("limit_page_length", String(pageSize));
+    if (options?.limitStart && options.limitStart > 0) {
+      url.searchParams.set("limit_start", String(options.limitStart));
+    }
+    url.searchParams.set(
+      "order_by",
+      options?.orderBy || (options?.from || options?.to ? "creation desc" : "modified desc"),
+    );
+    if (fields?.length) {
+      url.searchParams.set("fields", JSON.stringify(fields));
+    }
+    if (filters.length) {
+      url.searchParams.set("filters", JSON.stringify(filters));
+    }
+    if (cfg.auth_style === "query") {
+      url.searchParams.set(cfg.query_key_param || "api_key", sanitizeCred(cfg.api_key));
+    }
+
+    const res = await fetch(url.toString(), { method: "GET", headers });
+    const text = await res.text();
+    let json: unknown = {};
+    try {
+      json = text ? JSON.parse(text) : {};
+    } catch {
+      throw new Error(`Brainmine returned non-JSON (${res.status}): ${text.slice(0, 200)}`);
+    }
+
+    const badField = extractNotPermittedField(text, json);
+    if (badField && fields?.length) {
+      const next = fields.filter((f) => f !== badField);
+      if (next.length < fields.length) {
+        fields = next;
+        continue;
+      }
+    }
+
+    if (res.ok) {
+      return extractList(json, cfg.list_key || "data");
+    }
+
+    throw new Error(formatBrainmineApiError(json, res.status, text));
   }
-  if (!res.ok) {
-    const errMsg =
-      asString(getByPath(json, "message")) ||
-      asString(getByPath(json, "error")) ||
-      asString(getByPath(json, "exc")) ||
-      `Brainmine API error (${res.status})`;
-    throw new Error(errMsg);
-  }
-  return extractList(json, cfg.list_key || "data");
+
+  throw new Error("Brainmine sync failed after dropping invalid fields");
 }
 
 const MAX_DATE_RANGE_PAGES = 50;
@@ -1154,12 +1223,7 @@ async function brainmineGetJson(
     throw new Error(`Brainmine returned non-JSON (${res.status}): ${text.slice(0, 200)}`);
   }
   if (!res.ok) {
-    const errMsg =
-      asString(getByPath(json, "message")) ||
-      asString(getByPath(json, "error")) ||
-      asString(getByPath(json, "exc")) ||
-      `Brainmine API error (${res.status})`;
-    throw new Error(errMsg);
+    throw new Error(formatBrainmineApiError(json, res.status, text));
   }
   return json;
 }

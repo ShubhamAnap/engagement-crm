@@ -174,6 +174,7 @@ function EmbedChat() {
   const { key, parentOrigin } = Route.useSearch();
   const pageOrigin =
     parentOrigin || (typeof window !== "undefined" ? window.location.origin : "");
+  const embeddedInHost = Boolean(parentOrigin);
   const stored = loadStoredProfile();
   const [open, setOpen] = useState(true);
   const [msgs, setMsgs] = useState<UiMsg[]>([welcome]);
@@ -507,7 +508,39 @@ function EmbedChat() {
     }
   }
 
+  function notifyHost(type: "close" | "open") {
+    if (typeof window === "undefined" || !parentOrigin) return;
+    try {
+      window.parent.postMessage({ source: "enertech-embed", type }, parentOrigin);
+    } catch (err) {
+      console.error("widget host notify failed", err);
+    }
+  }
+
+  function closeWidget() {
+    notifyHost("close");
+    // Host hides the iframe; when opened standalone (/embed), collapse to launcher
+    if (!embeddedInHost) setOpen(false);
+  }
+
+  useEffect(() => {
+    if (!embeddedInHost) return;
+    function onHostMessage(event: MessageEvent) {
+      if (event.origin !== parentOrigin) return;
+      const data = event.data as { source?: string; type?: string } | null;
+      if (!data || data.source !== "enertech-widget") return;
+      if (data.type === "open") setOpen(true);
+      if (data.type === "close") setOpen(true); // stay ready; host hides iframe
+    }
+    window.addEventListener("message", onHostMessage);
+    return () => window.removeEventListener("message", onHostMessage);
+  }, [embeddedInHost, parentOrigin]);
+
   if (!open) {
+    // Embedded: host owns the launcher — don't leave a black iframe shell
+    if (embeddedInHost) {
+      return <div className="min-h-screen bg-transparent" />;
+    }
     return (
       <div className="flex min-h-screen items-end justify-end bg-transparent p-3">
         <Button
@@ -564,8 +597,8 @@ function EmbedChat() {
               variant="ghost"
               size="icon"
               className="size-7 text-white hover:bg-white/15 hover:text-white"
-              onClick={() => setOpen(false)}
-              aria-label="Minimize"
+              onClick={closeWidget}
+              aria-label="Close chat"
             >
               <X className="size-4" />
             </Button>

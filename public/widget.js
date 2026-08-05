@@ -91,13 +91,13 @@
     "border-radius:12px",
     "overflow:hidden",
     "box-shadow:0 20px 50px rgba(11,35,136,.35)",
-    "background:transparent",
+    "background:#ffffff",
   ].join(";");
 
   var iframe = document.createElement("iframe");
   iframe.title = "EnerTech chat";
   iframe.allow = "clipboard-write; microphone";
-  iframe.style.cssText = "width:100%;height:100%;border:0;background:transparent;";
+  iframe.style.cssText = "width:100%;height:100%;border:0;background:#ffffff;";
   iframe.src =
     appUrl +
     "/embed?key=" +
@@ -106,10 +106,38 @@
     encodeURIComponent(window.location.origin);
   frameWrap.appendChild(iframe);
 
-  btn.addEventListener("click", function () {
-    open = !open;
+  function setOpen(next) {
+    open = !!next;
     frameWrap.style.display = open ? "block" : "none";
     renderLabel(open);
+    try {
+      if (iframe.contentWindow) {
+        iframe.contentWindow.postMessage(
+          { source: "enertech-widget", type: open ? "open" : "close" },
+          appUrl,
+        );
+      }
+    } catch (_) {
+      /* cross-origin until loaded — ok */
+    }
+  }
+
+  btn.addEventListener("click", function () {
+    setOpen(!open);
+  });
+
+  window.addEventListener("message", function (event) {
+    var data = event.data;
+    if (!data || data.source !== "enertech-embed") return;
+    // Only accept messages from our app origin
+    try {
+      var allowed = new URL(appUrl).origin;
+      if (event.origin !== allowed) return;
+    } catch (_) {
+      return;
+    }
+    if (data.type === "close") setOpen(false);
+    if (data.type === "open") setOpen(true);
   });
 
   document.body.appendChild(frameWrap);

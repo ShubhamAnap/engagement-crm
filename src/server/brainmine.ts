@@ -396,6 +396,7 @@ function leadListFields(isOpp: boolean): string[] {
         "website",
         "annual_revenue",
         "query_about",
+        "custom_query_about",
         "modified",
         "creation",
       ]
@@ -421,6 +422,7 @@ function leadListFields(isOpp: boolean): string[] {
         "type",
         "annual_revenue",
         "query_about",
+        "custom_query_about",
         "modified",
         "creation",
       ];
@@ -537,6 +539,86 @@ export async function fetchBrainmineLeads(
   throw new Error("Brainmine sync failed after dropping invalid fields");
 }
 
+/** Full document GET — list API often omits / rejects custom fields like query_about */
+async function fetchBrainmineDocByName(
+  cfg: BrainmineChannelConfig,
+  docName: string,
+): Promise<Record<string, unknown> | null> {
+  const leadsPath = (cfg.leads_path || "/api/resource/Lead").startsWith("/")
+    ? cfg.leads_path || "/api/resource/Lead"
+    : `/${cfg.leads_path}`;
+  try {
+    const detailJson = await brainmineGetJson(
+      cfg,
+      `${leadsPath.replace(/\/$/, "")}/${encodeURIComponent(docName)}`,
+    );
+    const doc =
+      (getByPath(detailJson, "data") as Record<string, unknown> | undefined) ||
+      (detailJson as Record<string, unknown>);
+    if (doc && typeof doc === "object" && !Array.isArray(doc)) return doc;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function asRequirementText(v: unknown): string | null {
+  const s = asString(v);
+  if (!s) return null;
+  // Text Editor / HTML → plain text
+  const plain = s
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+  return plain || null;
+}
+
+/** Pick query_about (and common custom variants) for Requirement */
+function pickQueryAbout(row: Record<string, unknown>): string | null {
+  const direct =
+    asRequirementText(row.query_about) ||
+    asRequirementText(row.custom_query_about) ||
+    asRequirementText(getByPath(row, "query_about")) ||
+    asRequirementText(getByPath(row, "custom_query_about"));
+  if (direct) return direct;
+  for (const [k, v] of Object.entries(row)) {
+    if (/^custom_?query_?about$/i.test(k) || /^query_?about$/i.test(k)) {
+      const t = asRequirementText(v);
+      if (t) return t;
+    }
+  }
+  return null;
+}
+
+/**
+ * List responses often lack custom fields. If query_about is missing, fetch full docs
+ * (needed so Requirement maps correctly).
+ */
+async function enrichRowsWithQueryAbout(
+  cfg: BrainmineChannelConfig,
+  rows: Record<string, unknown>[],
+): Promise<Record<string, unknown>[]> {
+  const out: Record<string, unknown>[] = [];
+  for (const row of rows) {
+    if (pickQueryAbout(row)) {
+      out.push(row);
+      continue;
+    }
+    const id = asString(row.name) || asString(row.id);
+    if (!id) {
+      out.push(row);
+      continue;
+    }
+    const full = await fetchBrainmineDocByName(cfg, id);
+    out.push(full ? { ...row, ...full } : row);
+  }
+  return out;
+}
+
 const MAX_DATE_RANGE_PAGES = 50;
 
 function parseYmd(s: string): Date | null {
@@ -614,10 +696,13 @@ export async function syncBrainmineWindow(options?: {
     allRows.push(...batch.slice(0, QUICK_SYNC_LIMIT));
   }
 
+  // List API often omits custom query_about — pull full docs so Requirement fills
+  const enrichedRows = await enrichRowsWithQueryAbout(cfg, allRows);
+
   // Deduplicate by Brainmine id within this batch (API should not repeat; belt-and-suspenders)
   const seen = new Set<string>();
   const uniqueRows: Record<string, unknown>[] = [];
-  for (const row of allRows) {
+  for (const row of enrichedRows) {
     const id =
       asString(row.name) ||
       asString(row.id) ||
@@ -820,9 +905,8 @@ function mapRow(
   const location =
     [city, state, country].filter(Boolean).join(", ") || null;
   const requirement =
-    asString(getByPath(row, fm.requirement)) ||
-    asString(row.query_about) ||
-    asString(row.custom_query_about) ||
+    pickQueryAbout(row) ||
+    asRequirementText(getByPath(row, fm.requirement)) ||
     null;
   const { salesPerson, opportunityOwner, leadOwner, assignee, docOwner } =
     resolveSalesPerson(row, fm);
@@ -932,6 +1016,9 @@ export async function ingestBrainmineLead(
       .from("leads")
       .update({
         ...payload,
+        // Keep previous Requirement if this sync did not receive query_about
+        requirement: mapped.requirement || existing.requirement || null,
+        product_label: mapped.requirement || existing.requirement || null,
         external_ref: mapped.externalId,
         // Keep local tags merged
         tags: Array.from(new Set([...(existing.tags || []), ...mapped.tags])),

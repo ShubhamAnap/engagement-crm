@@ -664,7 +664,8 @@ function firstAssigneeEmail(raw: unknown): string | null {
  * 1) opportunity_owner
  * 2) lead_owner
  * 3) first _assign (Assign To)
- * Skips customercare@ and similar non-sales inboxes. Does not use document `owner`.
+ * 4) document owner — only if a real sales email (creator can be the same as opportunity owner)
+ * Skips customercare@ and similar non-sales inboxes.
  */
 function resolveSalesPerson(row: Record<string, unknown>, fm: Required<BrainmineFieldMap>): {
   salesPerson: string | null;
@@ -684,10 +685,12 @@ function resolveSalesPerson(row: Record<string, unknown>, fm: Required<Brainmine
   const assignee = firstAssigneeEmail(row._assign ?? row.assign_to);
   const docOwner = asString(getByPath(row, fm.sales_person)) || asString(row.owner) || null;
 
+  // Same person as creator + opportunity owner is fine — we just pick the first usable email.
   const salesPerson =
     (isUsableSalesEmail(opportunityOwner) ? opportunityOwner.trim() : null) ||
     (isUsableSalesEmail(leadOwner) ? leadOwner.trim() : null) ||
     assignee ||
+    (isUsableSalesEmail(docOwner) ? docOwner.trim() : null) ||
     null;
 
   return { salesPerson, opportunityOwner, leadOwner, assignee, docOwner };

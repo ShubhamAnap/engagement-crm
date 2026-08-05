@@ -54,7 +54,8 @@ export function ChatReferenceImages(props: {
   return (
     <div className={cn("space-y-2", props.className)}>
       {props.images.map((img) => {
-        const label = "Reference photo";
+        const label =
+          (img.title && !/^reference\s*photo$/i.test(img.title) ? img.title : null) || "Product photo";
         return (
           <a
             key={img.url}
@@ -98,8 +99,12 @@ export function ChatDownloadLinks(props: {
   return (
     <div className={cn("space-y-1.5", props.className)}>
       {props.links.map((link) => {
-        const name = (link.fileName || link.title || "datasheet.pdf").trim();
-        const label = /\.pdf$/i.test(name) ? name : `${name}.pdf`;
+        const name = (link.fileName || link.title || "Catalogue.pdf").trim();
+        const label = /^catalogue$/i.test(name)
+          ? "Catalogue.pdf"
+          : /\.pdf$/i.test(name)
+            ? name
+            : `${name}.pdf`;
         return (
           <a
             key={link.url}

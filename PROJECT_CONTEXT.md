@@ -446,6 +446,12 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 
 ---
 
+### Session 2026-08-05 — Strict product card fields only
+
+**Rule:** Customer-facing product share = **Name, Photo, Catalogue, Features, Price** only. No SKU / stock / category / CTAs / “Reference photo” metadata.
+
+---
+
 ### Session 2026-08-05 — Use Products + Knowledge Base together
 
 **Principle:** Bot already has Products + KB — objective is a satisfactory answer from that data, not interrogation.

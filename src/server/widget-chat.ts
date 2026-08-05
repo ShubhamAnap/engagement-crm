@@ -852,15 +852,15 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
         .filter((m) => m.imageUrl)
         .map((m) => ({
           url: m.imageUrl as string,
-          title: m.productName,
+          title: "Product photo",
           file_name: `${m.productName}.jpg`,
         }));
       const downloadLinks = media
         .filter((m) => m.catalogueUrl)
         .map((m) => ({
-          title: m.catalogueFileName || `${m.productName}.pdf`,
+          title: "Catalogue",
           url: m.catalogueUrl as string,
-          file_name: m.catalogueFileName || `${m.productName}.pdf`,
+          file_name: m.catalogueFileName || "catalogue.pdf",
         }));
 
       const inspector = buildAnswerInspector({

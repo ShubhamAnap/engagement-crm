@@ -12,6 +12,8 @@ import {
   formatProductRecommendationCaption,
   resolveProductCatalogueUrl,
   resolveProductImageUrl,
+  cleanProductDisplayName,
+  cleanProductDescription,
 } from "@/lib/product-card";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
@@ -173,12 +175,15 @@ export function rankProductsForQuery(products: DbProduct[], query: string): DbPr
 
 function clarifyMessage(products: DbProduct[]): string {
   const lines = products.slice(0, 8).map((p, i) => {
-    const kw = productPowerKw(p);
-    const price = p.price_label ? ` — ${p.price_label}` : "";
-    const power = kw != null ? ` · ${kw} kW` : "";
-    return `${i + 1}. ${p.name}${power}${price}`;
+    const name = cleanProductDisplayName(p.name);
+    const price = p.price_label
+      ? ` — ${/^[₹rs]/i.test(p.price_label) ? p.price_label : `₹${p.price_label}`}`
+      : p.price_paise != null
+        ? ` — ₹${(p.price_paise / 100).toLocaleString("en-IN")}`
+        : "";
+    return `${i + 1}. ${name}${price}`;
   });
-  return `I found a few matching products. Which one do you want?\n${lines.join("\n")}\n\nReply with the number or product name.`;
+  return `Which product do you want?\n${lines.join("\n")}\n\nReply with the number.`;
 }
 
 function matchIntro(products: DbProduct[]): string {
@@ -299,40 +304,34 @@ export type ProductPackMedia = {
 export function buildProductPackMedia(products: DbProduct[]): ProductPackMedia[] {
   return products.map((p) => {
     const catalogueUrl = resolveProductCatalogueUrl(p);
+    const displayName = cleanProductDisplayName(p.name);
+    const skuSafe = (p.sku || displayName).replace(/[^\w.-]+/g, "-");
     return {
       productId: p.id,
-      productName: p.name,
+      productName: displayName,
       caption: formatProductRecommendationCaption(p),
       body: formatProductPackBody(p),
       imageUrl: resolveProductImageUrl(p),
       catalogueUrl,
-      catalogueFileName: catalogueUrl ? `${(p.sku || p.name).replace(/[^\w.-]+/g, "-")}.pdf` : null,
+      catalogueFileName: catalogueUrl ? `${skuSafe}-catalogue.pdf` : null,
     };
   });
 }
 
 function formatProductContextLine(p: DbProduct): string {
-  const kw = productPowerKw(p);
-  const parts = [
-    p.name,
-    p.sku ? `SKU ${p.sku}` : null,
-    p.category ? `Category ${p.category}` : null,
-    kw != null ? `${kw} kW/kVA` : null,
-    p.price_label
-      ? `Price ${p.price_label}`
-      : p.price_paise != null
-        ? `Price ₹${(p.price_paise / 100).toLocaleString("en-IN")}`
-        : null,
-    p.stock_status ? `Stock ${p.stock_status}` : null,
-    p.battery_spec ? `Battery ${p.battery_spec}` : null,
-    p.runtime_spec ? `Runtime ${p.runtime_spec}` : null,
-  ].filter(Boolean);
+  const name = cleanProductDisplayName(p.name);
+  const price = p.price_label
+    ? /^[₹rs]/i.test(p.price_label) ? p.price_label : `₹${p.price_label}`
+    : p.price_paise != null
+      ? `₹${(p.price_paise / 100).toLocaleString("en-IN")}`
+      : null;
+  const features = cleanProductDescription(p.description || "", p.name).slice(0, 280);
   const catalog = resolveProductCatalogueUrl(p);
-  const desc = p.description?.trim().replace(/\s+/g, " ").slice(0, 220);
   return [
-    `- ${parts.join(" · ")}`,
-    desc ? `  ${desc}` : null,
-    catalog ? `  Catalogue: ${catalog}` : null,
+    `- ${name}`,
+    price ? `  Price: ${price}` : null,
+    features ? `  Features: ${features}` : null,
+    catalog ? `  Catalogue: available` : null,
     p.image_url || p.image_path ? `  Photo: available` : null,
   ]
     .filter(Boolean)
@@ -363,7 +362,7 @@ export async function buildProductsContextForAi(query: string, limit = 10): Prom
   const ranked = rankProductsForQuery(products, query);
   const list = (ranked.length ? ranked : products).slice(0, limit);
   const header = ranked.length
-    ? "Products catalogue (matched to this question — use these facts to answer; share name, price, specs, catalogue):"
-    : "Products catalogue (active EnerTech products — use when relevant):";
+    ? "Products catalogue (matched — customer-facing fields ONLY: Name, Price, Features, Photo, Catalogue). Do not mention SKU, stock, category, or other metadata:"
+    : "Products catalogue (active — share ONLY Name, Price, Features, Photo, Catalogue):";
   return `${header}\n${list.map(formatProductContextLine).join("\n")}`;
 }

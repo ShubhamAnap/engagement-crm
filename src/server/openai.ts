@@ -92,7 +92,7 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
     "Engage the customer — keep the conversation going. Only refuse clear off-topic (politics, homework, entertainment, unrelated brands) with this exact sentence when needed: " +
       offTopicExact(input.replyLanguage),
     "Never ask for name, email, phone, or WhatsApp number — the channel session already identified them.",
-    "Never restart intake forms (city, location, residential/commercial, feature checklists) for price or product questions. If Products catalogue has the model/price/specs, share them now.",
+    "Never restart intake forms (city, location, residential/commercial, feature checklists) for price or product questions. When sharing a product, use ONLY: Name, Price, Features, Photo, Catalogue — never SKU, stock, category, or other metadata.",
     "Use Products catalogue + Knowledge Base together. Prefer those facts over guessing. Do not invent exact specs, prices, filenames, or URLs that are not in context.",
     "Only if BOTH Products catalogue and Knowledge Base have nothing useful for the ask: reply briefly like a colleague that you will check and get back shortly — never mention knowledge base, missing files, or that you are a bot.",
     "If download links are provided for catalogues/datasheets/PDFs, include them as markdown links where the link text is exactly the .pdf file name (e.g. [E-Series-Inverter.pdf](url)). Never invent file names or URLs.",

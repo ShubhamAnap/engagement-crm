@@ -687,15 +687,15 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               .filter((m) => m.imageUrl)
               .map((m) => ({
                 url: m.imageUrl,
-                title: m.productName,
+                title: "Product photo",
                 file_name: `${m.productName}.jpg`,
               }));
             (inspector.metadata as Record<string, unknown>).download_links = media
               .filter((m) => m.catalogueUrl)
               .map((m) => ({
-                title: m.catalogueFileName || `${m.productName}.pdf`,
+                title: "Catalogue",
                 url: m.catalogueUrl,
-                file_name: m.catalogueFileName || `${m.productName}.pdf`,
+                file_name: m.catalogueFileName || "catalogue.pdf",
               }));
 
             await supabase.from("messages").insert({
@@ -746,7 +746,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
                         toPhone: from,
                         documentUrl: item.catalogueUrl,
                         fileName: item.catalogueFileName || "catalogue.pdf",
-                        caption: `${item.productName} catalogue`,
+                        caption: "Catalogue",
                         cfg,
                       });
                     } catch (err) {

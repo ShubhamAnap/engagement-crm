@@ -303,7 +303,7 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-07-30
-- **Brainmine Inspect CRM fields (Step A):** Channels → **Inspect CRM fields** pulls one full Lead + DocField/Custom Field meta and lists requirement/query-like keys for mapping approval. **Requirement** mapped from Brainmine `query_about`.
+- **Brainmine Inspect CRM fields (Step A):** Channels → **Inspect CRM fields** pulls one full Lead + DocField/Custom Field meta and lists requirement/query-like keys for mapping approval. **Requirement** ← `query_about`. **Sales Person** ← `opportunity_owner` → `lead_owner` → `_assign` (skips `customercare@` / non-sales inboxes; never uses document `owner`).
 - **Brainmine richer lead fields:** Sync requests CRM source, creation/modified, lead_owner, phone, state/country, industry, etc. New columns `crm_source`, `crm_created_at`, `crm_modified_at` (migration `023`). Leads table shows CRM Source / ID / Created / Modified + CRM source filter. Sales person = `lead_owner` then `owner`.
 - **Brainmine auto sync schedule:** Channels → Brainmine **Auto lead sync** — On/Off + custom interval (number + sec/min/hr) + **Save**. Cron pulls latest ≤20 updated leads (upsert). Date-range backfill unchanged.
 - **Leads delete by source:** `/leads` → **Delete by source** (Brainmine, IndiaMART, …) with count confirm; also **Delete selected** in bulk bar + source filter on toolbar.

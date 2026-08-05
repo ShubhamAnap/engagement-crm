@@ -31,6 +31,7 @@ export type BrainmineFieldMap = {
   requirement?: string;
   sales_person?: string;
   lead_owner?: string;
+  opportunity_owner?: string;
   status?: string;
   notes?: string;
   tags?: string;
@@ -160,6 +161,7 @@ const DEFAULT_FIELD_MAP: Required<BrainmineFieldMap> = {
   requirement: "query_about",
   sales_person: "owner",
   lead_owner: "lead_owner",
+  opportunity_owner: "opportunity_owner",
   status: "status",
   notes: "notes",
   tags: "source",
@@ -378,6 +380,7 @@ export async function fetchBrainmineLeads(
               "notes",
               "owner",
               "opportunity_owner",
+              "_assign",
               "industry",
               "territory",
               "website",
@@ -401,6 +404,8 @@ export async function fetchBrainmineLeads(
               "notes",
               "owner",
               "lead_owner",
+              "opportunity_owner",
+              "_assign",
               "industry",
               "job_title",
               "website",
@@ -610,6 +615,84 @@ function parseCrmDate(raw: string | null): string | null {
   return Number.isNaN(d2.getTime()) ? null : d2.toISOString();
 }
 
+/** Intake/support inboxes — never treat as Sales Person */
+const NON_SALES_EMAILS = new Set([
+  "customercare@enertechups.com",
+  "noreply@enertechups.com",
+  "no-reply@enertechups.com",
+  "admin@enertechups.com",
+]);
+
+function isUsableSalesEmail(raw: string | null | undefined): raw is string {
+  if (!raw) return false;
+  const v = raw.trim().toLowerCase();
+  if (!v.includes("@")) return false;
+  if (NON_SALES_EMAILS.has(v)) return false;
+  return true;
+}
+
+/** Parse Frappe `_assign` JSON list → first usable sales email */
+function firstAssigneeEmail(raw: unknown): string | null {
+  if (raw == null) return null;
+  let list: unknown[] = [];
+  if (Array.isArray(raw)) {
+    list = raw;
+  } else if (typeof raw === "string") {
+    const s = raw.trim();
+    if (!s) return null;
+    if (s.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(s) as unknown;
+        if (Array.isArray(parsed)) list = parsed;
+        else list = [s];
+      } catch {
+        list = [s];
+      }
+    } else {
+      list = [s];
+    }
+  }
+  for (const item of list) {
+    const email = asString(item);
+    if (isUsableSalesEmail(email)) return email.trim();
+  }
+  return null;
+}
+
+/**
+ * Sales Person priority:
+ * 1) opportunity_owner
+ * 2) lead_owner
+ * 3) first _assign (Assign To)
+ * Skips customercare@ and similar non-sales inboxes. Does not use document `owner`.
+ */
+function resolveSalesPerson(row: Record<string, unknown>, fm: Required<BrainmineFieldMap>): {
+  salesPerson: string | null;
+  opportunityOwner: string | null;
+  leadOwner: string | null;
+  assignee: string | null;
+  docOwner: string | null;
+} {
+  const opportunityOwner =
+    asString(getByPath(row, fm.opportunity_owner)) ||
+    asString(row.opportunity_owner) ||
+    null;
+  const leadOwner =
+    asString(getByPath(row, fm.lead_owner)) ||
+    asString(row.lead_owner) ||
+    null;
+  const assignee = firstAssigneeEmail(row._assign ?? row.assign_to);
+  const docOwner = asString(getByPath(row, fm.sales_person)) || asString(row.owner) || null;
+
+  const salesPerson =
+    (isUsableSalesEmail(opportunityOwner) ? opportunityOwner.trim() : null) ||
+    (isUsableSalesEmail(leadOwner) ? leadOwner.trim() : null) ||
+    assignee ||
+    null;
+
+  return { salesPerson, opportunityOwner, leadOwner, assignee, docOwner };
+}
+
 function mapRow(
   row: Record<string, unknown>,
   fieldMap: BrainmineFieldMap,
@@ -641,13 +724,26 @@ function mapRow(
   const name =
     asString(getByPath(row, fm.name)) ||
     asString(row.lead_name) ||
+    asString(row.party_name) ||
+    asString(row.customer_name) ||
     asString(row.contact_name) ||
     asString(row.full_name) ||
     "Brainmine lead";
-  const company = asString(getByPath(row, fm.company));
-  const email = asString(getByPath(row, fm.email));
-  const mobile = cleanPhone(asString(getByPath(row, fm.phone)));
-  const landline = cleanPhone(asString(getByPath(row, fm.phone_alt)));
+  const company =
+    asString(getByPath(row, fm.company)) ||
+    asString(row.customer_name) ||
+    asString(row.party_name) ||
+    null;
+  const email =
+    asString(getByPath(row, fm.email)) ||
+    asString(row.contact_email) ||
+    null;
+  const mobile = cleanPhone(
+    asString(getByPath(row, fm.phone)) || asString(row.contact_mobile),
+  );
+  const landline = cleanPhone(
+    asString(getByPath(row, fm.phone_alt)) || asString(row.contact_phone),
+  );
   const phone = mobile || landline;
   const city = asString(getByPath(row, fm.location));
   const state = asString(getByPath(row, fm.state));
@@ -659,9 +755,8 @@ function mapRow(
     asString(row.query_about) ||
     asString(row.custom_query_about) ||
     null;
-  const leadOwner = asString(getByPath(row, fm.lead_owner));
-  const owner = asString(getByPath(row, fm.sales_person));
-  const salesPerson = leadOwner || owner;
+  const { salesPerson, opportunityOwner, leadOwner, assignee, docOwner } =
+    resolveSalesPerson(row, fm);
   const status = mapBrainmineStatus(asString(getByPath(row, fm.status)));
   // Notes stay separate from Requirement (query_about)
   const notes = asString(getByPath(row, fm.notes));
@@ -694,8 +789,10 @@ function mapRow(
     crmModifiedAt: parseCrmDate(asString(getByPath(row, fm.modified))),
     valueLabel: annualRevenue,
     metadataExtra: {
+      opportunity_owner: opportunityOwner,
       lead_owner: leadOwner,
-      owner,
+      assign_to: assignee,
+      owner: docOwner,
       industry,
       job_title: jobTitle,
       website,

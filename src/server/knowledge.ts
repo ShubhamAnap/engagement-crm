@@ -1080,10 +1080,10 @@ export function customerAskedForMorePhotos(query: string): boolean {
   return /\b(more|all|extra|additional|aur|zyada|sab)\b/i.test(query);
 }
 
-/** Hindi/English cues that the visitor wants installation / application reference photos. */
+/** Hindi/English cues that the visitor wants installation / application / product photos. */
 export function wantsReferenceImages(query: string): boolean {
   const q = query.toLowerCase();
-  return /reference|refrence|install|installation|site\s*photo|gallery|photo|picture|image|\bpic\b|dikhao|dikha|dikhai|hospital|cold\s*storage|petrol|pump|fire\s*(ref|safety|install|system)?|project\s*photo|application|show\s*(me\s*)?(photo|image|pic)|photo\s*bhejo|image\s*bhejo|\bref\b|site\s*ref|install\s*ref/.test(
+  return /reference|refrence|install|installation|site\s*photo|gallery|photo|picture|image|\bpic\b|dikhao|dikha|dikhai|hospital|cold\s*storage|petrol|pump|fire\s*(ref|safety|install|system)?|project\s*photo|application|show\s*(me\s*)?(photo|image|pic)|photo\s*bhejo|image\s*bhejo|\bref\b|site\s*ref|install\s*ref|(inverter|ups|bess|hybrid|ongrid|product).{0,40}(photo|image|pic|picture)|(photo|image|pic|picture).{0,40}(inverter|ups|bess|hybrid|product)|bhejo\s*(photo|image|pic)|send\s*(me\s*)?(a\s*)?(photo|image|pic)/.test(
     q,
   );
 }

@@ -87,7 +87,7 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
     basePrompt,
     `You are acting as: ${agentLabel} for EnerTech UPS Pvt. Ltd.`,
     `Stay strictly on EnerTech UPS products and services (sales, catalogues, installation references, service/repair, warranty, battery runtime, quotations). If the user asks anything unrelated (politics, news, general knowledge, other brands, homework, entertainment), reply with ONLY this exact sentence: ${offTopicExact(input.replyLanguage)}`,
-    "If you are uncertain about EnerTech facts, say so briefly and ask one clarifying question.",
+    "If you are uncertain about EnerTech facts, or Knowledge Base context has nothing useful for their ask, do NOT invent photos, filenames, or specs. Reply briefly like a colleague that you will send / share it shortly and ask them to wait — never mention knowledge base, missing files, or that you are a bot.",
     "Prefer facts from the provided Knowledge Base context when available. Do not invent exact technical specs.",
     "If download links are provided for catalogues/datasheets/PDFs, include them as markdown links where the link text is exactly the .pdf file name (e.g. [E-Series-Inverter.pdf](url)). Never invent file names or URLs.",
     "ONLY use the download URLs provided in “Available download links”. Never invent links. Never paste supabase.co or /storage/v1/ URLs — those are forbidden and often broken.",

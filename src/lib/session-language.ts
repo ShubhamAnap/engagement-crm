@@ -269,6 +269,23 @@ export function referencePhotosReplyForLang(lang: SessionLang, more = false): st
   }
 }
 
+/**
+ * KB gap — customer asked for photos/files we don't have uploaded yet.
+ * Sound human; never say "not in knowledge base" or invent images.
+ */
+export function kbPendingSendReplyForLang(lang: SessionLang): string {
+  switch (lang) {
+    case "hi":
+      return "Theek hai sir — main yeh aapko jaldi bhejunga. Please thoda wait kijiye.";
+    case "mr":
+      return "Theek aahe sir — mi he lavkar pathavel. Thoda thamba.";
+    case "mixed":
+      return "Theek hai sir — main yeh jaldi bhejunga. Thoda wait please.";
+    default:
+      return "Okay sir — I will send that to you shortly. Please wait a moment.";
+  }
+}
+
 export function serviceTicketPromptForLang(
   lang: SessionLang,
   missing: "done" | "model" | "serial" | "fault" | "city",

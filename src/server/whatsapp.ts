@@ -20,6 +20,7 @@ import {
   greetingReplyForLang,
   offTopicReplyForLang,
   referencePhotosReplyForLang,
+  kbPendingSendReplyForLang,
   normalizeStoredLang,
   sessionLangFromHistory,
   humanWaitReplyForLang,
@@ -880,6 +881,56 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               } catch (err) {
                 console.error("WhatsApp reference image send failed", err);
               }
+            }
+            continue;
+          }
+
+          // Photos/assets asked but not in Knowledge Base yet — soft wait, flag for team
+          if (wantsReferenceImages(text) && referenceImages.length === 0) {
+            reply = kbPendingSendReplyForLang(sessionLang);
+            const tags = Array.isArray((convo as { tags?: string[] }).tags)
+              ? [...((convo as { tags?: string[] }).tags || [])]
+              : [];
+            if (!tags.includes("Needs asset")) tags.push("Needs asset");
+            await supabase
+              .from("conversations")
+              .update({
+                metadata: {
+                  ...prevMeta,
+                  preferred_lang: sessionLang,
+                  pending_kb_request: {
+                    type: "reference_photos",
+                    query: text.slice(0, 240),
+                    at: new Date().toISOString(),
+                  },
+                },
+                tags,
+                preview: reply.slice(0, 160),
+              })
+              .eq("id", convo.id);
+            await supabase.from("messages").insert({
+              org_id: ORG_ID,
+              conversation_id: convo.id,
+              sender: "ai",
+              body: reply,
+              metadata: { pending_kb: true, human_like_wait: true },
+            });
+            try {
+              await supabase.from("notifications").insert({
+                org_id: ORG_ID,
+                title: "Customer asked for photos / assets",
+                body: text.slice(0, 160),
+                href: `/inbox?c=${convo.id}`,
+                conversation_id: convo.id,
+                metadata: { pending_kb: true },
+              });
+            } catch (err) {
+              console.error("pending KB notify failed", err);
+            }
+            try {
+              await sendWhatsAppText(from, reply, cfg);
+            } catch (err) {
+              console.error("WA pending KB send failed", err);
             }
             continue;
           }

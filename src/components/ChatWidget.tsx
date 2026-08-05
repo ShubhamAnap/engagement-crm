@@ -619,10 +619,7 @@ export function ChatWidget() {
           {showContactForm ? (
             <div className="flex flex-1 flex-col overflow-y-auto px-3.5 py-4">
               <p className="text-sm font-semibold" style={{ color: BRAND }}>
-                {profileReady ? "Edit your contact" : "Share your contact to start"}
-              </p>
-              <p className="mt-1 text-xs" style={{ color: `${BRAND}B3` }}>
-                Name, email, phone, and location are required. Company is optional.
+                {profileReady ? "Edit your contact" : "To assist you better, we need the following details."}
               </p>
               <div className="mt-3 grid gap-2">
                 <div className="relative">

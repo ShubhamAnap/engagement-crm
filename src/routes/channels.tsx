@@ -1957,9 +1957,10 @@ function Page() {
               <code className="text-xs">/api/resource/Lead</code>). Change path/auth when docs arrive.
             </li>
             <li>
-              <span className="font-medium text-foreground">Sync leads now</span> pulls recent
-              changes; use <span className="font-medium text-foreground">Date range</span> below for
-              historical extraction (by lead creation date), same idea as IndiaMART.
+              <span className="font-medium text-foreground">Sync leads now</span> pulls only the{" "}
+              <strong>latest updated</strong> leads (max 20) — no full dump, duplicates upserted.
+              Use <span className="font-medium text-foreground">Date range</span> below for historical
+              backfill.
             </li>
             <li>
               Upserts into{" "}
@@ -2010,11 +2011,11 @@ function Page() {
           <div className="mt-4 rounded-lg border border-border/80 bg-secondary/30 p-3">
             <p className="mb-2 text-sm font-medium text-foreground">Date-wise lead extraction</p>
             <p className="mb-3 text-xs text-muted-foreground">
-              Pull leads created in Brainmine between two dates (ERPNext{" "}
-              <code className="text-[10px]">creation</code> filter). Max{" "}
-              <strong>365 days</strong> per run. Page size follows{" "}
-              <span className="font-medium text-foreground">Leads per sync</span> in Configure
-              (paginates until the range is exhausted).
+              Historical backfill: leads <strong>created</strong> in Brainmine between two dates
+              (ERPNext <code className="text-[10px]">creation</code> filter). Max{" "}
+              <strong>365 days</strong> per run. Page size follows Configure → Leads per sync.
+              For day-to-day use, prefer <span className="font-medium text-foreground">Sync leads now</span>{" "}
+              (latest ≤20 only).
             </p>
             <div className="mb-3 flex flex-wrap items-end gap-3">
               <div className="space-y-1">
@@ -2534,7 +2535,7 @@ function Page() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Leads per sync</Label>
+                <Label>Leads per sync (date range)</Label>
                 <Select value={bmSyncLimit} onValueChange={setBmSyncLimit}>
                   <SelectTrigger>
                     <SelectValue />
@@ -2542,11 +2543,15 @@ function Page() {
                   <SelectContent>
                     {["10", "20", "30", "50", "100", "200"].map((n) => (
                       <SelectItem key={n} value={n}>
-                        {n} leads
+                        {n} leads / page
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  Used only for date-range backfill. <strong>Sync leads now</strong> always takes the
+                  latest ≤20 updated leads.
+                </p>
               </div>
               <p className="text-xs text-muted-foreground">
                 Values here override{" "}

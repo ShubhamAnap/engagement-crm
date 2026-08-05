@@ -52,6 +52,8 @@ export type BrainmineChannelConfig = {
 
 const DEFAULT_SYNC_LIMIT = 30;
 const MAX_SYNC_LIMIT = 200;
+/** Quick "Sync leads now" — latest recently-updated only (not historical backfill). */
+const QUICK_SYNC_LIMIT = 20;
 
 function clampSyncLimit(raw: unknown): number {
   const n = typeof raw === "number" ? raw : Number(raw);
@@ -206,8 +208,14 @@ export async function fetchBrainmineLeads(
     to?: string;
     /** ERPNext pagination offset */
     limitStart?: number;
+    /** Override page size (default: channel sync_limit) */
+    pageSize?: number;
+    /** ERPNext order_by, e.g. "modified desc" */
+    orderBy?: string;
     /** When true, skip last_sync_at incremental filter */
     forceFullPage?: boolean;
+    /** Use modified >= last_sync (quick sync). Ignored when from/to set. */
+    incrementalOnly?: boolean;
   },
 ): Promise<Record<string, unknown>[]> {
   if (!brainmineConfigReady(cfg)) {
@@ -218,13 +226,18 @@ export async function fetchBrainmineLeads(
     ? cfg.leads_path || "/api/resource/Lead"
     : `/${cfg.leads_path}`;
   const url = new URL(`${base}${path}`);
-  const pageSize = clampSyncLimit(cfg.sync_limit ?? DEFAULT_SYNC_LIMIT);
+  const pageSize = clampSyncLimit(
+    options?.pageSize ?? cfg.sync_limit ?? DEFAULT_SYNC_LIMIT,
+  );
 
   url.searchParams.set("limit_page_length", String(pageSize));
   if (options?.limitStart && options.limitStart > 0) {
     url.searchParams.set("limit_start", String(options.limitStart));
   }
-  url.searchParams.set("order_by", "creation desc");
+  url.searchParams.set(
+    "order_by",
+    options?.orderBy || (options?.from || options?.to ? "creation desc" : "modified desc"),
+  );
 
   // Prefer Lead field list; Opportunity / other doctypes still get creation/modified via filters.
   if (!url.searchParams.has("fields") && /\/(Lead|Opportunity)/i.test(path)) {
@@ -274,9 +287,9 @@ export async function fetchBrainmineLeads(
       filters.push(["creation", "<=", `${options.to} 23:59:59`]);
     }
   } else if (
+    options?.incrementalOnly !== false &&
     !options?.forceFullPage &&
-    cfg.last_sync_at &&
-    !url.searchParams.has("filters")
+    cfg.last_sync_at
   ) {
     filters.push([
       "modified",
@@ -348,7 +361,9 @@ export async function syncBrainmineWindow(options?: {
 
   const from = options?.from?.trim() || undefined;
   const to = options?.to?.trim() || undefined;
-  if (from || to) {
+  const isDateRange = Boolean(from || to);
+
+  if (isDateRange) {
     if (!from || !to) throw new Error("Both From and To dates are required for date-range sync");
     const fromD = parseYmd(from);
     const toD = parseYmd(to);
@@ -360,27 +375,55 @@ export async function syncBrainmineWindow(options?: {
     }
   }
 
-  const pageSize = clampSyncLimit(cfg.sync_limit ?? DEFAULT_SYNC_LIMIT);
   const allRows: Record<string, unknown>[] = [];
   let pages = 0;
 
-  for (let start = 0; pages < MAX_DATE_RANGE_PAGES; start += pageSize) {
+  if (isDateRange) {
+    // Historical backfill — paginate by Configure "Leads per sync"
+    const pageSize = clampSyncLimit(cfg.sync_limit ?? DEFAULT_SYNC_LIMIT);
+    for (let start = 0; pages < MAX_DATE_RANGE_PAGES; start += pageSize) {
+      const batch = await fetchBrainmineLeads(cfg, {
+        from,
+        to,
+        limitStart: start,
+        pageSize,
+        orderBy: "creation desc",
+        forceFullPage: true,
+      });
+      pages += 1;
+      if (!batch.length) break;
+      allRows.push(...batch);
+      if (batch.length < pageSize) break;
+    }
+  } else {
+    // Quick Sync — only latest recently-updated leads, max 20, single page
     const batch = await fetchBrainmineLeads(cfg, {
-      from,
-      to,
-      limitStart: start,
-      forceFullPage: Boolean(from || to),
+      pageSize: QUICK_SYNC_LIMIT,
+      orderBy: "modified desc",
+      incrementalOnly: true,
     });
-    pages += 1;
-    if (!batch.length) break;
-    allRows.push(...batch);
-    if (batch.length < pageSize) break;
+    pages = 1;
+    allRows.push(...batch.slice(0, QUICK_SYNC_LIMIT));
+  }
+
+  // Deduplicate by Brainmine id within this batch (API should not repeat; belt-and-suspenders)
+  const seen = new Set<string>();
+  const uniqueRows: Record<string, unknown>[] = [];
+  for (const row of allRows) {
+    const id =
+      asString(row.name) ||
+      asString(row.id) ||
+      asString(row.uuid) ||
+      JSON.stringify(row).slice(0, 80);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    uniqueRows.push(row);
   }
 
   let created = 0;
   let updated = 0;
   let skipped = 0;
-  for (const row of allRows) {
+  for (const row of uniqueRows) {
     const result = await ingestBrainmineLead(row, cfg.field_map || DEFAULT_FIELD_MAP);
     if (result.created) created += 1;
     else if (result.updated) updated += 1;
@@ -400,14 +443,14 @@ export async function syncBrainmineWindow(options?: {
       health: 100,
       detail: from && to
         ? `Brainmine · ${cfg.api_base_url} · synced ${from}→${to}`
-        : `Brainmine · ${cfg.api_base_url} · ${cfg.sync_limit}/sync`,
+        : `Brainmine · ${cfg.api_base_url} · quick ≤${QUICK_SYNC_LIMIT}`,
       updated_at: new Date().toISOString(),
     })
     .eq("org_id", ORG_ID)
     .eq("type", "brainmine");
 
   return {
-    fetched: allRows.length,
+    fetched: uniqueRows.length,
     created,
     updated,
     skipped,

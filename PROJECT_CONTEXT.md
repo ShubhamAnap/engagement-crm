@@ -303,7 +303,7 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-07-30
-- **Brainmine date-wise extraction:** Channels → Brainmine **From/To** + **Pull date range** (ERPNext `creation` filter, ≤365 days, paginated by leads-per-sync). **Sync leads now** stays incremental via `modified >= last_sync`.
+- **Brainmine date-wise extraction:** Channels → Brainmine **From/To** + **Pull date range** (ERPNext `creation` filter, ≤365 days, paginated by leads-per-sync). **Sync leads now** = latest updated only, **max 20**, incremental via `modified`, upserts (no dupes). Date range stays for backfill.
 - **Brainmine sync limit + env/UI:** Channels Configure can set leads-per-sync (10–200, default 30). `BRAINMINE_SYNC_LIMIT` in `.env`; UI overrides env. Base URL hint `https://brainmineai.in`. Blank key/secret keeps existing or env credentials.
 
 ### 2026-08-04

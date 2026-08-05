@@ -197,7 +197,19 @@ function buildAuthHeaders(cfg: BrainmineChannelConfig): Record<string, string> {
   return {};
 }
 
-export async function fetchBrainmineLeads(cfg: BrainmineChannelConfig): Promise<Record<string, unknown>[]> {
+export async function fetchBrainmineLeads(
+  cfg: BrainmineChannelConfig,
+  options?: {
+    /** YYYY-MM-DD inclusive start (filters on creation) */
+    from?: string;
+    /** YYYY-MM-DD inclusive end */
+    to?: string;
+    /** ERPNext pagination offset */
+    limitStart?: number;
+    /** When true, skip last_sync_at incremental filter */
+    forceFullPage?: boolean;
+  },
+): Promise<Record<string, unknown>[]> {
   if (!brainmineConfigReady(cfg)) {
     throw new Error("Brainmine API base URL and API key are required");
   }
@@ -206,40 +218,76 @@ export async function fetchBrainmineLeads(cfg: BrainmineChannelConfig): Promise<
     ? cfg.leads_path || "/api/resource/Lead"
     : `/${cfg.leads_path}`;
   const url = new URL(`${base}${path}`);
+  const pageSize = clampSyncLimit(cfg.sync_limit ?? DEFAULT_SYNC_LIMIT);
 
-  // ERPNext list: fields + limit (UI/env sync_limit, default 30, max 200)
-  if (!url.searchParams.has("limit_page_length")) {
-    url.searchParams.set(
-      "limit_page_length",
-      String(clampSyncLimit(cfg.sync_limit ?? DEFAULT_SYNC_LIMIT)),
-    );
+  url.searchParams.set("limit_page_length", String(pageSize));
+  if (options?.limitStart && options.limitStart > 0) {
+    url.searchParams.set("limit_start", String(options.limitStart));
   }
-  if (!url.searchParams.has("fields") && path.includes("/Lead")) {
+  url.searchParams.set("order_by", "creation desc");
+
+  // Prefer Lead field list; Opportunity / other doctypes still get creation/modified via filters.
+  if (!url.searchParams.has("fields") && /\/(Lead|Opportunity)/i.test(path)) {
+    const isOpp = /Opportunity/i.test(path);
     url.searchParams.set(
       "fields",
-      JSON.stringify([
-        "name",
-        "lead_name",
-        "company_name",
-        "email_id",
-        "mobile_no",
-        "city",
-        "status",
-        "source",
-        "notes",
-        "owner",
-        "modified",
-        "creation",
-      ]),
+      JSON.stringify(
+        isOpp
+          ? [
+              "name",
+              "party_name",
+              "customer_name",
+              "contact_email",
+              "contact_mobile",
+              "city",
+              "status",
+              "source",
+              "notes",
+              "owner",
+              "modified",
+              "creation",
+            ]
+          : [
+              "name",
+              "lead_name",
+              "company_name",
+              "email_id",
+              "mobile_no",
+              "city",
+              "status",
+              "source",
+              "notes",
+              "owner",
+              "modified",
+              "creation",
+            ],
+      ),
     );
   }
-  if (cfg.last_sync_at && !url.searchParams.has("filters") && path.includes("/Lead")) {
-    // Incremental: modified >= last_sync
-    url.searchParams.set(
-      "filters",
-      JSON.stringify([["modified", ">=", cfg.last_sync_at.replace("T", " ").slice(0, 19)]]),
-    );
+
+  const filters: unknown[] = [];
+  if (options?.from || options?.to) {
+    if (options.from) {
+      filters.push(["creation", ">=", `${options.from} 00:00:00`]);
+    }
+    if (options.to) {
+      filters.push(["creation", "<=", `${options.to} 23:59:59`]);
+    }
+  } else if (
+    !options?.forceFullPage &&
+    cfg.last_sync_at &&
+    !url.searchParams.has("filters")
+  ) {
+    filters.push([
+      "modified",
+      ">=",
+      cfg.last_sync_at.replace("T", " ").slice(0, 19),
+    ]);
   }
+  if (filters.length) {
+    url.searchParams.set("filters", JSON.stringify(filters));
+  }
+
   if (cfg.auth_style === "query") {
     url.searchParams.set(cfg.query_key_param || "api_key", cfg.api_key!);
   }
@@ -266,6 +314,108 @@ export async function fetchBrainmineLeads(cfg: BrainmineChannelConfig): Promise<
     throw new Error(errMsg);
   }
   return extractList(json, cfg.list_key || "data");
+}
+
+const MAX_DATE_RANGE_PAGES = 50;
+
+function parseYmd(s: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(`${s}T00:00:00.000Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function ymdUtc(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+export async function syncBrainmineWindow(options?: {
+  from?: string;
+  to?: string;
+}): Promise<{
+  fetched: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  lastSyncAt: string;
+  from: string | null;
+  to: string | null;
+  pages: number;
+}> {
+  const cfg = await loadBrainmineConfig();
+  if (!brainmineConfigReady(cfg)) {
+    throw new Error("Configure Brainmine API base URL and API key under Channels first.");
+  }
+
+  const from = options?.from?.trim() || undefined;
+  const to = options?.to?.trim() || undefined;
+  if (from || to) {
+    if (!from || !to) throw new Error("Both From and To dates are required for date-range sync");
+    const fromD = parseYmd(from);
+    const toD = parseYmd(to);
+    if (!fromD || !toD) throw new Error("Dates must be YYYY-MM-DD");
+    if (fromD.getTime() > toD.getTime()) throw new Error("From date must be on or before To date");
+    const spanDays = Math.ceil((toD.getTime() - fromD.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+    if (spanDays > 366) {
+      throw new Error("Date range cannot exceed 365 days — split into smaller ranges");
+    }
+  }
+
+  const pageSize = clampSyncLimit(cfg.sync_limit ?? DEFAULT_SYNC_LIMIT);
+  const allRows: Record<string, unknown>[] = [];
+  let pages = 0;
+
+  for (let start = 0; pages < MAX_DATE_RANGE_PAGES; start += pageSize) {
+    const batch = await fetchBrainmineLeads(cfg, {
+      from,
+      to,
+      limitStart: start,
+      forceFullPage: Boolean(from || to),
+    });
+    pages += 1;
+    if (!batch.length) break;
+    allRows.push(...batch);
+    if (batch.length < pageSize) break;
+  }
+
+  let created = 0;
+  let updated = 0;
+  let skipped = 0;
+  for (const row of allRows) {
+    const result = await ingestBrainmineLead(row, cfg.field_map || DEFAULT_FIELD_MAP);
+    if (result.created) created += 1;
+    else if (result.updated) updated += 1;
+    else skipped += 1;
+  }
+
+  const supabase = createServiceSupabase();
+  const nextCfg: BrainmineChannelConfig = {
+    ...cfg,
+    last_sync_at: new Date().toISOString(),
+  };
+  await supabase
+    .from("channels")
+    .update({
+      config: nextCfg,
+      status: "Connected",
+      health: 100,
+      detail: from && to
+        ? `Brainmine · ${cfg.api_base_url} · synced ${from}→${to}`
+        : `Brainmine · ${cfg.api_base_url} · ${cfg.sync_limit}/sync`,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("org_id", ORG_ID)
+    .eq("type", "brainmine");
+
+  return {
+    fetched: allRows.length,
+    created,
+    updated,
+    skipped,
+    lastSyncAt: nextCfg.last_sync_at!,
+    from: from || null,
+    to: to || null,
+    pages,
+  };
 }
 
 function mapRow(
@@ -428,6 +578,12 @@ export const getBrainmineSetup = createServerFn({ method: "GET" }).handler(async
       secret: Boolean(process.env.BRAINMINE_API_SECRET?.trim()),
       syncLimit: Boolean(process.env.BRAINMINE_SYNC_LIMIT?.trim()),
     },
+    rangeEarliestDate: (() => {
+      const d = new Date();
+      d.setUTCDate(d.getUTCDate() - 365);
+      return ymdUtc(d);
+    })(),
+    rangeLatestDate: ymdUtc(new Date()),
   };
 });
 
@@ -512,45 +668,19 @@ export const saveBrainmineChannelConfig = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-export const syncBrainmineLeads = createServerFn({ method: "POST" }).handler(async () => {
-  const cfg = await loadBrainmineConfig();
-  if (!brainmineConfigReady(cfg)) {
-    throw new Error("Configure Brainmine API base URL and API key under Channels first.");
-  }
-
-  const rows = await fetchBrainmineLeads(cfg);
-  let created = 0;
-  let updated = 0;
-  let skipped = 0;
-
-  for (const row of rows) {
-    const result = await ingestBrainmineLead(row, cfg.field_map || DEFAULT_FIELD_MAP);
-    if (result.created) created += 1;
-    else if (result.updated) updated += 1;
-    else skipped += 1;
-  }
-
-  const supabase = createServiceSupabase();
-  const nextCfg: BrainmineChannelConfig = {
-    ...cfg,
-    last_sync_at: new Date().toISOString(),
-  };
-  await supabase
-    .from("channels")
-    .update({
-      config: nextCfg,
-      status: "Connected",
-      health: 100,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("org_id", ORG_ID)
-    .eq("type", "brainmine");
-
-  return {
-    fetched: rows.length,
-    created,
-    updated,
-    skipped,
-    lastSyncAt: nextCfg.last_sync_at,
-  };
-});
+export const syncBrainmineLeads = createServerFn({ method: "POST" })
+  .validator(
+    z
+      .object({
+        /** YYYY-MM-DD — with `to`, pulls leads created in this range */
+        from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      })
+      .optional(),
+  )
+  .handler(async ({ data }) => {
+    return syncBrainmineWindow({
+      from: data?.from,
+      to: data?.to,
+    });
+  });

@@ -166,6 +166,8 @@ function Page() {
   const [bmAuthStyle, setBmAuthStyle] = useState<BrainmineAuthStyle>("token");
   const [bmLeadsPath, setBmLeadsPath] = useState("/api/resource/Lead");
   const [bmSyncLimit, setBmSyncLimit] = useState("30");
+  const [bmRangeFrom, setBmRangeFrom] = useState("");
+  const [bmRangeTo, setBmRangeTo] = useState("");
   const [websiteOriginsText, setWebsiteOriginsText] = useState("");
   const [websiteOriginsLoaded, setWebsiteOriginsLoaded] = useState(false);
 
@@ -288,6 +290,18 @@ function Page() {
     queryKey: ["brainmine-setup"],
     queryFn: () => getBrainmineSetup(),
   });
+
+  useEffect(() => {
+    const earliest = bmSetupQuery.data?.rangeEarliestDate;
+    const latest = bmSetupQuery.data?.rangeLatestDate;
+    if (!earliest || !latest) return;
+    // Default: last 7 days → today (date-wise pull like IndiaMART)
+    const weekAgo = new Date();
+    weekAgo.setUTCDate(weekAgo.getUTCDate() - 6);
+    const weekAgoStr = weekAgo.toISOString().slice(0, 10);
+    setBmRangeFrom((prev) => prev || (weekAgoStr < earliest ? earliest : weekAgoStr));
+    setBmRangeTo((prev) => prev || latest);
+  }, [bmSetupQuery.data?.rangeEarliestDate, bmSetupQuery.data?.rangeLatestDate]);
 
   const channels = channelsQuery.data ?? [];
   const connected = channels.filter((c) => c.status === "Connected").length;
@@ -823,12 +837,16 @@ function Page() {
   });
 
   const syncBmMutation = useMutation({
-    mutationFn: () => syncBrainmineLeads(),
+    mutationFn: (range?: { from: string; to: string }) =>
+      syncBrainmineLeads({ data: range ?? {} }),
     onSuccess: async (result) => {
       await invalidate();
       await queryClient.invalidateQueries({ queryKey: ["leads"] });
+      await queryClient.invalidateQueries({ queryKey: ["brainmine-setup"] });
+      const rangeLabel =
+        result.from && result.to ? ` (${result.from} → ${result.to})` : "";
       toast.success(
-        `Brainmine sync: ${result.created} new · ${result.updated} updated · ${result.skipped} skipped · ${result.fetched} fetched`,
+        `Brainmine sync${rangeLabel}: ${result.created} new · ${result.updated} updated · ${result.skipped} skipped · ${result.fetched} fetched`,
       );
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Brainmine sync failed"),
@@ -1939,13 +1957,18 @@ function Page() {
               <code className="text-xs">/api/resource/Lead</code>). Change path/auth when docs arrive.
             </li>
             <li>
-              <span className="font-medium text-foreground">Sync leads now</span> upserts into{" "}
+              <span className="font-medium text-foreground">Sync leads now</span> pulls recent
+              changes; use <span className="font-medium text-foreground">Date range</span> below for
+              historical extraction (by lead creation date), same idea as IndiaMART.
+            </li>
+            <li>
+              Upserts into{" "}
               <Link className="text-primary underline" to="/leads">
                 /leads
               </Link>{" "}
-              with source <span className="font-medium text-foreground">brainmine</span>.
+              with source <span className="font-medium text-foreground">brainmine</span>. Engage stays
+              read-only — we never write back to Brainmine.
             </li>
-            <li>Engage stays read-only — we never write back to Brainmine.</li>
           </ol>
           <div className="flex flex-wrap items-center gap-2">
             {brainmine ? (
@@ -1965,7 +1988,7 @@ function Page() {
               size="sm"
               variant="secondary"
               disabled={!bmSetupQuery.data?.configured || syncBmMutation.isPending}
-              onClick={() => syncBmMutation.mutate()}
+              onClick={() => syncBmMutation.mutate(undefined)}
             >
               {syncBmMutation.isPending ? "Syncing…" : "Sync leads now"}
             </Button>
@@ -1979,10 +2002,67 @@ function Page() {
               ? bmSetupQuery.data?.configured
                 ? bmSetupQuery.data.lastSyncAt
                   ? `Connected. Last sync ${new Date(bmSetupQuery.data.lastSyncAt).toLocaleString()}.`
-                  : "Credentials saved — run Sync leads now."
+                  : "Credentials saved — run Sync leads now or a date range."
                 : "Channel card ready — click Configure Brainmine."
               : "Brainmine card missing. Click Create Brainmine card (requires migration 011 + 011b)."}
           </p>
+
+          <div className="mt-4 rounded-lg border border-border/80 bg-secondary/30 p-3">
+            <p className="mb-2 text-sm font-medium text-foreground">Date-wise lead extraction</p>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Pull leads created in Brainmine between two dates (ERPNext{" "}
+              <code className="text-[10px]">creation</code> filter). Max{" "}
+              <strong>365 days</strong> per run. Page size follows{" "}
+              <span className="font-medium text-foreground">Leads per sync</span> in Configure
+              (paginates until the range is exhausted).
+            </p>
+            <div className="mb-3 flex flex-wrap items-end gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="bm-range-from" className="text-xs">
+                  From
+                </Label>
+                <Input
+                  id="bm-range-from"
+                  type="date"
+                  className="w-[11rem]"
+                  min={bmSetupQuery.data?.rangeEarliestDate}
+                  max={bmSetupQuery.data?.rangeLatestDate}
+                  value={bmRangeFrom}
+                  disabled={!bmSetupQuery.data?.configured || syncBmMutation.isPending}
+                  onChange={(e) => setBmRangeFrom(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="bm-range-to" className="text-xs">
+                  To
+                </Label>
+                <Input
+                  id="bm-range-to"
+                  type="date"
+                  className="w-[11rem]"
+                  min={bmSetupQuery.data?.rangeEarliestDate}
+                  max={bmSetupQuery.data?.rangeLatestDate}
+                  value={bmRangeTo}
+                  disabled={!bmSetupQuery.data?.configured || syncBmMutation.isPending}
+                  onChange={(e) => setBmRangeTo(e.target.value)}
+                />
+              </div>
+              <Button
+                size="sm"
+                disabled={
+                  !bmSetupQuery.data?.configured ||
+                  !bmRangeFrom ||
+                  !bmRangeTo ||
+                  syncBmMutation.isPending
+                }
+                onClick={() =>
+                  syncBmMutation.mutate({ from: bmRangeFrom, to: bmRangeTo })
+                }
+              >
+                {syncBmMutation.isPending ? "Pulling…" : "Pull date range"}
+              </Button>
+            </div>
+          </div>
         </Panel>
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

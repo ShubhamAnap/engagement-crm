@@ -83,6 +83,7 @@ import {
 import {
   ensureBrainmineChannel,
   getBrainmineSetup,
+  inspectBrainmineLeadFields,
   saveBrainmineAutoSync,
   saveBrainmineChannelConfig,
   syncBrainmineLeads,
@@ -173,6 +174,10 @@ function Page() {
   const [bmIntervalValue, setBmIntervalValue] = useState("1");
   const [bmIntervalUnit, setBmIntervalUnit] = useState<BrainmineIntervalUnit>("hr");
   const [bmAutoFormReady, setBmAutoFormReady] = useState(false);
+  const [bmInspectOpen, setBmInspectOpen] = useState(false);
+  const [bmInspectResult, setBmInspectResult] = useState<Awaited<
+    ReturnType<typeof inspectBrainmineLeadFields>
+  > | null>(null);
   const [websiteOriginsText, setWebsiteOriginsText] = useState("");
   const [websiteOriginsLoaded, setWebsiteOriginsLoaded] = useState(false);
 
@@ -883,6 +888,19 @@ function Page() {
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Could not save Brainmine auto sync"),
+  });
+
+  const inspectBmMutation = useMutation({
+    mutationFn: () => inspectBrainmineLeadFields(),
+    onSuccess: (result) => {
+      setBmInspectResult(result);
+      setBmInspectOpen(true);
+      toast.success(
+        `Inspected ${result.leadId}: ${result.candidatesFromSample.length} requirement-like fields with data`,
+      );
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not inspect Brainmine fields"),
   });
 
   const ensureBmMutation = useMutation({
@@ -2026,6 +2044,14 @@ function Page() {
             >
               {syncBmMutation.isPending ? "Syncing…" : "Sync leads now"}
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!bmSetupQuery.data?.configured || inspectBmMutation.isPending}
+              onClick={() => inspectBmMutation.mutate()}
+            >
+              {inspectBmMutation.isPending ? "Inspecting…" : "Inspect CRM fields"}
+            </Button>
             <Button size="sm" variant="outline" asChild>
               <Link to="/leads">Open leads</Link>
             </Button>
@@ -2793,6 +2819,99 @@ function Page() {
               onClick={() => saveGmailCredMutation.mutate()}
             >
               {saveGmailCredMutation.isPending ? "Saving…" : "Save credentials"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={bmInspectOpen}
+        onOpenChange={(open) => {
+          setBmInspectOpen(open);
+          if (!open) setBmInspectResult(null);
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Brainmine field inspection</DialogTitle>
+            <DialogDescription>
+              Read-only discovery of CRM fields for Requirement / Query mapping. Sample lead:{" "}
+              <code className="text-xs">{bmInspectResult?.leadId || "—"}</code>
+              {bmInspectResult
+                ? ` · ${bmInspectResult.sampleFieldCount} fields on document`
+                : null}
+            </DialogDescription>
+          </DialogHeader>
+          {!bmInspectResult ? (
+            <p className="text-sm text-muted-foreground">No inspection result yet.</p>
+          ) : (
+            <div className="space-y-4 text-sm">
+              <p className="text-xs text-muted-foreground">{bmInspectResult.hint}</p>
+
+              <div>
+                <p className="mb-1.5 font-medium text-foreground">
+                  Likely Requirement / Query (has value on sample)
+                </p>
+                {bmInspectResult.candidatesFromSample.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No keyword matches with data on this sample. Check the full list below or try
+                    another lead in CRM.
+                  </p>
+                ) : (
+                  <ul className="max-h-40 space-y-1.5 overflow-y-auto rounded-md border border-border p-2">
+                    {bmInspectResult.candidatesFromSample.map((f) => (
+                      <li key={f.key} className="text-xs">
+                        <code className="font-semibold text-foreground">{f.key}</code>
+                        <span className="text-muted-foreground"> — {f.valuePreview || "(empty)"}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div>
+                <p className="mb-1.5 font-medium text-foreground">
+                  Meta candidates (DocType / Custom Field names)
+                </p>
+                {bmInspectResult.candidatesFromMeta.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Could not load DocField/Custom Field meta, or none matched keywords.
+                  </p>
+                ) : (
+                  <ul className="max-h-40 space-y-1.5 overflow-y-auto rounded-md border border-border p-2">
+                    {bmInspectResult.candidatesFromMeta.map((f) => (
+                      <li key={`${f.source}-${f.key}`} className="text-xs">
+                        <code className="font-semibold text-foreground">{f.key}</code>
+                        {f.label ? (
+                          <span className="text-muted-foreground"> ({f.label})</span>
+                        ) : null}
+                        <span className="text-muted-foreground">
+                          {" "}
+                          · {f.source}
+                          {f.empty ? " · empty on sample" : ` — ${f.valuePreview}`}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div>
+                <p className="mb-1.5 font-medium text-foreground">All fields on sample lead</p>
+                <ul className="max-h-56 space-y-1 overflow-y-auto rounded-md border border-border p-2 font-mono text-[11px]">
+                  {bmInspectResult.allFields.map((f) => (
+                    <li key={f.key} className={f.empty ? "text-muted-foreground/70" : ""}>
+                      <span className="text-foreground">{f.key}</span>
+                      {f.empty ? " = (empty)" : ` = ${f.valuePreview}`}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBmInspectOpen(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

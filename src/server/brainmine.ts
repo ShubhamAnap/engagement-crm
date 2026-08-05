@@ -999,3 +999,193 @@ export async function tickBrainmineAutoSync(): Promise<{
     };
   }
 }
+
+const REQUIREMENT_KEY_RE =
+  /requir|quer|enquir|product|message|subject|interest|item|kva|inverter|ups|solar|hybrid|catalogue|catalog|need|request_type|market_segment|notes|comment|detail|description|title/i;
+
+function previewValue(v: unknown, max = 160): string {
+  if (v == null) return "";
+  if (typeof v === "string") return v.length > max ? `${v.slice(0, max)}…` : v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  try {
+    const s = JSON.stringify(v);
+    return s.length > max ? `${s.slice(0, max)}…` : s;
+  } catch {
+    return String(v);
+  }
+}
+
+async function brainmineGetJson(
+  cfg: BrainmineChannelConfig,
+  pathAndQuery: string,
+): Promise<unknown> {
+  const base = cfg.api_base_url!.replace(/\/$/, "");
+  const path = pathAndQuery.startsWith("/") ? pathAndQuery : `/${pathAndQuery}`;
+  const url = new URL(`${base}${path}`);
+  if (cfg.auth_style === "query") {
+    url.searchParams.set(cfg.query_key_param || "api_key", cfg.api_key!);
+  }
+  const res = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      ...buildAuthHeaders(cfg),
+    },
+  });
+  const text = await res.text();
+  let json: unknown = {};
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`Brainmine returned non-JSON (${res.status}): ${text.slice(0, 200)}`);
+  }
+  if (!res.ok) {
+    const errMsg =
+      asString(getByPath(json, "message")) ||
+      asString(getByPath(json, "error")) ||
+      asString(getByPath(json, "exc")) ||
+      `Brainmine API error (${res.status})`;
+    throw new Error(errMsg);
+  }
+  return json;
+}
+
+/**
+ * Step A — read-only discovery: one full Lead + DocField/Custom Field hints
+ * for Requirement / Query mapping (no writes to Engage or Brainmine).
+ */
+export const inspectBrainmineLeadFields = createServerFn({ method: "POST" }).handler(async () => {
+  const cfg = await loadBrainmineConfig();
+  if (!brainmineConfigReady(cfg)) {
+    throw new Error("Configure Brainmine API base URL and API key under Channels first.");
+  }
+
+  const leadsPath = (cfg.leads_path || "/api/resource/Lead").startsWith("/")
+    ? cfg.leads_path || "/api/resource/Lead"
+    : `/${cfg.leads_path}`;
+
+  // 1) List latest lead id (name) only
+  const listJson = await brainmineGetJson(
+    cfg,
+    `${leadsPath}?limit_page_length=1&order_by=${encodeURIComponent("modified desc")}&fields=${encodeURIComponent(JSON.stringify(["name"]))}`,
+  );
+  const listRows = extractList(listJson, cfg.list_key || "data");
+  const firstId =
+    asString(listRows[0]?.name) ||
+    asString(listRows[0]?.id) ||
+    null;
+  if (!firstId) {
+    throw new Error("No leads found in Brainmine to inspect. Create or sync at least one Lead in CRM.");
+  }
+
+  // 2) Full document (no fields filter) — this is what CRM can send
+  const detailPath = `${leadsPath.replace(/\/$/, "")}/${encodeURIComponent(firstId)}`;
+  const detailJson = await brainmineGetJson(cfg, detailPath);
+  const doc =
+    (getByPath(detailJson, "data") as Record<string, unknown> | undefined) ||
+    (detailJson as Record<string, unknown>);
+
+  const allFields = Object.keys(doc)
+    .filter((k) => !k.startsWith("_"))
+    .sort((a, b) => a.localeCompare(b))
+    .map((key) => {
+      const value = doc[key];
+      const valuePreview = previewValue(value);
+      const empty =
+        value == null ||
+        value === "" ||
+        (Array.isArray(value) && value.length === 0);
+      return {
+        key,
+        valuePreview,
+        empty,
+        looksLikeRequirement: REQUIREMENT_KEY_RE.test(key) && !empty,
+      };
+    });
+
+  const candidatesFromSample = allFields.filter((f) => f.looksLikeRequirement);
+
+  // 3) DocField meta (standard + some customs depending on site)
+  let metaFields: Array<{ fieldname: string; label: string; fieldtype: string }> = [];
+  try {
+    const metaJson = await brainmineGetJson(
+      cfg,
+      `/api/resource/DocField?limit_page_length=500&fields=${encodeURIComponent(
+        JSON.stringify(["fieldname", "label", "fieldtype"]),
+      )}&filters=${encodeURIComponent(JSON.stringify([["parent", "=", "Lead"]]))}`,
+    );
+    const rows = extractList(metaJson, "data");
+    metaFields = rows
+      .map((r) => ({
+        fieldname: asString(r.fieldname) || "",
+        label: asString(r.label) || "",
+        fieldtype: asString(r.fieldtype) || "",
+      }))
+      .filter((r) => r.fieldname);
+  } catch {
+    metaFields = [];
+  }
+
+  // 4) Custom Field meta (Brainmine often stores enquiry text here)
+  let customFields: Array<{ fieldname: string; label: string; fieldtype: string }> = [];
+  try {
+    const customJson = await brainmineGetJson(
+      cfg,
+      `/api/resource/Custom%20Field?limit_page_length=200&fields=${encodeURIComponent(
+        JSON.stringify(["fieldname", "label", "fieldtype", "dt"]),
+      )}&filters=${encodeURIComponent(JSON.stringify([["dt", "=", "Lead"]]))}`,
+    );
+    const rows = extractList(customJson, "data");
+    customFields = rows
+      .map((r) => ({
+        fieldname: asString(r.fieldname) || "",
+        label: asString(r.label) || "",
+        fieldtype: asString(r.fieldtype) || "",
+      }))
+      .filter((r) => r.fieldname);
+  } catch {
+    customFields = [];
+  }
+
+  const metaCandidates = [...metaFields, ...customFields]
+    .filter(
+      (f) =>
+        REQUIREMENT_KEY_RE.test(f.fieldname) || REQUIREMENT_KEY_RE.test(f.label),
+    )
+    .map((f) => {
+      const sample = allFields.find((a) => a.key === f.fieldname);
+      return {
+        key: f.fieldname,
+        label: f.label,
+        fieldtype: f.fieldtype,
+        valuePreview: sample?.valuePreview || "",
+        empty: sample ? sample.empty : true,
+        source: customFields.some((c) => c.fieldname === f.fieldname)
+          ? ("custom" as const)
+          : ("doctype" as const),
+      };
+    });
+
+  // Dedupe meta candidates by key
+  const seenMeta = new Set<string>();
+  const uniqueMetaCandidates = metaCandidates.filter((m) => {
+    if (seenMeta.has(m.key)) return false;
+    seenMeta.add(m.key);
+    return true;
+  });
+
+  return {
+    leadId: firstId,
+    leadsPath,
+    sampleFieldCount: allFields.length,
+    /** Fields on the sample lead that look like requirement/query AND have a value */
+    candidatesFromSample,
+    /** DocType / Custom Field definitions that look like requirement/query */
+    candidatesFromMeta: uniqueMetaCandidates,
+    /** Full key list from the sample lead (for you to pick) */
+    allFields,
+    customFieldCount: customFields.length,
+    docFieldCount: metaFields.length,
+    hint: "Pick the field that holds text like “Solar Hybrid Inverter 10kW”. Tell me the key (e.g. custom_query) and we map it to Requirement.",
+  };
+});

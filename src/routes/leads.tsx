@@ -176,6 +176,7 @@ function Page() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"All" | LeadStatus>("All");
   const [sourceFilter, setSourceFilter] = useState<"All" | ChannelType>("All");
+  const [crmSourceFilter, setCrmSourceFilter] = useState<string>("All");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<LeadRow | null>(null);
   const [leadToDelete, setLeadToDelete] = useState<LeadRow | null>(null);
@@ -393,6 +394,9 @@ function Page() {
     if (sourceFilter !== "All") {
       items = items.filter((l) => (l.source || "website") === sourceFilter);
     }
+    if (crmSourceFilter !== "All") {
+      items = items.filter((l) => (l.crm_source || "") === crmSourceFilter);
+    }
     const q = search.trim().toLowerCase();
     if (!q) return items;
     return items.filter((lead) =>
@@ -408,12 +412,13 @@ function Page() {
         lead.notes,
         lead.external_ref,
         lead.source,
+        lead.crm_source,
         ...(lead.tags || []),
       ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(q)),
     );
-  }, [leadsQuery.data, search, statusFilter, sourceFilter]);
+  }, [leadsQuery.data, search, statusFilter, sourceFilter, crmSourceFilter]);
 
   const deleteSourceCount = useMemo(() => {
     if (!deleteSource) return 0;
@@ -429,6 +434,23 @@ function Page() {
     }
     return map;
   }, [leadsQuery.data]);
+
+  const crmSourceOptions = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const lead of leadsQuery.data ?? []) {
+      const key = (lead.crm_source || "").trim();
+      if (!key) continue;
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [leadsQuery.data]);
+
+  function formatCrmDate(iso: string | null | undefined) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleDateString();
+  }
 
   const allFilteredSelected =
     filteredLeads.length > 0 && filteredLeads.every((l) => selectedIds.has(l.id));
@@ -498,6 +520,10 @@ function Page() {
     "Phone",
     "Location",
     "Source",
+    "CRM Source",
+    "CRM ID",
+    "CRM Created",
+    "CRM Modified",
     "Requirement",
     "Sales Person",
     "Status",
@@ -564,6 +590,19 @@ function Page() {
                         {sourceCounts.has(option.value)
                           ? ` (${sourceCounts.get(option.value)})`
                           : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={crmSourceFilter} onValueChange={setCrmSourceFilter}>
+                  <SelectTrigger className="h-8 w-[170px]">
+                    <SelectValue placeholder="CRM source" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All CRM sources</SelectItem>
+                    {crmSourceOptions.map(([value, n]) => (
+                      <SelectItem key={value} value={value}>
+                        {value} ({n})
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -654,11 +693,15 @@ function Page() {
           ) : filteredLeads.length === 0 ? (
             <div className="p-4">
               <EmptyState
-                title={search || statusFilter !== "All" ? "No matching leads" : "Master table is empty"}
+                title={
+                  search || statusFilter !== "All" || sourceFilter !== "All" || crmSourceFilter !== "All"
+                    ? "No matching leads"
+                    : "Master table is empty"
+                }
                 description={
-                  search || statusFilter !== "All"
-                    ? "Try a different search or status filter."
-                    : "Add a lead, or sync from IndiaMART / TradeIndia / website chat — they land here."
+                  search || statusFilter !== "All" || sourceFilter !== "All" || crmSourceFilter !== "All"
+                    ? "Try a different search or filter."
+                    : "Add a lead, or sync from IndiaMART / TradeIndia / Brainmine / website chat — they land here."
                 }
               />
             </div>
@@ -728,6 +771,18 @@ function Page() {
                             <span className="text-xs capitalize">{lead.source || "—"}</span>
                           </div>
                         </td>
+                        <td className="max-w-[120px] truncate px-3 py-2.5 text-xs text-muted-foreground">
+                          {lead.crm_source || "—"}
+                        </td>
+                        <td className="max-w-[140px] truncate px-3 py-2.5 font-mono text-[11px] text-muted-foreground">
+                          {lead.external_ref || "—"}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-xs text-muted-foreground">
+                          {formatCrmDate(lead.crm_created_at)}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-xs text-muted-foreground">
+                          {formatCrmDate(lead.crm_modified_at)}
+                        </td>
                         <td className="max-w-[180px] truncate px-3 py-2.5">
                           {lead.requirement || lead.product_label || "—"}
                         </td>
@@ -781,8 +836,9 @@ function Page() {
         <p className="text-xs text-muted-foreground">
           Tip: use Bulk import for CSV (template download). Select rows for assign / status. Export uses
           selected rows, or the current filter if nothing is selected. Run{" "}
-          <code className="rounded bg-secondary px-1">010_leads_master.sql</code> once if columns are
-          missing.
+          <code className="rounded bg-secondary px-1">010_leads_master.sql</code> and{" "}
+          <code className="rounded bg-secondary px-1">023_leads_crm_fields.sql</code> in Supabase if CRM
+          columns are missing. Re-sync Brainmine to fill CRM Source / dates / ID.
         </p>
       </div>
 

@@ -24,12 +24,25 @@ export type BrainmineFieldMap = {
   company?: string;
   email?: string;
   phone?: string;
+  phone_alt?: string;
   location?: string;
+  state?: string;
+  country?: string;
   requirement?: string;
   sales_person?: string;
+  lead_owner?: string;
   status?: string;
   notes?: string;
   tags?: string;
+  crm_source?: string;
+  creation?: string;
+  modified?: string;
+  industry?: string;
+  job_title?: string;
+  website?: string;
+  territory?: string;
+  type?: string;
+  annual_revenue?: string;
 };
 
 export type BrainmineIntervalUnit = "sec" | "min" | "hr";
@@ -140,12 +153,25 @@ const DEFAULT_FIELD_MAP: Required<BrainmineFieldMap> = {
   company: "company_name",
   email: "email_id",
   phone: "mobile_no",
+  phone_alt: "phone",
   location: "city",
+  state: "state",
+  country: "country",
   requirement: "notes",
   sales_person: "owner",
+  lead_owner: "lead_owner",
   status: "status",
   notes: "notes",
   tags: "source",
+  crm_source: "source",
+  creation: "creation",
+  modified: "modified",
+  industry: "industry",
+  job_title: "job_title",
+  website: "website",
+  territory: "territory",
+  type: "type",
+  annual_revenue: "annual_revenue",
 };
 
 function envConfig(): BrainmineChannelConfig {
@@ -338,11 +364,19 @@ export async function fetchBrainmineLeads(
               "customer_name",
               "contact_email",
               "contact_mobile",
+              "contact_phone",
               "city",
+              "state",
+              "country",
               "status",
               "source",
               "notes",
               "owner",
+              "opportunity_owner",
+              "industry",
+              "territory",
+              "website",
+              "annual_revenue",
               "modified",
               "creation",
             ]
@@ -352,11 +386,21 @@ export async function fetchBrainmineLeads(
               "company_name",
               "email_id",
               "mobile_no",
+              "phone",
               "city",
+              "state",
+              "country",
               "status",
               "source",
               "notes",
               "owner",
+              "lead_owner",
+              "industry",
+              "job_title",
+              "website",
+              "territory",
+              "type",
+              "annual_revenue",
               "modified",
               "creation",
             ],
@@ -547,6 +591,18 @@ export async function syncBrainmineWindow(options?: {
   };
 }
 
+function parseCrmDate(raw: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  // ERPNext: "YYYY-MM-DD HH:MM:SS.ffffff"
+  const isoish = trimmed.includes("T") ? trimmed : trimmed.replace(" ", "T");
+  const d = new Date(isoish);
+  if (!Number.isNaN(d.getTime())) return d.toISOString();
+  const d2 = new Date(trimmed);
+  return Number.isNaN(d2.getTime()) ? null : d2.toISOString();
+}
+
 function mapRow(
   row: Record<string, unknown>,
   fieldMap: BrainmineFieldMap,
@@ -562,6 +618,11 @@ function mapRow(
   status: LeadStatus;
   notes: string | null;
   tags: string[];
+  crmSource: string | null;
+  crmCreatedAt: string | null;
+  crmModifiedAt: string | null;
+  valueLabel: string | null;
+  metadataExtra: Record<string, unknown>;
 } {
   const fm = { ...DEFAULT_FIELD_MAP, ...fieldMap };
   const externalId =
@@ -578,14 +639,32 @@ function mapRow(
     "Brainmine lead";
   const company = asString(getByPath(row, fm.company));
   const email = asString(getByPath(row, fm.email));
-  const phone = cleanPhone(asString(getByPath(row, fm.phone)));
-  const location = asString(getByPath(row, fm.location));
+  const mobile = cleanPhone(asString(getByPath(row, fm.phone)));
+  const landline = cleanPhone(asString(getByPath(row, fm.phone_alt)));
+  const phone = mobile || landline;
+  const city = asString(getByPath(row, fm.location));
+  const state = asString(getByPath(row, fm.state));
+  const country = asString(getByPath(row, fm.country));
+  const location =
+    [city, state, country].filter(Boolean).join(", ") || null;
   const requirement = asString(getByPath(row, fm.requirement));
-  const salesPerson = asString(getByPath(row, fm.sales_person));
+  const leadOwner = asString(getByPath(row, fm.lead_owner));
+  const owner = asString(getByPath(row, fm.sales_person));
+  const salesPerson = leadOwner || owner;
   const status = mapBrainmineStatus(asString(getByPath(row, fm.status)));
   const notes = asString(getByPath(row, fm.notes));
+  const crmSource = asString(getByPath(row, fm.crm_source));
   const tagRaw = asString(getByPath(row, fm.tags));
-  const tags = ["brainmine", ...(tagRaw ? [tagRaw] : [])];
+  const tags = [
+    "brainmine",
+    ...(crmSource ? [crmSource] : tagRaw && tagRaw !== crmSource ? [tagRaw] : []),
+  ];
+  const industry = asString(getByPath(row, fm.industry));
+  const jobTitle = asString(getByPath(row, fm.job_title));
+  const website = asString(getByPath(row, fm.website));
+  const territory = asString(getByPath(row, fm.territory));
+  const leadType = asString(getByPath(row, fm.type));
+  const annualRevenue = asString(getByPath(row, fm.annual_revenue));
   return {
     externalId,
     name,
@@ -598,6 +677,25 @@ function mapRow(
     status,
     notes,
     tags,
+    crmSource,
+    crmCreatedAt: parseCrmDate(asString(getByPath(row, fm.creation))),
+    crmModifiedAt: parseCrmDate(asString(getByPath(row, fm.modified))),
+    valueLabel: annualRevenue,
+    metadataExtra: {
+      lead_owner: leadOwner,
+      owner,
+      industry,
+      job_title: jobTitle,
+      website,
+      territory,
+      lead_type: leadType,
+      annual_revenue: annualRevenue,
+      city,
+      state,
+      country,
+      mobile_no: mobile,
+      phone_landline: landline,
+    },
   };
 }
 
@@ -635,11 +733,17 @@ export async function ingestBrainmineLead(
     notes: mapped.notes,
     tags: mapped.tags,
     source: "brainmine" as const,
+    crm_source: mapped.crmSource,
+    crm_created_at: mapped.crmCreatedAt,
+    crm_modified_at: mapped.crmModifiedAt,
+    value_label: mapped.valueLabel,
     last_activity_at: now,
     metadata: {
       brainmine_id: mapped.externalId,
       brainmine: true,
       remarketing: true,
+      crm_source: mapped.crmSource,
+      ...mapped.metadataExtra,
       raw: row,
     },
   };
@@ -649,6 +753,7 @@ export async function ingestBrainmineLead(
       .from("leads")
       .update({
         ...payload,
+        external_ref: mapped.externalId,
         // Keep local tags merged
         tags: Array.from(new Set([...(existing.tags || []), ...mapped.tags])),
       })
@@ -661,7 +766,7 @@ export async function ingestBrainmineLead(
     .from("leads")
     .insert({
       org_id: ORG_ID,
-      external_ref: `BM-${mapped.externalId.slice(-8)}`,
+      external_ref: mapped.externalId,
       score: 60,
       priority: "Medium",
       next_follow_up_at: now,

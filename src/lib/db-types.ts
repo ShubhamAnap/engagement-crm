@@ -93,6 +93,12 @@ export type DbLead = {
   location: string | null;
   /** Display name for assigned salesperson */
   sales_person: string | null;
+  /** Original source inside external CRM (Brainmine source, etc.) */
+  crm_source: string | null;
+  /** Created-at from external CRM */
+  crm_created_at: string | null;
+  /** Modified-at from external CRM */
+  crm_modified_at: string | null;
   owner_id: string | null;
   value_paise: number | null;
   value_label: string | null;

@@ -303,6 +303,7 @@ Record decisions here so we don't re-debate.
 Brief notes from each working session — append, don't delete.
 
 ### 2026-07-30
+- **Brainmine auto sync schedule:** Channels → Brainmine **Auto lead sync** — On/Off + custom interval (number + sec/min/hr) + presets (1/2/3/6 hr, 30 min) + **Save**. Cron pulls latest ≤20 updated leads (upsert). Date-range backfill unchanged.
 - **Leads delete by source:** `/leads` → **Delete by source** (Brainmine, IndiaMART, …) with count confirm; also **Delete selected** in bulk bar + source filter on toolbar.
 - **Brainmine date-wise extraction:** Channels → Brainmine **From/To** + **Pull date range** (ERPNext `creation` filter, ≤365 days, paginated by leads-per-sync). **Sync leads now** = latest updated only, **max 20**, incremental via `modified`, upserts (no dupes). Date range stays for backfill.
 - **Brainmine sync limit + env/UI:** Channels Configure can set leads-per-sync (10–200, default 30). `BRAINMINE_SYNC_LIMIT` in `.env`; UI overrides env. Base URL hint `https://brainmineai.in`. Blank key/secret keeps existing or env credentials.
@@ -408,7 +409,7 @@ Brief notes from each working session — append, don't delete.
 - **Automation canvas:** visual trigger→action nodes on `/automation` (edit dialog + detail), reorder actions.
 - **Broadcasting:** `/broadcasting` — WhatsApp message templates (create + submit to Meta, Sync from Meta), campaigns to leads/customers/IndiaMART/manual phones. Migration `009_broadcasting.sql`. Needs WABA ID on Channels → WhatsApp.
 - **Leads master:** `/leads` is the master enquiry sheet (Company, Name, Email, Phone, Location, Source, Requirement, Sales Person, Status, Note, Tags). Migration `010_leads_master.sql`. Status changes ready for Automation follow-ups later.
-- **Brainmine CRM+:** Channels card + Sync now (incremental) + **date-wise Pull date range** (creation filter, ≤365 days) → master leads, source `brainmine`. Configurable URL/auth/path + leads-per-sync. UI overrides `.env`. Migrations `011` + `011b`.
+- **Brainmine CRM+:** Channels card + Sync now (≤20 latest) + **auto sync** (custom sec/min/hr) + **date-wise Pull date range** → master leads, source `brainmine`. Configurable URL/auth/path + leads-per-sync for backfill. UI overrides `.env`. Migrations `011` + `011b`.
 - **TradeIndia:** Channels card + Sync now (My Inquiry API pull → Leads + Inbox). Dedup by `rfi_id`. **Historical backfill** = one calendar day per pull (~1 min gap), progress on `config.backfill`; cron ticks too. Maps sample fields (sender_*, product_name, subject, message HTML-stripped, inquiry_type). Migrations `014` / `014b` / `014c` (`tradeindia_lead` trigger). Credentials via Channels UI or `TRADEINDIA_*` env — never commit keys.
 
 ---

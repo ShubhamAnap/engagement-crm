@@ -32,6 +32,8 @@ export type BrainmineFieldMap = {
   tags?: string;
 };
 
+export type BrainmineIntervalUnit = "sec" | "min" | "hr";
+
 export type BrainmineChannelConfig = {
   api_base_url?: string;
   api_key?: string;
@@ -46,8 +48,13 @@ export type BrainmineChannelConfig = {
   last_sync_at?: string;
   /** Optional JSON-path-ish list key: data | data.message | leads | results */
   list_key?: string;
-  /** Max leads pulled per Sync now (ERPNext limit_page_length). Default 30. */
+  /** Max leads pulled per date-range page (ERPNext limit_page_length). Default 30. */
   sync_limit?: number;
+  /** Auto-fetch latest updated leads (≤20), upsert — not historical backfill */
+  auto_sync_enabled?: boolean;
+  auto_sync_interval_value?: number;
+  auto_sync_interval_unit?: BrainmineIntervalUnit;
+  last_auto_sync_at?: string;
 };
 
 const DEFAULT_SYNC_LIMIT = 30;
@@ -59,6 +66,72 @@ function clampSyncLimit(raw: unknown): number {
   const n = typeof raw === "number" ? raw : Number(raw);
   if (!Number.isFinite(n) || n < 1) return DEFAULT_SYNC_LIMIT;
   return Math.min(MAX_SYNC_LIMIT, Math.floor(n));
+}
+
+/** Normalize custom interval. Floor 60s (cron is ~1–5 min). Cap 7 days. */
+export function normalizeBrainmineInterval(
+  value?: number | null,
+  unit?: string | null,
+): { value: number; unit: BrainmineIntervalUnit } {
+  const u: BrainmineIntervalUnit =
+    unit === "sec" || unit === "min" || unit === "hr" ? unit : "hr";
+  let v = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(v) || v < 1) v = u === "hr" ? 1 : u === "min" ? 30 : 60;
+  v = Math.floor(v);
+  if (u === "sec") {
+    v = Math.max(60, Math.min(v, 7 * 24 * 3600));
+  } else if (u === "min") {
+    v = Math.max(1, Math.min(v, 7 * 24 * 60));
+  } else {
+    v = Math.max(1, Math.min(v, 7 * 24));
+  }
+  return { value: v, unit: u };
+}
+
+export function brainmineIntervalToMs(value: number, unit: BrainmineIntervalUnit): number {
+  const n = normalizeBrainmineInterval(value, unit);
+  if (n.unit === "sec") return n.value * 1000;
+  if (n.unit === "min") return n.value * 60_000;
+  return n.value * 3_600_000;
+}
+
+export function describeBrainmineAutoSync(cfg: BrainmineChannelConfig): string {
+  if (!cfg.auto_sync_enabled) return "Auto sync off — use Sync leads now";
+  const { value, unit } = normalizeBrainmineInterval(
+    cfg.auto_sync_interval_value,
+    cfg.auto_sync_interval_unit,
+  );
+  const unitLabel = unit === "sec" ? "sec" : unit === "min" ? "min" : "hr";
+  return `Auto sync every ${value} ${unitLabel} (latest ≤${QUICK_SYNC_LIMIT} leads)`;
+}
+
+export function isBrainmineAutoSyncDue(cfg: BrainmineChannelConfig, now = new Date()): boolean {
+  if (!cfg.auto_sync_enabled) return false;
+  const { value, unit } = normalizeBrainmineInterval(
+    cfg.auto_sync_interval_value,
+    cfg.auto_sync_interval_unit,
+  );
+  const needMs = brainmineIntervalToMs(value, unit);
+  const lastMs = cfg.last_auto_sync_at ? new Date(cfg.last_auto_sync_at).getTime() : 0;
+  const elapsed = now.getTime() - (Number.isFinite(lastMs) ? lastMs : 0);
+  const slackMs = Math.min(45_000, Math.floor(needMs * 0.05));
+  return elapsed >= needMs - slackMs;
+}
+
+async function persistBrainmineConfig(
+  next: BrainmineChannelConfig,
+  detail?: string,
+): Promise<void> {
+  const supabase = createServiceSupabase();
+  await supabase
+    .from("channels")
+    .update({
+      config: next,
+      ...(detail ? { detail } : {}),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("org_id", ORG_ID)
+    .eq("type", "brainmine");
 }
 
 const DEFAULT_FIELD_MAP: Required<BrainmineFieldMap> = {
@@ -113,6 +186,16 @@ export async function loadBrainmineConfig(): Promise<BrainmineChannelConfig> {
       sync_limit: clampSyncLimit(
         cfg.sync_limit ?? fromEnv.sync_limit ?? DEFAULT_SYNC_LIMIT,
       ),
+      auto_sync_enabled: Boolean(cfg.auto_sync_enabled),
+      auto_sync_interval_value: normalizeBrainmineInterval(
+        cfg.auto_sync_interval_value,
+        cfg.auto_sync_interval_unit,
+      ).value,
+      auto_sync_interval_unit: normalizeBrainmineInterval(
+        cfg.auto_sync_interval_value,
+        cfg.auto_sync_interval_unit,
+      ).unit,
+      last_auto_sync_at: cfg.last_auto_sync_at,
     };
   } catch {
     return {
@@ -122,6 +205,9 @@ export async function loadBrainmineConfig(): Promise<BrainmineChannelConfig> {
       leads_path: fromEnv.leads_path || "/api/resource/Lead",
       auth_style: fromEnv.auth_style || "token",
       sync_limit: clampSyncLimit(fromEnv.sync_limit ?? DEFAULT_SYNC_LIMIT),
+      auto_sync_enabled: false,
+      auto_sync_interval_value: 1,
+      auto_sync_interval_unit: "hr",
     };
   }
 }
@@ -627,6 +713,17 @@ export const getBrainmineSetup = createServerFn({ method: "GET" }).handler(async
       return ymdUtc(d);
     })(),
     rangeLatestDate: ymdUtc(new Date()),
+    autoSyncEnabled: Boolean(cfg.auto_sync_enabled),
+    autoSyncIntervalValue: normalizeBrainmineInterval(
+      cfg.auto_sync_interval_value,
+      cfg.auto_sync_interval_unit,
+    ).value,
+    autoSyncIntervalUnit: normalizeBrainmineInterval(
+      cfg.auto_sync_interval_value,
+      cfg.auto_sync_interval_unit,
+    ).unit,
+    lastAutoSyncAt: cfg.last_auto_sync_at || null,
+    autoSyncDescription: describeBrainmineAutoSync(cfg),
   };
 });
 
@@ -727,3 +824,73 @@ export const syncBrainmineLeads = createServerFn({ method: "POST" })
       to: data?.to,
     });
   });
+
+export const saveBrainmineAutoSync = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      enabled: z.boolean(),
+      intervalValue: z.number().int().min(1).max(604800),
+      intervalUnit: z.enum(["sec", "min", "hr"]),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const cfg = await loadBrainmineConfig();
+    if (data.enabled && !brainmineConfigReady(cfg)) {
+      throw new Error("Configure Brainmine API credentials before enabling auto sync");
+    }
+    const interval = normalizeBrainmineInterval(data.intervalValue, data.intervalUnit);
+    const next: BrainmineChannelConfig = {
+      ...cfg,
+      auto_sync_enabled: data.enabled,
+      auto_sync_interval_value: interval.value,
+      auto_sync_interval_unit: interval.unit,
+    };
+    await persistBrainmineConfig(
+      next,
+      data.enabled
+        ? `Brainmine · auto every ${interval.value}${interval.unit}`
+        : `Brainmine · ${cfg.api_base_url || "CRM"} · manual sync`,
+    );
+    return {
+      autoSyncEnabled: Boolean(next.auto_sync_enabled),
+      autoSyncIntervalValue: interval.value,
+      autoSyncIntervalUnit: interval.unit,
+      lastAutoSyncAt: next.last_auto_sync_at || null,
+      autoSyncDescription: describeBrainmineAutoSync(next),
+    };
+  });
+
+/**
+ * Cron: if auto sync enabled and due, pull latest updated leads (max 20, upsert).
+ */
+export async function tickBrainmineAutoSync(): Promise<{
+  ran: boolean;
+  skipped?: string;
+  created?: number;
+  updated?: number;
+  fetched?: number;
+}> {
+  const cfg = await loadBrainmineConfig();
+  if (!brainmineConfigReady(cfg)) return { ran: false, skipped: "not_configured" };
+  if (!isBrainmineAutoSyncDue(cfg)) return { ran: false, skipped: "not_due" };
+
+  try {
+    const result = await syncBrainmineWindow();
+    const latest = await loadBrainmineConfig();
+    await persistBrainmineConfig({
+      ...latest,
+      last_auto_sync_at: new Date().toISOString(),
+    });
+    return {
+      ran: true,
+      created: result.created,
+      updated: result.updated,
+      fetched: result.fetched,
+    };
+  } catch (err) {
+    return {
+      ran: false,
+      skipped: err instanceof Error ? err.message : "auto_sync_failed",
+    };
+  }
+}

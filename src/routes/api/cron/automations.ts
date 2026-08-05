@@ -5,10 +5,11 @@ import {
 } from "@/server/automation-engine";
 import { tickIndiaMartAutoSync, tickIndiaMartBackfill } from "@/server/indiamart";
 import { tickTradeIndiaAutoSync, tickTradeIndiaBackfill } from "@/server/tradeindia";
+import { tickBrainmineAutoSync } from "@/server/brainmine";
 import { tickPendingEmailBroadcasts } from "@/server/gmail";
 
 /**
- * Scheduled jobs: due follow-ups + Wait resumes + IndiaMART/TradeIndia backfill + auto lead sync
+ * Scheduled jobs: due follow-ups + Wait resumes + IndiaMART/TradeIndia/Brainmine backfill + auto lead sync
  * + resume Gmail campaigns stuck mid-send (delay pacing).
  * Point Render cron at:
  *   POST {VITE_APP_URL}/api/cron/automations
@@ -21,7 +22,7 @@ export const Route = createFileRoute("/api/cron/automations")({
       GET: async ({ request }) => {
         const ok = authorize(request);
         if (!ok) return new Response("Unauthorized", { status: 401 });
-        const [followUps, waits, indiamart, tradeindia, imAuto, tiAuto, emailBc, dailyFollow] =
+        const [followUps, waits, indiamart, tradeindia, imAuto, tiAuto, bmAuto, emailBc, dailyFollow] =
           await Promise.all([
             processDueFollowUps(),
             processScheduledAutomationSteps().catch((err) => ({
@@ -38,6 +39,9 @@ export const Route = createFileRoute("/api/cron/automations")({
             })),
             tickTradeIndiaAutoSync().catch((err) => ({
               error: err instanceof Error ? err.message : "tradeindia auto sync failed",
+            })),
+            tickBrainmineAutoSync().catch((err) => ({
+              error: err instanceof Error ? err.message : "brainmine auto sync failed",
             })),
             tickPendingEmailBroadcasts().catch((err) => ({
               error: err instanceof Error ? err.message : "email broadcast tick failed",
@@ -56,6 +60,7 @@ export const Route = createFileRoute("/api/cron/automations")({
           tradeindia,
           indiamartAutoSync: imAuto,
           tradeindiaAutoSync: tiAuto,
+          brainmineAutoSync: bmAuto,
           emailBroadcasts: emailBc,
           dailyFollowUp: dailyFollow,
         });
@@ -63,7 +68,7 @@ export const Route = createFileRoute("/api/cron/automations")({
       POST: async ({ request }) => {
         const ok = authorize(request);
         if (!ok) return new Response("Unauthorized", { status: 401 });
-        const [followUps, waits, indiamart, tradeindia, imAuto, tiAuto, emailBc, dailyFollow] =
+        const [followUps, waits, indiamart, tradeindia, imAuto, tiAuto, bmAuto, emailBc, dailyFollow] =
           await Promise.all([
             processDueFollowUps(),
             processScheduledAutomationSteps().catch((err) => ({
@@ -80,6 +85,9 @@ export const Route = createFileRoute("/api/cron/automations")({
             })),
             tickTradeIndiaAutoSync().catch((err) => ({
               error: err instanceof Error ? err.message : "tradeindia auto sync failed",
+            })),
+            tickBrainmineAutoSync().catch((err) => ({
+              error: err instanceof Error ? err.message : "brainmine auto sync failed",
             })),
             tickPendingEmailBroadcasts().catch((err) => ({
               error: err instanceof Error ? err.message : "email broadcast tick failed",
@@ -98,6 +106,7 @@ export const Route = createFileRoute("/api/cron/automations")({
           tradeindia,
           indiamartAutoSync: imAuto,
           tradeindiaAutoSync: tiAuto,
+          brainmineAutoSync: bmAuto,
           emailBroadcasts: emailBc,
           dailyFollowUp: dailyFollow,
         });

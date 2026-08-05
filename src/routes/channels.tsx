@@ -83,11 +83,12 @@ import {
 import {
   ensureBrainmineChannel,
   getBrainmineSetup,
+  saveBrainmineAutoSync,
   saveBrainmineChannelConfig,
   syncBrainmineLeads,
 } from "@/server/brainmine";
 import type { ChannelStatus } from "@/lib/db-types";
-import type { BrainmineAuthStyle } from "@/server/brainmine";
+import type { BrainmineAuthStyle, BrainmineIntervalUnit } from "@/server/brainmine";
 
 const statusOptions: ChannelStatus[] = ["Connected", "Degraded", "Disconnected", "Action Required"];
 
@@ -168,6 +169,10 @@ function Page() {
   const [bmSyncLimit, setBmSyncLimit] = useState("30");
   const [bmRangeFrom, setBmRangeFrom] = useState("");
   const [bmRangeTo, setBmRangeTo] = useState("");
+  const [bmAutoEnabled, setBmAutoEnabled] = useState(false);
+  const [bmIntervalValue, setBmIntervalValue] = useState("1");
+  const [bmIntervalUnit, setBmIntervalUnit] = useState<BrainmineIntervalUnit>("hr");
+  const [bmAutoFormReady, setBmAutoFormReady] = useState(false);
   const [websiteOriginsText, setWebsiteOriginsText] = useState("");
   const [websiteOriginsLoaded, setWebsiteOriginsLoaded] = useState(false);
 
@@ -302,6 +307,14 @@ function Page() {
     setBmRangeFrom((prev) => prev || (weekAgoStr < earliest ? earliest : weekAgoStr));
     setBmRangeTo((prev) => prev || latest);
   }, [bmSetupQuery.data?.rangeEarliestDate, bmSetupQuery.data?.rangeLatestDate]);
+
+  useEffect(() => {
+    if (!bmSetupQuery.data || bmAutoFormReady) return;
+    setBmAutoEnabled(Boolean(bmSetupQuery.data.autoSyncEnabled));
+    setBmIntervalValue(String(bmSetupQuery.data.autoSyncIntervalValue || 1));
+    setBmIntervalUnit(bmSetupQuery.data.autoSyncIntervalUnit || "hr");
+    setBmAutoFormReady(true);
+  }, [bmSetupQuery.data, bmAutoFormReady]);
 
   const channels = channelsQuery.data ?? [];
   const connected = channels.filter((c) => c.status === "Connected").length;
@@ -850,6 +863,26 @@ function Page() {
       );
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Brainmine sync failed"),
+  });
+
+  const bmAutoSyncMutation = useMutation({
+    mutationFn: (payload: {
+      enabled: boolean;
+      intervalValue: number;
+      intervalUnit: BrainmineIntervalUnit;
+    }) => saveBrainmineAutoSync({ data: payload }),
+    onSuccess: async (result) => {
+      setBmAutoFormReady(false);
+      await queryClient.invalidateQueries({ queryKey: ["brainmine-setup"] });
+      await invalidate();
+      toast.success(
+        result.autoSyncEnabled
+          ? `Brainmine auto sync saved — every ${result.autoSyncIntervalValue} ${result.autoSyncIntervalUnit}`
+          : "Brainmine auto sync off — use Sync leads now",
+      );
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not save Brainmine auto sync"),
   });
 
   const ensureBmMutation = useMutation({
@@ -2007,6 +2040,111 @@ function Page() {
                 : "Channel card ready — click Configure Brainmine."
               : "Brainmine card missing. Click Create Brainmine card (requires migration 011 + 011b)."}
           </p>
+
+          <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">Auto lead sync</p>
+                <p className="text-xs text-muted-foreground">
+                  {bmSetupQuery.data?.autoSyncDescription ||
+                    "Auto sync off — use Sync leads now"}
+                  {bmSetupQuery.data?.lastAutoSyncAt
+                    ? ` · Last auto ${new Date(bmSetupQuery.data.lastAutoSyncAt).toLocaleString()}`
+                    : ""}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="bm-auto-sync" className="text-sm font-medium">
+                  {bmAutoEnabled ? "On" : "Off"}
+                </Label>
+                <Switch
+                  id="bm-auto-sync"
+                  checked={bmAutoEnabled}
+                  disabled={!bmSetupQuery.data?.configured || bmAutoSyncMutation.isPending}
+                  onCheckedChange={(enabled) => setBmAutoEnabled(enabled)}
+                />
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Fetches only the <strong>latest updated</strong> leads (max 20), upserts so nothing
+              duplicates. Not a historical backfill — use Date range below for that.
+            </p>
+            <div className="mt-3 flex flex-wrap items-end gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Every</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  className="h-9 w-[5.5rem]"
+                  value={bmIntervalValue}
+                  disabled={!bmSetupQuery.data?.configured || bmAutoSyncMutation.isPending}
+                  onChange={(e) => setBmIntervalValue(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Unit</Label>
+                <Select
+                  value={bmIntervalUnit}
+                  onValueChange={(v: BrainmineIntervalUnit) => setBmIntervalUnit(v)}
+                  disabled={!bmSetupQuery.data?.configured || bmAutoSyncMutation.isPending}
+                >
+                  <SelectTrigger className="w-[8.5rem]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sec">Seconds</SelectItem>
+                    <SelectItem value="min">Minutes</SelectItem>
+                    <SelectItem value="hr">Hours</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { v: 1, u: "hr" as const, label: "1 hr" },
+                  { v: 2, u: "hr" as const, label: "2 hr" },
+                  { v: 3, u: "hr" as const, label: "3 hr" },
+                  { v: 6, u: "hr" as const, label: "6 hr" },
+                  { v: 30, u: "min" as const, label: "30 min" },
+                ].map((p) => (
+                  <Button
+                    key={p.label}
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8"
+                    disabled={!bmSetupQuery.data?.configured || bmAutoSyncMutation.isPending}
+                    onClick={() => {
+                      setBmIntervalValue(String(p.v));
+                      setBmIntervalUnit(p.u);
+                    }}
+                  >
+                    {p.label}
+                  </Button>
+                ))}
+              </div>
+              <Button
+                size="sm"
+                disabled={
+                  !bmSetupQuery.data?.configured ||
+                  bmAutoSyncMutation.isPending ||
+                  !Number(bmIntervalValue)
+                }
+                onClick={() =>
+                  bmAutoSyncMutation.mutate({
+                    enabled: bmAutoEnabled,
+                    intervalValue: Math.max(1, Math.floor(Number(bmIntervalValue) || 1)),
+                    intervalUnit: bmIntervalUnit,
+                  })
+                }
+              >
+                {bmAutoSyncMutation.isPending ? "Saving…" : "Save schedule"}
+              </Button>
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Cron runs about every 1–5 minutes — intervals under that wait for the next tick.
+              Seconds minimum is 60 after save.
+            </p>
+          </div>
 
           <div className="mt-4 rounded-lg border border-border/80 bg-secondary/30 p-3">
             <p className="mb-2 text-sm font-medium text-foreground">Date-wise lead extraction</p>

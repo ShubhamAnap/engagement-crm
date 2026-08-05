@@ -219,6 +219,55 @@ export async function deleteLead(leadId: string): Promise<void> {
   if (error) throw error;
 }
 
+/** Delete many leads by id (chunked). Scoped to org for safety. */
+export async function bulkDeleteLeads(orgId: string, leadIds: string[]): Promise<number> {
+  if (leadIds.length === 0) return 0;
+  const supabase = getBrowserSupabase();
+  const chunkSize = 200;
+  let total = 0;
+  for (let i = 0; i < leadIds.length; i += chunkSize) {
+    const chunk = leadIds.slice(i, i + chunkSize);
+    const { count, error } = await supabase
+      .from("leads")
+      .delete({ count: "exact" })
+      .eq("org_id", orgId)
+      .in("id", chunk);
+    if (error) throw error;
+    total += count ?? chunk.length;
+  }
+  return total;
+}
+
+/** Permanently delete every lead with the given source (e.g. brainmine, indiamart). */
+export async function deleteLeadsBySource(
+  orgId: string,
+  source: ChannelType,
+): Promise<number> {
+  const supabase = getBrowserSupabase();
+  const { count, error } = await supabase
+    .from("leads")
+    .delete({ count: "exact" })
+    .eq("org_id", orgId)
+    .eq("source", source);
+  if (error) throw error;
+  return count ?? 0;
+}
+
+/** Count leads for a source (for delete confirmation). */
+export async function countLeadsBySource(
+  orgId: string,
+  source: ChannelType,
+): Promise<number> {
+  const supabase = getBrowserSupabase();
+  const { count, error } = await supabase
+    .from("leads")
+    .select("id", { count: "exact", head: true })
+    .eq("org_id", orgId)
+    .eq("source", source);
+  if (error) throw error;
+  return count ?? 0;
+}
+
 /** Bulk-assign owner + sales person name on selected leads. */
 export async function bulkAssignLeads(options: {
   leadIds: string[];

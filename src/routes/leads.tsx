@@ -46,9 +46,11 @@ import { useAuth } from "@/lib/auth";
 import type { ChannelType, LeadStatus, PriorityLevel } from "@/lib/db-types";
 import {
   bulkAssignLeads,
+  bulkDeleteLeads,
   bulkUpdateLeadStatus,
   createLead,
   deleteLead,
+  deleteLeadsBySource,
   downloadLeadsCsv,
   listLeads,
   listOrgSalesPeople,
@@ -173,9 +175,13 @@ function Page() {
   const orgId = profile?.org.id;
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"All" | LeadStatus>("All");
+  const [sourceFilter, setSourceFilter] = useState<"All" | ChannelType>("All");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<LeadRow | null>(null);
   const [leadToDelete, setLeadToDelete] = useState<LeadRow | null>(null);
+  const [deleteBySourceOpen, setDeleteBySourceOpen] = useState(false);
+  const [deleteSource, setDeleteSource] = useState<ChannelType | "">("");
+  const [deleteSelectedOpen, setDeleteSelectedOpen] = useState(false);
   const [form, setForm] = useState<LeadFormState>(defaultForm);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [assignOpen, setAssignOpen] = useState(false);
@@ -251,6 +257,42 @@ function Page() {
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "Could not delete lead");
     },
+  });
+
+  const deleteBySourceMutation = useMutation({
+    mutationFn: async () => {
+      if (!orgId) throw new Error("Your profile is still loading");
+      if (!deleteSource) throw new Error("Choose a source");
+      return deleteLeadsBySource(orgId, deleteSource);
+    },
+    onSuccess: async (count) => {
+      await queryClient.invalidateQueries({ queryKey: ["leads", orgId] });
+      const label =
+        sourceOptions.find((o) => o.value === deleteSource)?.label || deleteSource;
+      toast.success(`Deleted ${count} lead${count === 1 ? "" : "s"} from ${label}`);
+      setDeleteBySourceOpen(false);
+      setDeleteSource("");
+      setSelectedIds(new Set());
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not delete by source"),
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async () => {
+      if (!orgId) throw new Error("Your profile is still loading");
+      const ids = [...selectedIds];
+      if (ids.length === 0) throw new Error("Select at least one lead");
+      return bulkDeleteLeads(orgId, ids);
+    },
+    onSuccess: async (count) => {
+      await queryClient.invalidateQueries({ queryKey: ["leads", orgId] });
+      toast.success(`Deleted ${count} lead${count === 1 ? "" : "s"}`);
+      setDeleteSelectedOpen(false);
+      setSelectedIds(new Set());
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not delete selected"),
   });
 
   const assignMutation = useMutation({
@@ -348,6 +390,9 @@ function Page() {
     if (statusFilter !== "All") {
       items = items.filter((l) => l.status === statusFilter);
     }
+    if (sourceFilter !== "All") {
+      items = items.filter((l) => (l.source || "website") === sourceFilter);
+    }
     const q = search.trim().toLowerCase();
     if (!q) return items;
     return items.filter((lead) =>
@@ -362,12 +407,28 @@ function Page() {
         lead.location,
         lead.notes,
         lead.external_ref,
+        lead.source,
         ...(lead.tags || []),
       ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(q)),
     );
-  }, [leadsQuery.data, search, statusFilter]);
+  }, [leadsQuery.data, search, statusFilter, sourceFilter]);
+
+  const deleteSourceCount = useMemo(() => {
+    if (!deleteSource) return 0;
+    return (leadsQuery.data ?? []).filter((l) => (l.source || "website") === deleteSource)
+      .length;
+  }, [leadsQuery.data, deleteSource]);
+
+  const sourceCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const lead of leadsQuery.data ?? []) {
+      const key = lead.source || "website";
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    return map;
+  }, [leadsQuery.data]);
 
   const allFilteredSelected =
     filteredLeads.length > 0 && filteredLeads.every((l) => selectedIds.has(l.id));
@@ -449,7 +510,7 @@ function Page() {
     <>
       <PageHeader
         title="Leads — Master"
-        description="Single master sheet for every enquiry. Select rows to assign, change status, or export CSV."
+        description="Single master sheet for every enquiry. Filter by source, select rows to assign/delete, or delete all leads from one source (Brainmine, IndiaMART, …)."
         meta={
           <Pill tone="neutral">
             {(leadsQuery.data ?? []).length} leads
@@ -457,6 +518,17 @@ function Page() {
         }
         actions={
           <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-destructive hover:text-destructive"
+              onClick={() => {
+                setDeleteSource("");
+                setDeleteBySourceOpen(true);
+              }}
+            >
+              <Trash2 className="size-4" /> Delete by source
+            </Button>
             <Button size="sm" variant="outline" className="gap-1.5" onClick={exportSelectedOrFiltered}>
               <Download className="size-4" /> Export CSV
             </Button>
@@ -476,22 +548,43 @@ function Page() {
             value={search}
             onChange={setSearch}
             right={
-              <Select
-                value={statusFilter}
-                onValueChange={(v) => setStatusFilter(v as "All" | LeadStatus)}
-              >
-                <SelectTrigger className="h-8 w-[150px]">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="All">All statuses</SelectItem>
-                  {statusOptions.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  value={sourceFilter}
+                  onValueChange={(v) => setSourceFilter(v as "All" | ChannelType)}
+                >
+                  <SelectTrigger className="h-8 w-[160px]">
+                    <SelectValue placeholder="Source" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All sources</SelectItem>
+                    {sourceOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                        {sourceCounts.has(option.value)
+                          ? ` (${sourceCounts.get(option.value)})`
+                          : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={statusFilter}
+                  onValueChange={(v) => setStatusFilter(v as "All" | LeadStatus)}
+                >
+                  <SelectTrigger className="h-8 w-[150px]">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All statuses</SelectItem>
+                    {statusOptions.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             }
           />
 
@@ -541,6 +634,14 @@ function Page() {
                 }}
               >
                 <Download className="size-3.5" /> Export selected
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 text-destructive hover:text-destructive"
+                onClick={() => setDeleteSelectedOpen(true)}
+              >
+                <Trash2 className="size-3.5" /> Delete selected
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
                 Clear
@@ -1009,6 +1110,107 @@ function Page() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog
+        open={deleteSelectedOpen}
+        onOpenChange={(open) => !open && setDeleteSelectedOpen(false)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete selected leads?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Permanently delete {selectedIds.size} selected lead
+              {selectedIds.size === 1 ? "" : "s"}. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleteMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault();
+                bulkDeleteMutation.mutate();
+              }}
+            >
+              {bulkDeleteMutation.isPending ? "Deleting…" : "Delete selected"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog
+        open={deleteBySourceOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteBySourceOpen(false);
+            setDeleteSource("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete leads by source</DialogTitle>
+            <DialogDescription>
+              Remove every lead from one channel source (e.g. Brainmine, IndiaMART). Permanent —
+              conversations stay, but the lead link is cleared.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <div className="space-y-2">
+              <Label>Source</Label>
+              <Select
+                value={deleteSource || undefined}
+                onValueChange={(v: ChannelType) => setDeleteSource(v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose source…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sourceOptions.map((option) => {
+                    const n = sourceCounts.get(option.value) || 0;
+                    return (
+                      <SelectItem key={option.value} value={option.value} disabled={n === 0}>
+                        {option.label} ({n})
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+            {deleteSource ? (
+              <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                Will permanently delete <strong>{deleteSourceCount}</strong> lead
+                {deleteSourceCount === 1 ? "" : "s"} with source{" "}
+                <strong>
+                  {sourceOptions.find((o) => o.value === deleteSource)?.label || deleteSource}
+                </strong>
+                .
+              </p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={deleteBySourceMutation.isPending}
+              onClick={() => {
+                setDeleteBySourceOpen(false);
+                setDeleteSource("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!deleteSource || deleteSourceCount === 0 || deleteBySourceMutation.isPending}
+              onClick={() => deleteBySourceMutation.mutate()}
+            >
+              {deleteBySourceMutation.isPending
+                ? "Deleting…"
+                : `Delete ${deleteSourceCount || ""} from source`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

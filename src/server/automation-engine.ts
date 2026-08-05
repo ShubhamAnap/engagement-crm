@@ -7,6 +7,7 @@ import type {
   AutomationTriggerConfig,
   AutomationWaitUnit,
 } from "@/lib/automation-types";
+import { triggerFilterMatches } from "@/lib/automation-types";
 import { createServiceSupabase } from "@/lib/supabase";
 
 export type { AutomationAction, AutomationTrigger } from "@/lib/automation-types";
@@ -252,24 +253,18 @@ async function runActionSequence(
   return { steps, paused: false };
 }
 
-function configMatch(expected: unknown, actual: string | null | undefined): boolean {
-  if (expected == null || expected === "" || expected === "any") return true;
-  if (!actual) return false;
-  return String(expected).toLowerCase() === String(actual).toLowerCase();
-}
-
 function matchesTriggerConfig(
   trigger: AutomationTrigger,
   config: AutomationTriggerConfig,
   ctx: AutomationContext,
 ): boolean {
   if (trigger === "lead_status_changed") {
-    if (!configMatch(config.to_status, ctx.toStatus)) return false;
+    if (!triggerFilterMatches(config.to_status, ctx.toStatus)) return false;
   }
-  if (!configMatch(config.source, ctx.source)) return false;
-  if (!configMatch(config.priority, ctx.priority)) return false;
-  if (!configMatch(config.channel, ctx.channel)) return false;
-  if (!configMatch(config.lead_status, ctx.leadStatus)) return false;
+  if (!triggerFilterMatches(config.source, ctx.source)) return false;
+  if (!triggerFilterMatches(config.priority, ctx.priority)) return false;
+  if (!triggerFilterMatches(config.channel, ctx.channel)) return false;
+  if (!triggerFilterMatches(config.lead_status, ctx.leadStatus)) return false;
   return true;
 }
 

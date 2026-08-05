@@ -93,6 +93,11 @@ async function ensureDailyFollowUpAutomation(
     .maybeSingle();
 
   if (existing?.id) {
+    const { data: full } = await supabase
+      .from("automations")
+      .select("trigger_config")
+      .eq("id", existing.id)
+      .maybeSingle();
     await supabase
       .from("automations")
       .update({
@@ -100,8 +105,11 @@ async function ensureDailyFollowUpAutomation(
         requires_approval: true,
         trigger_type: "follow_up_due",
         description:
-          "Created by Follow-up Agent. Daily cron proposes an audience; you Approve once, then it runs for each lead.",
+          "Created by Follow-up Agent. Daily cron proposes an audience; you Approve once, then it runs for each lead. Set Source/Channel filters on this workflow to limit who is proposed.",
         actions,
+        trigger_config: (full?.trigger_config && typeof full.trigger_config === "object"
+          ? full.trigger_config
+          : {}) as Record<string, unknown>,
       })
       .eq("id", existing.id);
     return { id: existing.id as string, name: DAILY_AUTO_NAME, actions };
@@ -136,6 +144,7 @@ async function ensureDailyFollowUpAutomation(
 /** Open leads that need a polite nudge today. */
 async function pickFollowUpAudience(
   supabase: ReturnType<typeof createServiceSupabase>,
+  filters?: { sources?: string[]; channels?: string[] },
 ): Promise<
   Array<{
     id: string;
@@ -151,6 +160,7 @@ async function pickFollowUpAudience(
 > {
   const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
   const now = new Date().toISOString();
+  const { triggerFilterMatches } = await import("@/lib/automation-types");
 
   const { data, error } = await supabase
     .from("leads")
@@ -179,8 +189,14 @@ async function pickFollowUpAudience(
     created_at: string;
   }>;
 
+  const sourceFilter = filters?.sources?.length ? filters.sources : null;
+  const channelFilter = filters?.channels?.length ? filters.channels : null;
+
   const eligible = rows.filter((l) => {
     if (!l.phone && !l.email) return false;
+    if (sourceFilter && !triggerFilterMatches(sourceFilter, l.source)) return false;
+    // Lead.source often mirrors channel (website/whatsapp/indiamart); apply channel filter the same way
+    if (channelFilter && !triggerFilterMatches(channelFilter, l.source)) return false;
     if (l.next_follow_up_at && l.next_follow_up_at <= now) return true;
     if (!l.next_follow_up_at) {
       const last = l.last_activity_at || l.created_at;
@@ -231,13 +247,26 @@ export async function proposeDailyFollowUpCampaign(options?: {
     }
   }
 
-  const audience = await pickFollowUpAudience(supabase);
+  const template = await resolveFollowUpTemplate(supabase);
+  const auto = await ensureDailyFollowUpAutomation(supabase, template);
+
+  const { data: autoRow } = await supabase
+    .from("automations")
+    .select("trigger_config")
+    .eq("id", auto.id)
+    .maybeSingle();
+  const cfg = (autoRow?.trigger_config || {}) as { source?: unknown; channel?: unknown };
+  const { normalizeTriggerFilterList } = await import("@/lib/automation-types");
+  const sources = normalizeTriggerFilterList(cfg.source);
+  const channels = normalizeTriggerFilterList(cfg.channel);
+
+  const audience = await pickFollowUpAudience(supabase, {
+    sources: sources.length ? sources : undefined,
+    channels: channels.length ? channels : undefined,
+  });
   if (!audience.length) {
     return { skipped: "no_leads_need_follow_up", leadCount: 0 };
   }
-
-  const template = await resolveFollowUpTemplate(supabase);
-  const auto = await ensureDailyFollowUpAutomation(supabase, template);
 
   const withPhone = audience.filter((l) => l.phone).length;
   const withEmail = audience.filter((l) => l.email).length;
@@ -249,6 +278,9 @@ export async function proposeDailyFollowUpCampaign(options?: {
   const goal = `Daily follow-up · ${audience.length} lead(s) · ${day}`;
   const summary = [
     `Follow-up Agent suggests contacting ${audience.length} open lead(s) today (${day}).`,
+    sources.length || channels.length
+      ? `Filters: source=${sources.length ? sources.join("|") : "any"} · channel=${channels.length ? channels.join("|") : "any"}`
+      : "Filters: all sources / channels",
     template
       ? `Channel: WhatsApp template “${template.name}” (${template.language}) · ${withPhone} with phone.`
       : `Channel: Email fallback (no approved WhatsApp follow-up template found) · ${withEmail} with email. Tip: set FOLLOWUP_WA_TEMPLATE_NAME or approve a template with “follow” in the name.`,

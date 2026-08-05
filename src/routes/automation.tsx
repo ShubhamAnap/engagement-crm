@@ -54,8 +54,97 @@ import {
   type AutomationStatus,
   type DbAutomation,
 } from "@/lib/automations-api";
-import type { LeadStatus, PriorityLevel } from "@/lib/db-types";
+import type { LeadStatus, PriorityLevel, ChannelType } from "@/lib/db-types";
+import { normalizeTriggerFilterList } from "@/lib/automation-types";
 import { WA_CRM_FIELD_OPTIONS, parseStoredBindings, type WaParamBinding } from "@/lib/wa-template-merge";
+
+const AUTOMATION_SOURCE_OPTIONS: ChannelType[] = [
+  "website",
+  "whatsapp",
+  "email",
+  "indiamart",
+  "tradeindia",
+  "brainmine",
+  "instagram",
+  "facebook",
+  "api",
+  "webhook",
+];
+
+const AUTOMATION_CHANNEL_OPTIONS: ChannelType[] = [
+  "whatsapp",
+  "website",
+  "email",
+  "instagram",
+  "facebook",
+  "indiamart",
+  "tradeindia",
+];
+
+function MultiCheckFilter({
+  label,
+  options,
+  selected,
+  onChange,
+  hint,
+}: {
+  label: string;
+  options: string[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  hint?: string;
+}) {
+  const allSelected = selected.length === 0;
+  const toggle = (value: string) => {
+    const v = value.toLowerCase();
+    if (selected.map((s) => s.toLowerCase()).includes(v)) {
+      onChange(selected.filter((s) => s.toLowerCase() !== v));
+    } else {
+      onChange([...selected, value]);
+    }
+  };
+  return (
+    <div className="space-y-1.5 sm:col-span-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Label className="text-xs">{label}</Label>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="h-7 text-xs"
+          onClick={() => onChange([])}
+        >
+          {allSelected ? "All (any)" : "Clear → All"}
+        </Button>
+      </div>
+      <div className="flex flex-wrap gap-1.5 rounded-lg border border-border p-2">
+        {options.map((opt) => {
+          const on = selected.map((s) => s.toLowerCase()).includes(opt.toLowerCase());
+          return (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => toggle(opt)}
+              className={`rounded-md border px-2 py-1 text-xs capitalize transition-colors ${
+                on
+                  ? "border-primary bg-primary/15 text-foreground"
+                  : "border-transparent bg-secondary/60 text-muted-foreground hover:bg-secondary"
+              }`}
+            >
+              {opt}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        {allSelected
+          ? "Matching all sources/channels (none selected = Any)."
+          : `Matching: ${selected.join(", ")}`}
+        {hint ? ` ${hint}` : ""}
+      </p>
+    </div>
+  );
+}
 
 function WaTemplateActionEditor({
   action,
@@ -530,9 +619,9 @@ function Page() {
   const [formStatus, setFormStatus] = useState<AutomationStatus>("Draft");
   const [formTrigger, setFormTrigger] = useState<AutomationTrigger>("lead_created");
   const [formToStatus, setFormToStatus] = useState<LeadStatus>("Proposal");
-  const [formSource, setFormSource] = useState("");
+  const [formSource, setFormSource] = useState<string[]>([]);
   const [formPriority, setFormPriority] = useState<string>("");
-  const [formChannel, setFormChannel] = useState("");
+  const [formChannel, setFormChannel] = useState<string[]>([]);
   const [formLeadStatus, setFormLeadStatus] = useState<string>("");
   const [formRequiresApproval, setFormRequiresApproval] = useState(true);
   const [formActions, setFormActions] = useState<AutomationAction[]>([
@@ -582,9 +671,9 @@ function Page() {
     setFormStatus("Draft");
     setFormTrigger("lead_created");
     setFormToStatus("Proposal");
-    setFormSource("");
+    setFormSource([]);
     setFormPriority("");
-    setFormChannel("");
+    setFormChannel([]);
     setFormLeadStatus("");
     setFormRequiresApproval(true);
     setFormActions([defaultAction("set_follow_up_hours")]);
@@ -598,9 +687,9 @@ function Page() {
     setFormStatus(a.status);
     setFormTrigger(a.trigger_type);
     setFormToStatus(((a.trigger_config?.to_status as LeadStatus) || "Proposal") as LeadStatus);
-    setFormSource(String(a.trigger_config?.source || ""));
+    setFormSource(normalizeTriggerFilterList(a.trigger_config?.source));
     setFormPriority(String(a.trigger_config?.priority || ""));
-    setFormChannel(String(a.trigger_config?.channel || ""));
+    setFormChannel(normalizeTriggerFilterList(a.trigger_config?.channel));
     setFormLeadStatus(String(a.trigger_config?.lead_status || ""));
     setFormRequiresApproval(a.requires_approval !== false);
     setFormActions(a.actions?.length ? a.actions : [defaultAction("add_lead_note")]);
@@ -612,9 +701,9 @@ function Page() {
       if (!formActions.length) throw new Error("Add at least one action");
       const triggerConfig: Record<string, unknown> = {};
       if (formTrigger === "lead_status_changed") triggerConfig.to_status = formToStatus;
-      if (formSource.trim()) triggerConfig.source = formSource.trim();
+      if (formSource.length) triggerConfig.source = formSource;
       if (formPriority) triggerConfig.priority = formPriority;
-      if (formChannel.trim()) triggerConfig.channel = formChannel.trim();
+      if (formChannel.length) triggerConfig.channel = formChannel;
       if (formLeadStatus) triggerConfig.lead_status = formLeadStatus;
       const input = {
         name: formName,
@@ -1085,17 +1174,16 @@ function Page() {
 
             <div className="space-y-2 rounded-lg border border-border p-3">
               <Label className="text-xs uppercase text-muted-foreground">
-                Conditions (optional — leave empty to match all)
+                Conditions (optional — leave empty / All to match all)
               </Label>
               <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Source</Label>
-                  <Input
-                    placeholder="e.g. indiamart, website"
-                    value={formSource}
-                    onChange={(e) => setFormSource(e.target.value)}
-                  />
-                </div>
+                <MultiCheckFilter
+                  label="Source (pick one, several, or All)"
+                  options={AUTOMATION_SOURCE_OPTIONS}
+                  selected={formSource}
+                  onChange={setFormSource}
+                  hint="Chatbot widget leads usually use source “website”."
+                />
                 <div className="space-y-1.5">
                   <Label className="text-xs">Priority</Label>
                   <Select
@@ -1115,14 +1203,12 @@ function Page() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Channel</Label>
-                  <Input
-                    placeholder="e.g. whatsapp, website"
-                    value={formChannel}
-                    onChange={(e) => setFormChannel(e.target.value)}
-                  />
-                </div>
+                <MultiCheckFilter
+                  label="Channel (pick one, several, or All)"
+                  options={AUTOMATION_CHANNEL_OPTIONS}
+                  selected={formChannel}
+                  onChange={setFormChannel}
+                />
                 <div className="space-y-1.5">
                   <Label className="text-xs">Lead status</Label>
                   <Select

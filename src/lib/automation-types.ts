@@ -11,11 +11,36 @@ export type AutomationTrigger =
 /** Optional filters stored in `trigger_config` (empty = match all). */
 export type AutomationTriggerConfig = {
   to_status?: LeadStatus | string;
-  source?: string;
+  /** One source, several sources, or omit/empty = all */
+  source?: string | string[];
   priority?: PriorityLevel | string;
-  channel?: string;
+  /** One channel, several channels, or omit/empty = all */
+  channel?: string | string[];
   lead_status?: LeadStatus | string;
 };
+
+/** Normalize legacy single string / comma list / array → lowercase list (empty = any). */
+export function normalizeTriggerFilterList(value: unknown): string[] {
+  if (value == null || value === "" || value === "any") return [];
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => String(v).trim().toLowerCase())
+      .filter((v) => v && v !== "any");
+  }
+  return String(value)
+    .split(/[,|]/)
+    .map((v) => v.trim().toLowerCase())
+    .filter((v) => v && v !== "any");
+}
+
+/** True when filter is empty (match all) or actual is in the allowed list. */
+export function triggerFilterMatches(expected: unknown, actual: string | null | undefined): boolean {
+  const allowed = normalizeTriggerFilterList(expected);
+  if (!allowed.length) return true;
+  if (!actual) return false;
+  const a = String(actual).trim().toLowerCase();
+  return allowed.includes(a);
+}
 
 /** Fields usable inside If / Else conditions (WATI-style branching). */
 export type AutomationConditionField =

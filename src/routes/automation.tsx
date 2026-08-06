@@ -56,7 +56,14 @@ import {
 } from "@/lib/automations-api";
 import type { LeadStatus, PriorityLevel, ChannelType } from "@/lib/db-types";
 import { normalizeTriggerFilterList } from "@/lib/automation-types";
-import { WA_CRM_FIELD_OPTIONS, parseStoredBindings, type WaParamBinding } from "@/lib/wa-template-merge";
+import { WA_CRM_FIELD_OPTIONS, parseStoredBindings, defaultBindingsForLabels, type WaParamBinding } from "@/lib/wa-template-merge";
+import { listWaTemplates, analyzeWaTemplateFromRow, type DbWaTemplate } from "@/lib/broadcasting-api";
+import {
+  listSalesPersonDirectory,
+  upsertSalesPerson,
+  deleteSalesPerson,
+  type DbSalesPerson,
+} from "@/lib/sales-person-directory-api";
 
 const AUTOMATION_SOURCE_OPTIONS: ChannelType[] = [
   "website",
@@ -149,40 +156,115 @@ function MultiCheckFilter({
 function WaTemplateActionEditor({
   action,
   onChange,
+  orgId,
 }: {
   action: Extract<AutomationLeafAction, { type: "send_whatsapp_template" }>;
   onChange: (next: AutomationLeafAction) => void;
+  orgId: string;
 }) {
+  const templatesQuery = useQuery({
+    queryKey: ["wa-templates", orgId],
+    queryFn: () => listWaTemplates(orgId),
+  });
+  const approved = useMemo(
+    () => (templatesQuery.data ?? []).filter((t) => t.status === "APPROVED"),
+    [templatesQuery.data],
+  );
+
+  const selectedTpl: DbWaTemplate | null =
+    approved.find((t) => t.name === action.templateName && t.language === action.language) ||
+    approved.find((t) => t.name === action.templateName) ||
+    null;
+
+  const spec = selectedTpl ? analyzeWaTemplateFromRow(selectedTpl) : null;
+  const expectedLabels = spec?.bodyVarLabels?.length
+    ? spec.bodyVarLabels
+    : Array.from({ length: spec?.bodyVarCount || 0 }, (_, i) => String(i + 1));
+
   const bindings: WaParamBinding[] =
     action.bodyParamBindings && action.bodyParamBindings.length > 0
       ? action.bodyParamBindings
-      : parseStoredBindings(action.bodyParams || [], ["name"]);
+      : parseStoredBindings(action.bodyParams || [], expectedLabels.length ? expectedLabels : ["name"]);
 
   const patch = (nextBindings: WaParamBinding[]) =>
     onChange({ ...action, bodyParamBindings: nextBindings, bodyParams: undefined });
 
+  const selectTemplate = (tplId: string) => {
+    const tpl = approved.find((t) => t.id === tplId);
+    if (!tpl) return;
+    const nextSpec = analyzeWaTemplateFromRow(tpl);
+    const labels =
+      nextSpec.bodyVarLabels.length > 0
+        ? nextSpec.bodyVarLabels
+        : Array.from({ length: nextSpec.bodyVarCount }, (_, i) => String(i + 1));
+    onChange({
+      ...action,
+      templateName: tpl.name,
+      language: tpl.language || "en",
+      bodyParamBindings: defaultBindingsForLabels(labels),
+      bodyParams: undefined,
+    });
+  };
+
   return (
     <div className="space-y-2 sm:col-span-2">
       <div className="grid gap-2 sm:grid-cols-2">
-        <Input
-          placeholder="Template name (Meta)"
-          value={action.templateName}
-          onChange={(e) => onChange({ ...action, templateName: e.target.value })}
-        />
-        <Input
-          placeholder="Language (en)"
-          value={action.language}
-          onChange={(e) => onChange({ ...action, language: e.target.value })}
-        />
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">Meta template</Label>
+          <Select
+            value={selectedTpl?.id || ""}
+            onValueChange={selectTemplate}
+          >
+            <SelectTrigger>
+              <SelectValue
+                placeholder={
+                  templatesQuery.isLoading
+                    ? "Loading templates…"
+                    : approved.length
+                      ? "Select APPROVED template"
+                      : "No approved templates — Sync from Meta"
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {approved.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.name} · {t.language}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">Language</Label>
+          <Input
+            placeholder="en"
+            value={action.language}
+            onChange={(e) => onChange({ ...action, language: e.target.value })}
+          />
+        </div>
       </div>
-      <p className="text-[11px] text-muted-foreground">
-        Map each template body variable (Meta order: {"{{1}}"}, {"{{2}}"}… or named) to a lead column.
-        Values are filled per lead when the automation runs.
-      </p>
+      {!action.templateName ? (
+        <p className="text-[11px] text-muted-foreground">
+          Pick an APPROVED template from Broadcasting sync. Message is sent to the{" "}
+          <strong>customer/lead phone</strong>.
+        </p>
+      ) : (
+        <p className="text-[11px] text-muted-foreground">
+          Template <code className="rounded bg-secondary px-1">{action.templateName}</code>
+          {spec ? ` · ${spec.bodyVarCount} body variable(s)` : ""}. Map each variable to a lead
+          column. Sales person emails are converted to directory names at send time.
+        </p>
+      )}
       {bindings.map((binding, i) => (
         <div key={i} className="space-y-1.5 rounded-md border border-border/60 p-2">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-medium">Variable {i + 1}</p>
+            <p className="text-xs font-medium">
+              Variable {i + 1}
+              {expectedLabels[i] ? (
+                <span className="ml-1 font-normal text-muted-foreground">{`{{${expectedLabels[i]}}}`}</span>
+              ) : null}
+            </p>
             <Button
               type="button"
               variant="ghost"
@@ -241,6 +323,143 @@ function WaTemplateActionEditor({
         Add variable mapping
       </Button>
     </div>
+  );
+}
+
+function SalesPersonDirectoryPanel({ orgId }: { orgId: string }) {
+  const queryClient = useQueryClient();
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const listQuery = useQuery({
+    queryKey: ["sales-person-directory", orgId],
+    queryFn: () => listSalesPersonDirectory(orgId),
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      upsertSalesPerson({
+        orgId,
+        id: editingId || undefined,
+        email,
+        displayName: name,
+        mobile,
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sales-person-directory", orgId] });
+      setEmail("");
+      setName("");
+      setMobile("");
+      setEditingId(null);
+      toast.success(editingId ? "Sales person updated" : "Sales person added");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Save failed"),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteSalesPerson(id, orgId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sales-person-directory", orgId] });
+      toast.success("Removed from directory");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Delete failed"),
+  });
+
+  const rows = listQuery.data ?? [];
+
+  function startEdit(row: DbSalesPerson) {
+    setEditingId(row.id);
+    setEmail(row.email);
+    setName(row.display_name);
+    setMobile(row.mobile || "");
+  }
+
+  return (
+    <Panel
+      title="Sales person directory"
+      description="Map sales emails on leads to WhatsApp display names (and optional mobile). Example: saibal@enertechups.com → Mr.Saibal."
+      bodyClassName="space-y-4 p-4"
+    >
+      <div className="grid gap-2 sm:grid-cols-4">
+        <Input
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <Input
+          placeholder="Display name (Mr.Saibal)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <Input
+          placeholder="Mobile (optional)"
+          value={mobile}
+          onChange={(e) => setMobile(e.target.value)}
+        />
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            className="flex-1"
+            disabled={saveMutation.isPending || !email.trim() || !name.trim()}
+            onClick={() => saveMutation.mutate()}
+          >
+            {editingId ? "Update" : "Add"}
+          </Button>
+          {editingId ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setEditingId(null);
+                setEmail("");
+                setName("");
+                setMobile("");
+              }}
+            >
+              Cancel
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      {listQuery.isLoading ? (
+        <p className="text-sm text-muted-foreground">Loading directory…</p>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No sales people yet. Add email + name so WhatsApp templates show names instead of emails.
+        </p>
+      ) : (
+        <ul className="divide-y divide-border rounded-lg border border-border">
+          {rows.map((row) => (
+            <li key={row.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
+              <div className="min-w-0">
+                <p className="font-medium">{row.display_name}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {row.email}
+                  {row.mobile ? ` · ${row.mobile}` : ""}
+                </p>
+              </div>
+              <div className="flex gap-1">
+                <Button size="sm" variant="ghost" onClick={() => startEdit(row)}>
+                  <Pencil className="size-3.5" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive"
+                  disabled={deleteMutation.isPending}
+                  onClick={() => deleteMutation.mutate(row.id)}
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
   );
 }
 
@@ -358,10 +577,19 @@ function defaultAction(type: AutomationAction["type"]): AutomationAction {
 function LeafActionFields({
   action,
   onChange,
+  orgId,
 }: {
   action: AutomationLeafAction;
   onChange: (next: AutomationLeafAction) => void;
+  orgId: string;
 }) {
+  const salesDirQuery = useQuery({
+    queryKey: ["sales-person-directory", orgId],
+    queryFn: () => listSalesPersonDirectory(orgId),
+    enabled: action.type === "set_sales_person",
+  });
+  const salesPeople = salesDirQuery.data ?? [];
+
   return (
     <div className="space-y-2">
       {action.type === "wait" ? (
@@ -474,14 +702,42 @@ function LeafActionFields({
         />
       ) : null}
       {action.type === "set_sales_person" ? (
-        <Input
-          placeholder="Sales person name"
-          value={action.salesPerson}
-          onChange={(e) => onChange({ type: "set_sales_person", salesPerson: e.target.value })}
-        />
+        <div className="space-y-2">
+          <Select
+            value={
+              salesPeople.find(
+                (p) =>
+                  p.display_name === action.salesPerson ||
+                  p.email.toLowerCase() === action.salesPerson.trim().toLowerCase(),
+              )?.id || "__custom__"
+            }
+            onValueChange={(id) => {
+              if (id === "__custom__") return;
+              const person = salesPeople.find((p) => p.id === id);
+              if (person) onChange({ type: "set_sales_person", salesPerson: person.display_name });
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Pick from directory" />
+            </SelectTrigger>
+            <SelectContent>
+              {salesPeople.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.display_name} ({p.email})
+                </SelectItem>
+              ))}
+              <SelectItem value="__custom__">Custom / type below</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
+            placeholder="Sales person name (or email — directory resolves at send)"
+            value={action.salesPerson}
+            onChange={(e) => onChange({ type: "set_sales_person", salesPerson: e.target.value })}
+          />
+        </div>
       ) : null}
       {action.type === "send_whatsapp_template" ? (
-        <WaTemplateActionEditor action={action} onChange={onChange} />
+        <WaTemplateActionEditor action={action} onChange={onChange} orgId={orgId} />
       ) : null}
       {action.type === "send_email" ? (
         <div className="space-y-2">
@@ -526,11 +782,13 @@ function BranchEditor({
   tone,
   actions,
   onChange,
+  orgId,
 }: {
   label: string;
   tone: "yes" | "no";
   actions: AutomationLeafAction[];
   onChange: (next: AutomationLeafAction[]) => void;
+  orgId: string;
 }) {
   return (
     <div
@@ -584,6 +842,7 @@ function BranchEditor({
           </div>
           <LeafActionFields
             action={leaf}
+            orgId={orgId}
             onChange={(next) => {
               const copy = [...actions];
               copy[bi] = next;
@@ -1067,6 +1326,8 @@ function Page() {
             </Panel>
           </div>
         </div>
+
+        <SalesPersonDirectoryPanel orgId={orgId} />
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={(open) => !open && (setCreating(false), setEditing(null))}>
@@ -1415,6 +1676,7 @@ function Page() {
                           <BranchEditor
                             label="Yes branch"
                             tone="yes"
+                            orgId={orgId}
                             actions={action.thenActions || []}
                             onChange={(thenActions) =>
                               setFormActions((prev) =>
@@ -1427,6 +1689,7 @@ function Page() {
                           <BranchEditor
                             label="No branch"
                             tone="no"
+                            orgId={orgId}
                             actions={action.elseActions || []}
                             onChange={(elseActions) =>
                               setFormActions((prev) =>
@@ -1441,6 +1704,7 @@ function Page() {
                     ) : (
                       <LeafActionFields
                         action={action}
+                        orgId={orgId}
                         onChange={(next) =>
                           setFormActions((prev) =>
                             prev.map((a, i) => (i === index ? next : a)),

@@ -384,6 +384,11 @@ async function executeLeafAction(
       if (!phone) return "skipped:send_whatsapp_template (no phone)";
       const { sendWhatsAppTemplateMessage } = await import("@/server/whatsapp-broadcast");
       const { resolveWaBodyParams, parseStoredBindings } = await import("@/lib/wa-template-merge");
+      const { data: directoryRows } = await supabase
+        .from("sales_person_directory")
+        .select("email, display_name, mobile, is_active")
+        .eq("org_id", ORG_ID)
+        .eq("is_active", true);
       const fields = {
         name: ctx.leadName,
         company: ctx.company,
@@ -399,9 +404,12 @@ async function executeLeafAction(
       let bodyParams: string[] = [];
       if (action.bodyParamBindings && action.bodyParamBindings.length > 0) {
         const bindings = parseStoredBindings(action.bodyParamBindings, []);
-        bodyParams = resolveWaBodyParams(bindings, fields);
+        bodyParams = resolveWaBodyParams(bindings, fields, directoryRows || []);
       } else {
-        bodyParams = (action.bodyParams || []).map((p) => fillVars(p, ctx));
+        const { applySalesPersonDirectory } = await import("@/lib/wa-template-merge");
+        const merged = applySalesPersonDirectory(fields, directoryRows || []);
+        const ctxResolved = { ...ctx, salesPerson: merged.sales_person };
+        bodyParams = (action.bodyParams || []).map((p) => fillVars(p, ctxResolved));
       }
       const waId = await sendWhatsAppTemplateMessage({
         toPhone: phone,

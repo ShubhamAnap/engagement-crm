@@ -446,6 +446,12 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 
 ---
 
+### Session 2026-08-06 — Sales person directory + WA template picker
+
+Automation: **Sales person directory** (email → display name + mobile). When lead `sales_person` is an email (e.g. `saibal@enertechups.com`), WhatsApp template variables mapped to Sales person send the directory **name** (`Mr.Saibal`). Send WhatsApp template action now uses APPROVED Meta template dropdown + auto variable rows. Migration `026_sales_person_directory.sql`. WhatsApp still sends to customer/lead phone.
+
+---
+
 ### Session 2026-08-06 — Website chat welcome automation trigger
 
 Added trigger **`website_visitor_captured`** (“Website chat form submitted (first time)”). Fires once when a website chatbot visitor saves contact details with a usable phone (first capture per conversation). Migration `025_website_visitor_captured_trigger.sql`. Wire automation action: Send WhatsApp template (approved welcome).

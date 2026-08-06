@@ -11,6 +11,7 @@ export type WaCrmFieldKey =
   | "phone"
   | "requirement"
   | "sales_person"
+  | "sales_person_mobile"
   | "location"
   | "source"
   | "status"
@@ -29,10 +30,18 @@ export type WaMergeFields = {
   phone?: string | null;
   requirement?: string | null;
   sales_person?: string | null;
+  sales_person_mobile?: string | null;
   location?: string | null;
   source?: string | null;
   status?: string | null;
   notes?: string | null;
+};
+
+export type SalesPersonDirectoryEntry = {
+  email: string;
+  display_name: string;
+  mobile?: string | null;
+  is_active?: boolean;
 };
 
 export const WA_CRM_FIELD_OPTIONS: Array<{ value: WaCrmFieldKey | "__static__"; label: string }> = [
@@ -40,7 +49,8 @@ export const WA_CRM_FIELD_OPTIONS: Array<{ value: WaCrmFieldKey | "__static__"; 
   { value: "first_name", label: "First name" },
   { value: "company", label: "Company" },
   { value: "requirement", label: "Requirement" },
-  { value: "sales_person", label: "Sales person" },
+  { value: "sales_person", label: "Sales person (name from directory)" },
+  { value: "sales_person_mobile", label: "Sales person mobile (from directory)" },
   { value: "phone", label: "Phone" },
   { value: "email", label: "Email" },
   { value: "location", label: "Location" },
@@ -58,6 +68,47 @@ function firstName(full: string | null | undefined): string {
   const n = trim(full);
   if (!n) return "";
   return n.split(/\s+/)[0] || n;
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+/** If sales_person looks like an email, map to directory display name. */
+export function applySalesPersonDirectory(
+  fields: WaMergeFields,
+  directory: SalesPersonDirectoryEntry[] | null | undefined,
+): WaMergeFields {
+  if (!directory?.length) return fields;
+  const raw = trim(fields.sales_person);
+  if (!raw) return fields;
+
+  let display = raw;
+  let mobile = trim(fields.sales_person_mobile);
+
+  if (raw.includes("@")) {
+    const email = normalizeEmail(raw);
+    const hit = directory.find(
+      (d) => normalizeEmail(d.email) === email && d.is_active !== false,
+    );
+    if (hit) {
+      display = trim(hit.display_name) || raw;
+      if (!mobile) mobile = trim(hit.mobile);
+    }
+  } else {
+    const byName = directory.find(
+      (d) =>
+        d.is_active !== false &&
+        trim(d.display_name).toLowerCase() === raw.toLowerCase(),
+    );
+    if (byName && !mobile) mobile = trim(byName.mobile);
+  }
+
+  return {
+    ...fields,
+    sales_person: display,
+    sales_person_mobile: mobile || fields.sales_person_mobile || null,
+  };
 }
 
 /** Resolve one binding against a recipient’s CRM / merge fields. */
@@ -79,6 +130,8 @@ export function resolveWaParamValue(binding: WaParamBinding | null | undefined, 
       return trim(fields.requirement);
     case "sales_person":
       return trim(fields.sales_person);
+    case "sales_person_mobile":
+      return trim(fields.sales_person_mobile);
     case "location":
       return trim(fields.location);
     case "source":
@@ -95,8 +148,10 @@ export function resolveWaParamValue(binding: WaParamBinding | null | undefined, 
 export function resolveWaBodyParams(
   bindings: WaParamBinding[],
   fields: WaMergeFields,
+  directory?: SalesPersonDirectoryEntry[] | null,
 ): string[] {
-  return bindings.map((b) => resolveWaParamValue(b, fields));
+  const merged = applySalesPersonDirectory(fields, directory);
+  return bindings.map((b) => resolveWaParamValue(b, merged));
 }
 
 /** Guess a CRM column from Meta placeholder label (name, 1, first_name, …). */
@@ -132,6 +187,14 @@ export function guessWaBindingForLabel(label: string): WaParamBinding {
     key === "agent"
   ) {
     return { source: "sales_person" };
+  }
+  if (
+    key === "sales_person_mobile" ||
+    key === "salesperson_mobile" ||
+    key === "sales_mobile" ||
+    key === "agent_mobile"
+  ) {
+    return { source: "sales_person_mobile" };
   }
   if (key === "phone" || key === "mobile") return { source: "phone" };
   if (key === "email") return { source: "email" };

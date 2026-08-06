@@ -84,6 +84,7 @@ export type AutomationLeafAction =
           | "phone"
           | "requirement"
           | "sales_person"
+          | "sales_person_mobile"
           | "location"
           | "source"
           | "status"

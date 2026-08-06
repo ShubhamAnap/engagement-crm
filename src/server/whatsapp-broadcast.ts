@@ -696,6 +696,20 @@ export const runWhatsAppBroadcast = createServerFn({ method: "POST" })
     ];
     const leadMap = new Map<string, WaMergeFields>();
     const customerMap = new Map<string, WaMergeFields>();
+    let salesDirectory: Array<{
+      email: string;
+      display_name: string;
+      mobile: string | null;
+      is_active: boolean;
+    }> = [];
+    if (useBindings) {
+      const { data: dirRows } = await supabase
+        .from("sales_person_directory")
+        .select("email, display_name, mobile, is_active")
+        .eq("org_id", ORG_ID)
+        .eq("is_active", true);
+      salesDirectory = (dirRows || []) as typeof salesDirectory;
+    }
     if (useBindings && leadIds.length) {
       const { data: leads } = await supabase
         .from("leads")
@@ -733,7 +747,7 @@ export const runWhatsAppBroadcast = createServerFn({ method: "POST" })
           }
           if (!fields.name && recipient.name) fields = { ...fields, name: recipient.name as string };
           if (!fields.phone && recipient.phone) fields = { ...fields, phone: recipient.phone as string };
-          bodyParams = resolveWaBodyParams(bindings, fields);
+          bodyParams = resolveWaBodyParams(bindings, fields, salesDirectory);
         } else if (vars.length > 0) {
           bodyParams = vars.slice(0, spec.bodyVarCount);
         } else if (spec.bodyVarCount === 1 && recipient.name) {

@@ -1434,9 +1434,10 @@ function Page() {
             ) : null}
             {formTrigger === "website_visitor_captured" ? (
               <p className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
-                Fires once when a website chatbot visitor saves the contact form with a phone number
-                (first capture). Use action <strong>Send WhatsApp template</strong> with an approved
-                welcome template — free-form WhatsApp text will not work for first contact.
+                Fires for each website chatbot session when a phone number is known (first visit after
+                the contact form, and again when the visitor returns in a new session or after 12+
+                hours). Use <strong>Send WhatsApp template</strong> with an approved Meta template —
+                free-form WhatsApp text will not work for first contact.
               </p>
             ) : null}
 

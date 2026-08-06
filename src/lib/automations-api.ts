@@ -62,7 +62,7 @@ export const TRIGGER_OPTIONS: Array<{ value: AutomationTrigger; label: string }>
   { value: "brainmine_lead", label: "Brainmine CRM new lead synced" },
   {
     value: "website_visitor_captured",
-    label: "Website chat form submitted (first time)",
+    label: "Website chat session (with phone)",
   },
   { value: "conversation_escalated", label: "Conversation escalated" },
   { value: "lead_status_changed", label: "Lead status changed" },

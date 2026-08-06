@@ -502,6 +502,16 @@ Website carousel expands seed matches to **all active products in that category*
 
 ---
 
+### Session 2026-08-06 — Website welcome WA every session
+
+**Was:** `website_visitor_captured` fired only once per conversation (`website_visitor_captured_at`).
+
+**Now:** Sends for each website chat **session** when phone is known — first form save, return visits (new session), or same sticky session after **12h**. Remounts in the same session do not re-spam Meta.
+
+**Note:** Opening the chatbox with no phone still cannot send WhatsApp; template goes out once contact form provides (or returns with) a number.
+
+---
+
 ### Session 2026-08-06 — Website chats missing from Inbox
 
 **Cause:** Inbox loaded only the latest **100** rows ordered by `last_message_at`, then filtered **Website** in the browser. Heavy WhatsApp/marketplace traffic pushed website threads out of that window — Website chip looked empty.

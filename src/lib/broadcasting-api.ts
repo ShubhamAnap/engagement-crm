@@ -91,6 +91,58 @@ export type EmailUploadRecipient = {
   mergeFields?: Record<string, string | null | undefined>;
 };
 
+function waTemplateStatusRank(status: string): number {
+  switch (String(status).toUpperCase()) {
+    case "APPROVED":
+      return 0;
+    case "PENDING":
+      return 1;
+    case "DRAFT":
+      return 2;
+    case "PAUSED":
+      return 3;
+    case "REJECTED":
+      return 4;
+    case "DISABLED":
+      return 5;
+    default:
+      return 6;
+  }
+}
+
+function waTemplateActivityMs(t: DbWaTemplate): number {
+  return Math.max(
+    t.updated_at ? new Date(t.updated_at).getTime() : 0,
+    t.created_at ? new Date(t.created_at).getTime() : 0,
+  );
+}
+
+function waTemplateMetaId(t: DbWaTemplate): bigint {
+  try {
+    return BigInt(t.meta_id || "0");
+  } catch {
+    return BigInt(0);
+  }
+}
+
+/** Approved templates first, then newest Meta update/approval on top. */
+export function sortWaTemplates(rows: DbWaTemplate[]): DbWaTemplate[] {
+  return rows.slice().sort((a, b) => {
+    const rankDiff = waTemplateStatusRank(a.status) - waTemplateStatusRank(b.status);
+    if (rankDiff !== 0) return rankDiff;
+
+    const activityDiff = waTemplateActivityMs(b) - waTemplateActivityMs(a);
+    if (activityDiff !== 0) return activityDiff;
+
+    const metaA = waTemplateMetaId(a);
+    const metaB = waTemplateMetaId(b);
+    if (metaB > metaA) return 1;
+    if (metaB < metaA) return -1;
+
+    return a.name.localeCompare(b.name);
+  });
+}
+
 export async function createAndSendEmailBroadcast(options: {
   orgId?: string;
   name: string;
@@ -282,17 +334,7 @@ export async function listWaTemplates(orgId: string = ENERTECH_ORG_ID): Promise<
     .eq("channel_type", "whatsapp")
     .order("created_at", { ascending: false });
   if (error) throw error;
-  const rows = (data ?? []) as DbWaTemplate[];
-
-  // Meta-style: newest created or newest status/content change on top.
-  // Do NOT use last_synced_at — Sync from Meta stamps every row and would scramble order.
-  const activityMs = (t: DbWaTemplate) =>
-    Math.max(
-      t.created_at ? new Date(t.created_at).getTime() : 0,
-      t.updated_at ? new Date(t.updated_at).getTime() : 0,
-    );
-
-  return rows.slice().sort((a, b) => activityMs(b) - activityMs(a));
+  return sortWaTemplates((data ?? []) as DbWaTemplate[]);
 }
 
 export async function listBroadcasts(orgId: string = ENERTECH_ORG_ID): Promise<DbBroadcast[]> {

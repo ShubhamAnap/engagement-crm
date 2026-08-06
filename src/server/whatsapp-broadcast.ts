@@ -32,7 +32,19 @@ type MetaTemplateRow = {
   category?: string;
   components?: WaTemplateComponent[];
   rejected_reason?: string;
+  last_updated_time?: string | number;
 };
+
+function parseMetaTimestamp(value: unknown): string | null {
+  if (value == null || value === "") return null;
+  if (typeof value === "number") {
+    const ms = value < 1e12 ? value * 1000 : value;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  const d = new Date(String(value));
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
 
 function mapMetaStatus(status: string | undefined): string {
   const s = (status || "PENDING").toUpperCase();
@@ -204,7 +216,7 @@ async function resolveWabaConfig(): Promise<{
   };
 }
 
-const TEMPLATE_FIELDS = "name,language,status,category,components,id,rejected_reason";
+const TEMPLATE_FIELDS = "name,language,status,category,components,id,rejected_reason,last_updated_time";
 
 async function fetchAllMetaTemplates(wabaId: string, accessToken: string): Promise<MetaTemplateRow[]> {
   const fetchPage = async (withFields: boolean, startUrl?: string | null) => {
@@ -312,6 +324,7 @@ export const syncWhatsAppTemplatesFromMeta = createServerFn({ method: "POST" }).
     const footer_text = extractFooter(components);
     const category = (t.category || "MARKETING").toUpperCase();
     const now = new Date().toISOString();
+    const metaUpdatedAt = parseMetaTimestamp(t.last_updated_time);
 
     const { data: existing } = await supabase
       .from("wa_message_templates")
@@ -321,13 +334,19 @@ export const syncWhatsAppTemplatesFromMeta = createServerFn({ method: "POST" }).
       .eq("language", language)
       .maybeSingle();
 
-    const changed =
-      !existing ||
-      existing.status !== status ||
-      (existing.body_text || "") !== (body_text || "") ||
-      (existing.header_text || "") !== (header_text || "") ||
-      (existing.footer_text || "") !== (footer_text || "") ||
-      String(existing.category || "").toUpperCase() !== category;
+    const contentChanged =
+      Boolean(existing) &&
+      (existing!.status !== status ||
+        (existing!.body_text || "") !== (body_text || "") ||
+        (existing!.header_text || "") !== (header_text || "") ||
+        (existing!.footer_text || "") !== (footer_text || "") ||
+        String(existing!.category || "").toUpperCase() !== category);
+
+    const isNew = !existing;
+    const existingUpdatedMs = existing?.updated_at ? new Date(existing.updated_at).getTime() : 0;
+    const metaUpdatedMs = metaUpdatedAt ? new Date(metaUpdatedAt).getTime() : 0;
+    const shouldBumpUpdated =
+      isNew || contentChanged || (metaUpdatedMs > 0 && metaUpdatedMs > existingUpdatedMs);
 
     const payload = {
       org_id: ORG_ID,
@@ -343,8 +362,8 @@ export const syncWhatsAppTemplatesFromMeta = createServerFn({ method: "POST" }).
       meta_id: t.id || null,
       rejection_reason: t.rejected_reason || null,
       last_synced_at: now,
-      // Only bump updated_at when content/status changes (e.g. newly Approved → floats to top)
-      updated_at: changed ? now : (existing?.updated_at as string) || now,
+      // Prefer Meta last_updated_time so newest approved/edited templates float to top.
+      updated_at: shouldBumpUpdated ? metaUpdatedAt || now : (existing?.updated_at as string) || now,
     };
     const { error } = await supabase.from("wa_message_templates").upsert(payload, {
       onConflict: "org_id,name,language",

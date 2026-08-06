@@ -17,6 +17,7 @@ import {
   widgetSendMessage,
 } from "@/server/widget-chat";
 import { ChatDownloadLinks, ChatReferenceImages, cleanChatExtrasCaption } from "@/components/ChatReferenceImages";
+import { useStickToBottomScroll } from "@/lib/chat-scroll";
 
 const SESSION_KEY = "enertech-embed-session";
 const PROFILE_KEY = "enertech-embed-profile";
@@ -200,6 +201,12 @@ function EmbedChat() {
 
   const profileReady = isProfileComplete(profile);
   const showContactForm = editingContact || !profileReady;
+  const { listRef, onScroll, pinToBottom } = useStickToBottomScroll([
+    msgs,
+    typing,
+    open,
+    showContactForm,
+  ]);
 
   useEffect(() => {
     profileRef.current = profile;
@@ -214,8 +221,8 @@ function EmbedChat() {
   }, [busy, typing]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
-  }, [msgs, typing, open, showContactForm]);
+    if (open && !showContactForm) pinToBottom();
+  }, [open, showContactForm, pinToBottom]);
 
   useEffect(() => {
     return () => {
@@ -346,6 +353,7 @@ function EmbedChat() {
     profileRef.current = keep;
     setConversationId(null);
     conversationIdRef.current = null;
+    pinToBottom();
     setMsgs([welcome]);
     setDraft("");
     setTyping(false);
@@ -484,6 +492,7 @@ function EmbedChat() {
     setTyping(true);
     const userText = text.trim();
     setDraft("");
+    pinToBottom();
     setMsgs((m) => [...m, { id: `local-${Date.now()}`, from: "user", text: userText }]);
 
     try {
@@ -695,7 +704,12 @@ function EmbedChat() {
           </div>
         ) : (
           <>
-            <div className="flex-1 space-y-3 overflow-y-auto p-3.5" style={{ backgroundColor: "#F7F8FC" }}>
+            <div
+              ref={listRef}
+              onScroll={onScroll}
+              className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-3.5"
+              style={{ backgroundColor: "#F7F8FC", WebkitOverflowScrolling: "touch" }}
+            >
               {msgs.map((m) => (
                 <div key={m.id} className={cn("flex gap-2", m.from === "user" ? "justify-end" : "justify-start")}>
                   {m.from === "bot" && (

@@ -19,6 +19,7 @@ import {
   widgetUploadAttachment,
 } from "@/server/widget-chat";
 import { ChatDownloadLinks, ChatReferenceImages, cleanChatExtrasCaption } from "@/components/ChatReferenceImages";
+import { useStickToBottomScroll } from "@/lib/chat-scroll";
 
 type ServerMessage = {
   id: string;
@@ -188,6 +189,7 @@ export function ChatWidget() {
   const profileReady = isProfileComplete(profile);
   const showContactForm = editingContact || !profileReady;
   const micSupported = speechRecognitionSupported();
+  const { listRef, onScroll, pinToBottom } = useStickToBottomScroll([msgs, typing, open]);
 
   useEffect(() => {
     const initial = loadStoredProfile();
@@ -286,8 +288,8 @@ export function ChatWidget() {
   }, [busy, typing]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
-  }, [msgs, typing, open]);
+    if (open) pinToBottom();
+  }, [open, pinToBottom]);
 
   async function syncConversationProfile(override?: VisitorProfile) {
     if (!widgetKey) throw new Error("Widget public key is missing. Check .env and restart the dev server.");
@@ -330,6 +332,7 @@ export function ChatWidget() {
     profileRef.current = keep;
     setConversationId(null);
     conversationIdRef.current = null;
+    pinToBottom();
     setMsgs([welcome]);
     setDraft("");
     setTyping(false);
@@ -483,6 +486,7 @@ export function ChatWidget() {
 
     setBusy(true);
     setTyping(true);
+    pinToBottom();
     try {
       let convoId = conversationId;
       if (!convoId) convoId = await syncConversationProfile(profile);
@@ -538,6 +542,7 @@ export function ChatWidget() {
     setBusy(true);
     const userText = text.trim();
     setDraft("");
+    pinToBottom();
     setMsgs((m) => [...m, { id: `local-${Date.now()}`, from: "user", text: userText }]);
     setTyping(true);
 
@@ -662,7 +667,12 @@ export function ChatWidget() {
                 </div>
               ) : null}
 
-              <div className="flex-1 space-y-3 overflow-y-auto p-3.5" style={{ backgroundColor: "#F7F8FC" }}>
+              <div
+                ref={listRef}
+                onScroll={onScroll}
+                className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-3.5"
+                style={{ backgroundColor: "#F7F8FC", WebkitOverflowScrolling: "touch" }}
+              >
                 {msgs.map((m) => (
                   <div key={m.id} className={cn("flex gap-2", m.from === "user" ? "justify-end" : "justify-start")}>
                     {m.from === "bot" && (

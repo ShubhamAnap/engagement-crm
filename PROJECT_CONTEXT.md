@@ -446,6 +446,14 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 
 ---
 
+### Session 2026-08-06 — Website chat scroll UX
+
+**Bug:** Widget poll + `scrollIntoView` yanked users back to latest while reading history.
+
+**Fix:** `useStickToBottomScroll` — auto-follow only near bottom or after send/open; history scroll stays put. Applied to `ChatWidget` + `embed`.
+
+---
+
 ### Session 2026-08-05 — Strict product card fields only
 
 **Rule:** Customer-facing product share = **Name, Photo, Catalogue, Features, Price** only. No SKU / stock / category / CTAs / “Reference photo” metadata.

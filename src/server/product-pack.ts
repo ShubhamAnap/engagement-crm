@@ -303,6 +303,32 @@ export function productsForCarousel(products: DbProduct[], query: string): DbPro
     .slice(0, 60);
 }
 
+/**
+ * WhatsApp only: share the requested rating/model hits — NOT the full category dump.
+ * e.g. "3kw" → only ~3 kW products (max 3), not every HF inverter.
+ */
+export function productsForWhatsApp(products: DbProduct[], query: string): DbProduct[] {
+  const requestedKw = extractRequestedKw(query);
+  const hint = categoryHint(query);
+  const ranked = rankProductsForQuery(products, query);
+
+  if (requestedKw != null) {
+    const exact = products
+      .map((p) => ({ p, score: scoreProduct(p, query, requestedKw, hint) }))
+      .filter(({ p }) => {
+        const kw = productPowerKw(p);
+        if (kw == null) return false;
+        return Math.abs(kw - requestedKw) <= 0.51;
+      })
+      .sort((a, b) => b.score - a.score)
+      .map((row) => row.p);
+    if (exact.length) return exact.slice(0, 3);
+  }
+
+  // No clear kW: tight ranked matches only (never productsForCarousel expand)
+  return ranked.slice(0, 3);
+}
+
 function matchIntro(products: DbProduct[]): string {
   if (products.length === 1) {
     return formatProductPackBody(products[0]!);
@@ -422,18 +448,17 @@ export async function resolveProductPackRequest(
     };
   }
 
-  // WhatsApp: category products as full packs (cap 5)
+  // WhatsApp: only requested kW / tight matches (NOT full category) — max 3 packs
   if (presentation === "whatsapp") {
-    const cards = productsForCarousel(products, q);
+    const cards = productsForWhatsApp(products, q);
     if (!cards.length) return { mode: "none" };
-    const top = cards.slice(0, 5);
     return {
       mode: "match",
-      products: top,
+      products: cards,
       message:
-        top.length === 1
+        cards.length === 1
           ? "Here is the matching product."
-          : `Here are ${top.length} matching products for you.`,
+          : `Here are ${cards.length} matching products for your request.`,
     };
   }
 

@@ -446,6 +446,12 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 
 ---
 
+### Session 2026-08-06 — WhatsApp: only requested kW products
+
+WhatsApp sends **only** matching rating/model packs (e.g. 3kW → ~3kW only, max 3). Full-category carousel remains **website-only**.
+
+---
+
 ### Session 2026-08-06 — WhatsApp broad product + KB answer
 
 **Issue:** `3kw` on WA → generic “Thanks for messaging…”.

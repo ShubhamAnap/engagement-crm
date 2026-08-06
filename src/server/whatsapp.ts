@@ -719,7 +719,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
                 await sendWhatsAppText(from, productPack.message, cfg);
               } else {
                 await sendWhatsAppText(from, reply, cfg);
-                for (const item of media.slice(0, 5)) {
+                for (const item of media.slice(0, 3)) {
                   if (item.imageUrl && /^https:\/\//i.test(item.imageUrl)) {
                     try {
                       await sendWhatsAppImage({

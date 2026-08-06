@@ -123,10 +123,10 @@ export function wantsProductPack(text: string): boolean {
   const priceAsk = PRICE_RE.test(q);
   const wantsDetail = DETAIL_RE.test(q);
 
-  // "3kw inverter price", "5 kw hybrid", "4kW inverter"
+  // "3kw inverter price", "5 kw hybrid", bare "3kw" / "inverter"
   if (hasKw && (hasProduct || priceAsk || wantsDetail)) return true;
   if (hasKw && q.length <= 48) return true;
-  // "inverter price" without kW — still try Products (leave bare "catalogue" to KB)
+  if (hasProduct && q.length <= 64) return true;
   if (hasProduct && priceAsk) return true;
   return false;
 }
@@ -192,6 +192,70 @@ export function rankProductsForQuery(products: DbProduct[], query: string): DbPr
     .map((row) => row.p);
 }
 
+function productCategoryKey(product: DbProduct): string {
+  return String(product.category || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function matchesCategoryHint(product: DbProduct, hint: string): boolean {
+  const blob = `${product.name} ${product.category || ""} ${product.description || ""} ${product.sku}`.toLowerCase();
+  if (blob.includes(hint)) return true;
+  if (hint === "inverter") return /inverter|hybrid|\bhf\b/.test(blob);
+  if (hint === "hybrid") return /hybrid|inverter/.test(blob);
+  if (hint === "ups") return /\bups\b/.test(blob);
+  if (hint === "battery") return /batter|lithium|lead/.test(blob);
+  if (hint === "solar") return /solar|ongrid|offgrid|hybrid/.test(blob);
+  if (hint === "ongrid") return /ongrid|on[\s-]?grid|grid[\s-]?tie/.test(blob);
+  if (hint === "offgrid") return /offgrid|off[\s-]?grid/.test(blob);
+  if (hint === "bess") return /\bbess\b|battery\s*energy/.test(blob);
+  return false;
+}
+
+/**
+ * Website carousel: all active products in the matched category (not only top kW hits).
+ * Seed from ranked matches → expand by shared `category` (or type hint).
+ */
+export function productsForCarousel(products: DbProduct[], query: string): DbProduct[] {
+  const hint = categoryHint(query);
+  const ranked = rankProductsForQuery(products, query);
+  const requestedKw = extractRequestedKw(query);
+
+  const categories = new Set(
+    ranked
+      .slice(0, 8)
+      .map((p) => productCategoryKey(p))
+      .filter(Boolean),
+  );
+
+  let pool: DbProduct[] = [];
+
+  if (categories.size > 0) {
+    pool = products.filter((p) => categories.has(productCategoryKey(p)));
+  } else if (hint) {
+    pool = products.filter((p) => matchesCategoryHint(p, hint));
+  } else if (ranked.length) {
+    pool = ranked;
+  } else if (hint) {
+    pool = products.filter((p) => matchesCategoryHint(p, hint));
+  }
+
+  // If kW ask found seeds but category expand empty, fall back to ranked
+  if (!pool.length && ranked.length) pool = ranked;
+
+  // Still nothing — try hint alone (e.g. "inverter" with weak scores)
+  if (!pool.length && hint) {
+    pool = products.filter((p) => matchesCategoryHint(p, hint));
+  }
+
+  if (!pool.length) return [];
+
+  return [...pool]
+    .sort((a, b) => scoreProduct(b, query, requestedKw, hint) - scoreProduct(a, query, requestedKw, hint))
+    .slice(0, 60);
+}
+
 function clarifyMessage(products: DbProduct[]): string {
   const lines = products.slice(0, 8).map((p, i) => {
     const name = cleanProductDisplayName(p.name);
@@ -205,8 +269,11 @@ function clarifyMessage(products: DbProduct[]): string {
   return `Which product do you want?\n${lines.join("\n")}\n\nReply with the number.`;
 }
 
-function carouselIntro(count: number): string {
+function carouselIntro(count: number, categoryLabel?: string | null): string {
   if (count <= 1) return "Here’s a matching product — tap I need this for price, features, and catalogue.";
+  if (categoryLabel) {
+    return `Here are all ${count} products in ${categoryLabel} — swipe left or right, then tap I need this.`;
+  }
   return `Here are ${count} matching products — swipe left or right, then tap I need this.`;
 }
 
@@ -279,24 +346,28 @@ export async function resolveProductPackRequest(
     .eq("org_id", ORG_ID)
     .eq("is_active", true)
     .order("ai_weight", { ascending: false })
-    .limit(80);
+    .limit(200);
 
   if (error) throw new Error(error.message);
   const products = (data || []) as DbProduct[];
   if (!products.length) return { mode: "none" };
 
-  const ranked = rankProductsForQuery(products, q);
-  if (!ranked.length) return { mode: "none" };
-
-  // Website: always show swipeable cards first
+  // Website: all products in the matched category (swipe full range)
   if (presentation === "carousel") {
-    const cards = ranked.slice(0, 8);
+    const cards = productsForCarousel(products, q);
+    if (!cards.length) return { mode: "none" };
+    const cat =
+      cards.find((p) => p.category?.trim())?.category?.trim() ||
+      (categoryHint(q) ? categoryHint(q)!.replace(/^\w/, (c) => c.toUpperCase()) : null);
     return {
       mode: "carousel",
       products: cards,
-      message: carouselIntro(cards.length),
+      message: carouselIntro(cards.length, cat),
     };
   }
+
+  const ranked = rankProductsForQuery(products, q);
+  if (!ranked.length) return { mode: "none" };
 
   if (ranked.length === 1) {
     return { mode: "match", products: ranked.slice(0, 1), message: matchIntro(ranked.slice(0, 1)) };

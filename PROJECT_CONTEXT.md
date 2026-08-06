@@ -446,6 +446,12 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 
 ---
 
+### Session 2026-08-06 — Carousel shows full category
+
+Website carousel expands seed matches to **all active products in that category** (not top 8 only). Soft cap 60.
+
+---
+
 ### Session 2026-08-06 — Website product carousel (“I need this”)
 
 **UX:** Product ask (`3kw` etc.) → horizontal swipe cards (photo + name + **I need this**). Tap → Name, Photo, Price, Features, Catalogue only.

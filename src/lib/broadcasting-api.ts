@@ -4,6 +4,7 @@ import {
   runWhatsAppBroadcast,
   submitWhatsAppTemplateToMeta,
   syncWhatsAppTemplatesFromMeta,
+  previewWhatsAppTemplateSync,
   countTemplateVars,
   sendInboxWhatsAppTemplate,
 } from "@/server/whatsapp-broadcast";
@@ -82,7 +83,7 @@ export type AudienceKind =
   | "manual_emails"
   | "upload_csv";
 
-export { countTemplateVars, syncWhatsAppTemplatesFromMeta, submitWhatsAppTemplateToMeta, runWhatsAppBroadcast, sendInboxWhatsAppTemplate };
+export { countTemplateVars, syncWhatsAppTemplatesFromMeta, previewWhatsAppTemplateSync, submitWhatsAppTemplateToMeta, runWhatsAppBroadcast, sendInboxWhatsAppTemplate };
 
 export type EmailUploadRecipient = {
   email: string;

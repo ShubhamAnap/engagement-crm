@@ -768,14 +768,22 @@ function Page() {
     onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: ["whatsapp-setup"] });
       await invalidate();
+      const tplNote =
+        typeof result.templateCount === "number"
+          ? ` · ${result.templateCount} Meta template${result.templateCount === 1 ? "" : "s"}`
+          : "";
       toast.success(
         result.verifiedName
-          ? `Connected: ${result.verifiedName}${result.displayPhone ? ` (${result.displayPhone})` : ""}`
-          : `WhatsApp API OK${result.displayPhone ? ` · ${result.displayPhone}` : ""}`,
+          ? `Connected: ${result.verifiedName}${result.displayPhone ? ` (${result.displayPhone})` : ""}${tplNote}`
+          : `WhatsApp API OK${result.displayPhone ? ` · ${result.displayPhone}` : ""}${tplNote}`,
         {
-          description: result.needsPublicHttps
-            ? "Credentials work. For inbound messages, expose HTTPS (ngrok) and set Meta webhook — localhost won't receive callbacks."
-            : "Credentials work. Confirm Meta webhook is verified and subscribed to messages.",
+          description: result.wabaCorrected
+            ? "Correct WABA ID auto-detected and saved — go to Broadcasting → Sync from Meta."
+            : result.needsPublicHttps
+              ? "Credentials work. For inbound messages, expose HTTPS (ngrok) and set Meta webhook — localhost won't receive callbacks."
+              : result.templateCount
+                ? "Credentials work. Use Broadcasting → Sync from Meta to pull templates."
+                : "Credentials work. Confirm Meta webhook is verified and subscribed to messages.",
         },
       );
     },
@@ -2372,7 +2380,11 @@ function Page() {
                   id="wa-waba"
                   value={waBusinessAccountId}
                   onChange={(e) => setWaBusinessAccountId(e.target.value)}
+                  placeholder="WABA ID from Meta → WhatsApp → API Setup (not Phone Number ID)"
                 />
+                <p className="text-xs text-muted-foreground">
+                  Different from Phone Number ID. Templates sync fails if this field is empty or set to the phone ID.
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="wa-display">Display phone (optional)</Label>

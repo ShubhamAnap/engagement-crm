@@ -1294,7 +1294,7 @@ export const saveWhatsAppChannelConfig = createServerFn({ method: "POST" })
   .validator(
     z.object({
       phoneNumberId: z.string().min(1).max(80),
-      accessToken: z.string().min(10).max(500),
+      accessToken: z.string().min(10).max(2000),
       verifyToken: z.string().min(4).max(200),
       businessAccountId: z.string().max(80).optional(),
       displayPhone: z.string().max(40).optional(),
@@ -1357,7 +1357,7 @@ export const testWhatsAppConnection = createServerFn({ method: "POST" }).handler
   }
 
   const res = await fetch(
-    `${GRAPH_BASE}/${cfg.phone_number_id}?fields=display_phone_number,verified_name,quality_rating`,
+    `${GRAPH_BASE}/${cfg.phone_number_id}?fields=display_phone_number,verified_name,quality_rating,whatsapp_business_account{id,name}`,
     {
       headers: { Authorization: `Bearer ${cfg.access_token}` },
     },
@@ -1366,11 +1366,63 @@ export const testWhatsAppConnection = createServerFn({ method: "POST" }).handler
     display_phone_number?: string;
     verified_name?: string;
     quality_rating?: string;
+    whatsapp_business_account?: { id?: string; name?: string } | string;
     error?: { message?: string };
   };
 
   if (!res.ok) {
     throw new Error(json.error?.message || `Meta Graph error (${res.status})`);
+  }
+
+  const wabaFromPhone = (() => {
+    const waba = json.whatsapp_business_account;
+    if (typeof waba === "string" && waba.trim()) return waba.trim();
+    if (waba && typeof waba === "object" && waba.id) return String(waba.id).trim();
+    return null;
+  })();
+
+  let templateCount: number | null = null;
+  let wabaCorrected = false;
+  const configuredWaba = (cfg.business_account_id || "").trim();
+  const wabaToUse =
+    wabaFromPhone && configuredWaba && configuredWaba !== wabaFromPhone ? wabaFromPhone : configuredWaba || wabaFromPhone;
+
+  if (wabaToUse) {
+    const tplRes = await fetch(
+      `${GRAPH_BASE}/${encodeURIComponent(wabaToUse)}/message_templates?limit=1&summary=total_count`,
+      { headers: { Authorization: `Bearer ${cfg.access_token}` } },
+    );
+    const tplJson = (await tplRes.json().catch(() => ({}))) as {
+      summary?: { total_count?: number };
+      data?: unknown[];
+    };
+    if (tplRes.ok) {
+      templateCount =
+        typeof tplJson.summary?.total_count === "number"
+          ? tplJson.summary.total_count
+          : Array.isArray(tplJson.data)
+            ? tplJson.data.length
+            : 0;
+    }
+  }
+
+  const shouldFixWaba =
+    wabaFromPhone &&
+    (!configuredWaba ||
+      configuredWaba === cfg.phone_number_id ||
+      (templateCount === 0 && configuredWaba !== wabaFromPhone));
+
+  if (shouldFixWaba && wabaFromPhone) {
+    const supabase = createServiceSupabase();
+    await supabase
+      .from("channels")
+      .update({
+        config: { ...cfg, business_account_id: wabaFromPhone },
+      })
+      .eq("org_id", ORG_ID)
+      .eq("type", "whatsapp");
+    wabaCorrected = true;
+    cfg.business_account_id = wabaFromPhone;
   }
 
   // Persist display phone if Meta returns it and we don't have one
@@ -1394,6 +1446,9 @@ export const testWhatsAppConnection = createServerFn({ method: "POST" }).handler
     displayPhone: json.display_phone_number || cfg.display_phone || null,
     verifiedName: json.verified_name || null,
     qualityRating: json.quality_rating || null,
+    templateCount,
+    wabaCorrected,
+    wabaId: cfg.business_account_id ? `${cfg.business_account_id.slice(0, 4)}…` : null,
     webhookReady: Boolean(cfg.verify_token),
     needsPublicHttps: (() => {
       const appUrl = process.env.VITE_APP_URL || process.env.APP_URL || "";

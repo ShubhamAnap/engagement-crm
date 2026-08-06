@@ -1,7 +1,7 @@
 # EnerTech Engage — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
-> **Last updated:** 2026-08-05
+> **Last updated:** 2026-08-06
 
 ---
 
@@ -443,6 +443,14 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 3. Confirm product image/PDF uploads / pending SQL as needed.
 4. Cron: `CRON_URL` + `CRON_SECRET` on Render (every 5 min).
 5. Later: DigitalOcean cutover (keep Render until DO proven); Settings RBAC.
+
+---
+
+### Session 2026-08-06 — WhatsApp Meta template sync fix
+
+**Issue:** Sync from Meta often failed or returned empty — usually Phone Number ID used as WABA, missing WABA, or truncated token.
+
+**Fix:** Paginated template fetch + explicit fields; clearer Meta errors (WABA vs phone ID / permissions); auto-discover WABA from phone number when possible; access token max length raised to 2000; Channels WABA field helper text. Broadcasting now also shows `last synced`, `updated`, and Meta ID in template view so edited Meta templates are visibly updated in place.
 
 ---
 

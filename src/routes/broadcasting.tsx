@@ -24,7 +24,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState, PageHeader, Panel, Pill, StatCard } from "@/components/shared/ui-kit";
 import { useAuth } from "@/lib/auth";
-import { ENERTECH_ORG_ID } from "@/lib/chat-api";
+import { ENERTECH_ORG_ID, formatRelativeTime } from "@/lib/chat-api";
 import {
   createAndSendBroadcast,
   createAndSendEmailBroadcast,
@@ -33,6 +33,7 @@ import {
   listWaTemplates,
   submitWhatsAppTemplateToMeta,
   syncWhatsAppTemplatesFromMeta,
+  previewWhatsAppTemplateSync,
   type AudienceKind,
   type DbBroadcast,
   type DbWaTemplate,
@@ -92,6 +93,10 @@ function statusTone(status: WaTemplateStatus | string): "success" | "warning" | 
   if (s === "REJECTED" || s === "FAILED") return "danger";
   if (s === "PAUSED" || s === "DISABLED") return "neutral";
   return "info";
+}
+
+function formatDateTime(value: string | null | undefined): string {
+  return value ? new Date(value).toLocaleString() : "—";
 }
 
 function Page() {
@@ -194,10 +199,47 @@ function Page() {
     mutationFn: () => syncWhatsAppTemplatesFromMeta(),
     onSuccess: async (r) => {
       await invalidate();
-      toast.success(`Synced ${r.synced} template(s) from Meta`);
+      if (r.synced === 0) {
+        toast.message(r.warning || "No templates returned from Meta for this WABA");
+      } else {
+        const names =
+          r.sampleNames && r.sampleNames.length > 0 ? ` — e.g. ${r.sampleNames.slice(0, 3).join(", ")}` : "";
+        toast.success(`Synced ${r.synced} template(s) from Meta${names}`, {
+          description: r.wabaCorrected
+            ? "Correct WABA ID was auto-detected from your phone number and saved."
+            : undefined,
+        });
+      }
       setTab("templates");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Sync failed"),
+  });
+
+  const previewSyncMutation = useMutation({
+    mutationFn: () => previewWhatsAppTemplateSync(),
+    onSuccess: (r) => {
+      if (r.dbError?.includes("does not exist")) {
+        toast.error("Database table missing — run migration 009_broadcasting.sql in Supabase.");
+        return;
+      }
+      const metaCount = Math.max(r.configuredTemplateCount ?? 0, r.discoveredTemplateCount ?? 0);
+      if (metaCount === 0) {
+        toast.message("Meta returned 0 templates", {
+          description:
+            "Go to Channels → WhatsApp → Test connection (auto-fixes WABA), then sync again. Do not use Business Manager business_id as WABA.",
+        });
+        return;
+      }
+      toast.success(`Meta has ${metaCount} template(s) ready to sync`, {
+        description:
+          r.sampleTemplateNames.length > 0
+            ? `Found: ${r.sampleTemplateNames.slice(0, 4).join(", ")}${r.wabaMismatch ? " · WABA mismatch detected — Test connection will fix" : ""}`
+            : r.wabaMismatch
+              ? "WABA mismatch detected — run Test connection on Channels → WhatsApp"
+              : undefined,
+      });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Preview failed"),
   });
 
   const submitTplMutation = useMutation({
@@ -453,6 +495,15 @@ function Page() {
                   size="sm"
                   variant="outline"
                   className="gap-1.5"
+                  disabled={previewSyncMutation.isPending}
+                  onClick={() => previewSyncMutation.mutate()}
+                >
+                  Check Meta
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
                   disabled={syncMutation.isPending}
                   onClick={() => syncMutation.mutate()}
                 >
@@ -572,15 +623,17 @@ function Page() {
                       {t.body_text || "No body preview"}
                     </p>
 
-                    {t.footer_text ? (
-                      <p className="mt-4 border-t border-border/60 pt-3 text-xs text-muted-foreground">
-                        {t.footer_text}
-                      </p>
-                    ) : t.last_synced_at ? (
-                      <p className="mt-4 border-t border-border/60 pt-3 text-[11px] text-muted-foreground">
-                        Synced {new Date(t.last_synced_at).toLocaleString()}
-                      </p>
-                    ) : null}
+                    <div className="mt-4 border-t border-border/60 pt-3">
+                      {t.footer_text ? (
+                        <p className="text-xs text-muted-foreground">{t.footer_text}</p>
+                      ) : null}
+                      <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
+                        <p>
+                          Last synced: {formatRelativeTime(t.last_synced_at) || formatDateTime(t.last_synced_at)}
+                        </p>
+                        <p>Last updated: {formatDateTime(t.updated_at)}</p>
+                      </div>
+                    </div>
                   </article>
                 ))}
               </div>
@@ -1237,6 +1290,28 @@ function Page() {
           </DialogHeader>
           {viewTemplate ? (
             <div className="space-y-3 rounded-lg border border-border bg-secondary/20 p-4">
+              <div className="grid gap-2 rounded-md border border-border/60 bg-background/70 p-3 text-xs text-muted-foreground sm:grid-cols-2">
+                <p>
+                  <span className="font-medium text-foreground">Meta ID:</span>{" "}
+                  <span className="break-all">{viewTemplate.meta_id || "—"}</span>
+                </p>
+                <p>
+                  <span className="font-medium text-foreground">Category:</span> {viewTemplate.category || "—"}
+                </p>
+                <p>
+                  <span className="font-medium text-foreground">Created:</span> {formatDateTime(viewTemplate.created_at)}
+                </p>
+                <p>
+                  <span className="font-medium text-foreground">Updated:</span> {formatDateTime(viewTemplate.updated_at)}
+                </p>
+                <p>
+                  <span className="font-medium text-foreground">Last synced:</span>{" "}
+                  {formatDateTime(viewTemplate.last_synced_at)}
+                </p>
+                <p>
+                  <span className="font-medium text-foreground">Status:</span> {viewTemplate.status}
+                </p>
+              </div>
               {viewTemplate.header_text ? (
                 <p className="text-sm font-medium">{viewTemplate.header_text}</p>
               ) : null}

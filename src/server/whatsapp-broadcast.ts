@@ -24,18 +24,19 @@ export type WaTemplateComponent = {
   buttons?: Array<Record<string, unknown>>;
 };
 
-function requireWaba(cfg: WhatsAppChannelConfig) {
-  if (!cfg.access_token) throw new Error("WhatsApp access token is missing. Configure it under Channels → WhatsApp.");
-  if (!cfg.business_account_id) {
-    throw new Error(
-      "WhatsApp Business Account ID (WABA) is required for templates. Set it in Channels → WhatsApp Configure.",
-    );
-  }
-  return cfg as WhatsAppChannelConfig & { access_token: string; business_account_id: string };
-}
+type MetaTemplateRow = {
+  id?: string;
+  name?: string;
+  language?: string;
+  status?: string;
+  category?: string;
+  components?: WaTemplateComponent[];
+  rejected_reason?: string;
+};
 
 function mapMetaStatus(status: string | undefined): string {
   const s = (status || "PENDING").toUpperCase();
+  if (s === "ACTIVE") return "APPROVED";
   if (["APPROVED", "PENDING", "REJECTED", "PAUSED", "DISABLED", "DRAFT"].includes(s)) return s;
   return "PENDING";
 }
@@ -59,39 +60,246 @@ function formatMetaError(json: {
   error?: {
     message?: string;
     code?: number;
+    error_subcode?: number;
+    error_user_msg?: string;
     error_data?: { details?: string };
+    type?: string;
   };
 }): string {
-  const msg = json.error?.message || "WhatsApp API error";
-  const details = json.error?.error_data?.details;
-  if (details && !msg.includes(details)) return `${msg} — ${details}`;
-  return msg;
+  const err = json.error;
+  const msg = err?.message || "WhatsApp API error";
+  const details = err?.error_data?.details || err?.error_user_msg;
+  let out = details && !msg.includes(details) ? `${msg} — ${details}` : msg;
+
+  const lower = out.toLowerCase();
+  if (
+    lower.includes("whatsappbusinessphonenumber") ||
+    lower.includes("nonexisting field (message_templates)") ||
+    lower.includes("does not support this operation")
+  ) {
+    out +=
+      " Hint: Sync needs the WhatsApp Business Account ID (WABA), not the Phone Number ID. Copy WABA from Meta → WhatsApp → API Setup.";
+  } else if (lower.includes("permission") || err?.code === 10 || err?.code === 200) {
+    out +=
+      " Hint: Access token needs whatsapp_business_management (and usually whatsapp_business_messaging) permission.";
+  }
+  return out;
 }
 
-export const syncWhatsAppTemplatesFromMeta = createServerFn({ method: "POST" }).handler(async () => {
-  const cfg = requireWaba(await loadWhatsAppConfig());
-  const url = `${GRAPH_BASE}/${cfg.business_account_id}/message_templates?limit=100`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${cfg.access_token}` },
-  });
+/** Try to resolve WABA ID from the Cloud API phone number node. */
+async function discoverWabaId(phoneNumberId: string, accessToken: string): Promise<string | null> {
+  const res = await fetch(
+    `${GRAPH_BASE}/${encodeURIComponent(phoneNumberId)}?fields=whatsapp_business_account{id,name}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
   const json = (await res.json().catch(() => ({}))) as {
-    data?: Array<{
-      id?: string;
-      name?: string;
-      language?: string;
-      status?: string;
-      category?: string;
-      components?: WaTemplateComponent[];
-      rejected_reason?: string;
-    }>;
+    whatsapp_business_account?: { id?: string } | string;
     error?: { message?: string };
   };
+  if (!res.ok) return null;
+  const waba = json.whatsapp_business_account;
+  if (typeof waba === "string" && waba.trim()) return waba.trim();
+  if (waba && typeof waba === "object" && waba.id) return String(waba.id).trim();
+  return null;
+}
+
+async function persistWabaId(wabaId: string, cfg: WhatsAppChannelConfig) {
+  try {
+    const supabase = createServiceSupabase();
+    await supabase
+      .from("channels")
+      .update({
+        config: {
+          ...cfg,
+          business_account_id: wabaId,
+        },
+      })
+      .eq("org_id", ORG_ID)
+      .eq("type", "whatsapp");
+  } catch {
+    // non-fatal — sync can still proceed with resolved id
+  }
+}
+
+function maskId(id: string | undefined | null): string | null {
+  if (!id) return null;
+  const s = String(id);
+  if (s.length <= 8) return `${s.slice(0, 2)}…`;
+  return `${s.slice(0, 4)}…${s.slice(-4)}`;
+}
+
+/** Quick probe — validates WABA and returns Meta template count when available. */
+async function probeWabaTemplates(
+  wabaId: string,
+  accessToken: string,
+): Promise<{ ok: boolean; count: number; error?: string }> {
+  const url = `${GRAPH_BASE}/${encodeURIComponent(wabaId)}/message_templates?limit=1&summary=total_count`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const json = (await res.json().catch(() => ({}))) as {
+    data?: MetaTemplateRow[];
+    summary?: { total_count?: number };
+    error?: { message?: string; code?: number; error_user_msg?: string; error_data?: { details?: string } };
+  };
   if (!res.ok) {
-    throw new Error(json.error?.message || `Meta template sync failed (${res.status})`);
+    return { ok: false, count: 0, error: formatMetaError(json) };
+  }
+  const total = json.summary?.total_count;
+  const count = typeof total === "number" ? total : Array.isArray(json.data) ? json.data.length : 0;
+  return { ok: true, count };
+}
+
+async function resolveWabaConfig(): Promise<{
+  cfg: WhatsAppChannelConfig & { access_token: string; business_account_id: string };
+  wabaCorrected: boolean;
+}> {
+  const cfg = await loadWhatsAppConfig();
+  if (!cfg.access_token) {
+    throw new Error("WhatsApp access token is missing. Configure it under Channels → WhatsApp.");
   }
 
+  const phoneId = (cfg.phone_number_id || "").trim();
+  let configured = (cfg.business_account_id || "").trim();
+  if (configured && phoneId && configured === phoneId) configured = "";
+
+  let discovered: string | null = null;
+  if (phoneId) {
+    discovered = await discoverWabaId(phoneId, cfg.access_token);
+  }
+
+  let waba = configured || discovered || "";
+  let wabaCorrected = false;
+
+  if (configured && discovered && configured !== discovered) {
+    const [cfgProbe, discProbe] = await Promise.all([
+      probeWabaTemplates(configured, cfg.access_token),
+      probeWabaTemplates(discovered, cfg.access_token),
+    ]);
+    if ((!cfgProbe.ok || cfgProbe.count === 0) && discProbe.ok && discProbe.count > 0) {
+      waba = discovered;
+      wabaCorrected = true;
+      await persistWabaId(waba, { ...cfg, access_token: cfg.access_token });
+    }
+  } else if (!configured && discovered) {
+    waba = discovered;
+    wabaCorrected = true;
+    await persistWabaId(waba, { ...cfg, access_token: cfg.access_token });
+  } else if (configured && !discovered) {
+    const cfgProbe = await probeWabaTemplates(configured, cfg.access_token);
+    if (!cfgProbe.ok) {
+      throw new Error(
+        `${cfgProbe.error || "Invalid WhatsApp Business Account ID"} — use WABA from Meta → WhatsApp → API Setup (not Business Manager business_id or Phone Number ID).`,
+      );
+    }
+  }
+
+  if (!waba) {
+    throw new Error(
+      "WhatsApp Business Account ID (WABA) is required for templates. Set it in Channels → WhatsApp Configure (Meta → WhatsApp → API Setup — not the Phone Number ID).",
+    );
+  }
+
+  return {
+    cfg: { ...cfg, access_token: cfg.access_token, business_account_id: waba },
+    wabaCorrected,
+  };
+}
+
+const TEMPLATE_FIELDS = "name,language,status,category,components,id,rejected_reason";
+
+async function fetchAllMetaTemplates(wabaId: string, accessToken: string): Promise<MetaTemplateRow[]> {
+  const fetchPage = async (withFields: boolean, startUrl?: string | null) => {
+    const all: MetaTemplateRow[] = [];
+    let url: string | null =
+      startUrl ??
+      (withFields
+        ? `${GRAPH_BASE}/${encodeURIComponent(wabaId)}/message_templates?limit=100&fields=${encodeURIComponent(TEMPLATE_FIELDS)}`
+        : `${GRAPH_BASE}/${encodeURIComponent(wabaId)}/message_templates?limit=100`);
+    let pages = 0;
+
+    while (url && pages < 20) {
+      pages += 1;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        data?: MetaTemplateRow[];
+        paging?: { next?: string };
+        error?: {
+          message?: string;
+          code?: number;
+          error_subcode?: number;
+          error_user_msg?: string;
+          error_data?: { details?: string };
+          type?: string;
+        };
+      };
+      if (!res.ok) {
+        throw new Error(formatMetaError(json) || `Meta template sync failed (${res.status})`);
+      }
+      if (Array.isArray(json.data)) all.push(...json.data);
+      url = json.paging?.next || null;
+    }
+    return all;
+  };
+
+  const withFields = await fetchPage(true);
+  if (withFields.length > 0) return withFields;
+  return fetchPage(false);
+}
+
+export const previewWhatsAppTemplateSync = createServerFn({ method: "GET" }).handler(async () => {
+  const cfg = await loadWhatsAppConfig();
+  if (!cfg.access_token) {
+    throw new Error("WhatsApp access token is missing. Configure it under Channels → WhatsApp.");
+  }
+
+  const phoneId = (cfg.phone_number_id || "").trim();
+  const configured = (cfg.business_account_id || "").trim();
+  const discovered = phoneId ? await discoverWabaId(phoneId, cfg.access_token) : null;
+
+  const [configuredProbe, discoveredProbe, dbCountRes] = await Promise.all([
+    configured ? probeWabaTemplates(configured, cfg.access_token) : Promise.resolve(null),
+    discovered ? probeWabaTemplates(discovered, cfg.access_token) : Promise.resolve(null),
+    createServiceSupabase()
+      .from("wa_message_templates")
+      .select("id", { count: "exact", head: true })
+      .eq("org_id", ORG_ID)
+      .eq("channel_type", "whatsapp"),
+  ]);
+
+  let sampleNames: string[] = [];
+  const bestWaba =
+    discoveredProbe?.ok && discoveredProbe.count > 0
+      ? discovered
+      : configuredProbe?.ok && configuredProbe.count > 0
+        ? configured
+        : discovered || configured || null;
+
+  if (bestWaba) {
+    const rows = await fetchAllMetaTemplates(bestWaba, cfg.access_token);
+    sampleNames = rows.slice(0, 8).map((t) => t.name).filter(Boolean) as string[];
+  }
+
+  return {
+    configuredWaba: maskId(configured),
+    discoveredWaba: maskId(discovered),
+    configuredTemplateCount: configuredProbe?.count ?? null,
+    discoveredTemplateCount: discoveredProbe?.count ?? null,
+    configuredWabaValid: configuredProbe?.ok ?? false,
+    discoveredWabaValid: discoveredProbe?.ok ?? false,
+    wabaMismatch: Boolean(configured && discovered && configured !== discovered),
+    recommendedWaba: maskId(bestWaba),
+    sampleTemplateNames: sampleNames,
+    dbTemplateCount: dbCountRes.count ?? 0,
+    dbError: dbCountRes.error?.message ?? null,
+  };
+});
+
+export const syncWhatsAppTemplatesFromMeta = createServerFn({ method: "POST" }).handler(async () => {
+  const { cfg, wabaCorrected } = await resolveWabaConfig();
+  const rows = await fetchAllMetaTemplates(cfg.business_account_id, cfg.access_token);
+
   const supabase = createServiceSupabase();
-  const rows = json.data || [];
   let upserted = 0;
 
   for (const t of rows) {
@@ -141,11 +349,25 @@ export const syncWhatsAppTemplatesFromMeta = createServerFn({ method: "POST" }).
     const { error } = await supabase.from("wa_message_templates").upsert(payload, {
       onConflict: "org_id,name,language",
     });
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(`Database save failed: ${error.message}`);
     upserted += 1;
   }
 
-  return { synced: upserted };
+  if (upserted === 0) {
+    return {
+      synced: 0,
+      wabaCorrected,
+      warning:
+        "Meta returned 0 templates for this WABA. In Channels → WhatsApp, clear the WABA field and click Test connection — it will auto-detect the correct ID from your Phone Number ID. The Business Manager business_id in the URL is not the WABA.",
+    };
+  }
+
+  const sampleNames = rows
+    .slice(0, 5)
+    .map((t) => t.name)
+    .filter(Boolean) as string[];
+
+  return { synced: upserted, wabaCorrected, sampleNames };
 });
 
 export const submitWhatsAppTemplateToMeta = createServerFn({ method: "POST" })
@@ -166,7 +388,7 @@ export const submitWhatsAppTemplateToMeta = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }) => {
-    const cfg = requireWaba(await loadWhatsAppConfig());
+    const { cfg } = await resolveWabaConfig();
     const varCount = countTemplateVars(data.bodyText);
     if (varCount > 0 && (!data.bodyExamples || data.bodyExamples.length < varCount)) {
       throw new Error(`Provide ${varCount} example value(s) for body variables {{1}}…{{${varCount}}}`);
@@ -201,10 +423,15 @@ export const submitWhatsAppTemplateToMeta = createServerFn({ method: "POST" })
     const json = (await res.json().catch(() => ({}))) as {
       id?: string;
       status?: string;
-      error?: { message?: string };
+      error?: {
+        message?: string;
+        code?: number;
+        error_user_msg?: string;
+        error_data?: { details?: string };
+      };
     };
     if (!res.ok) {
-      throw new Error(json.error?.message || `Meta rejected template (${res.status})`);
+      throw new Error(formatMetaError(json) || `Meta rejected template (${res.status})`);
     }
 
     const supabase = createServiceSupabase();

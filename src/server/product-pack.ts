@@ -20,10 +20,16 @@ const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
 const KW_RE = /(\d+(?:\.\d+)?)\s*(k\.?\s*w|k\.?\s*va|kw|kva)\b/i;
 const PRODUCT_WORD_RE =
-  /\b(inverters?|ups|hybrids?|batter(?:y|ies)|bess|ongrid|on[\s-]?grid|off[\s-]?grid|solar|e[\s-]?series|reefi|stabilizers?|chargers?|sfc|products?|models?)\b/i;
+  /\b(inverters?|ups|hybrids?|batter(?:y|ies)|bess|ongrid|on[\s-]?grid|off[\s-]?grid|solar|e[\s-]?series|reefi|stabilizers?|chargers?|sfc|products?|models?|hf|lf)\b/i;
 const DETAIL_RE =
   /\b(price|pricing|cost|rate|quote|quotation|kitna|kitne|rs\.?|₹|inr|details?|specs?|specification|send|bhejo|dikhao|info|information|available|stock)\b/i;
 const PRICE_RE = /\b(price|pricing|cost|rate|quote|quotation|kitna|kitne|rs\.?|₹|inr)\b/i;
+/** Use-case / site words customers paste casually */
+const USE_CASE_RE =
+  /\b(home|house|residential|resident|domestic|office|shop|clinic|hospital|farm|poultry|commercial|industrial|villa|apartment|flat)\b/i;
+/** Category / series labels from catalogue */
+const CATEGORY_LABEL_RE =
+  /\b(hf|lf|high\s*frequency|low\s*frequency|e[\s-]?series|reefi|hybrid|ongrid|off[\s-]?grid|bess|sfc|servo|online|offline)\b/i;
 
 export type ProductPackResult =
   | { mode: "none" }
@@ -98,20 +104,30 @@ export function productPowerKw(product: DbProduct): number | null {
   return null;
 }
 
-function categoryHint(text: string): string | null {
+/**
+ * Broad intent: map casual customer words → product family.
+ * Examples: home/residential → HF/hybrid, "HF" → hf, solar → solar.
+ */
+export function categoryHint(text: string): string | null {
   const t = text.toLowerCase();
+  if (/\bhf\b|high\s*frequency/.test(t)) return "hf";
+  if (/\blf\b|low\s*frequency/.test(t)) return "lf";
   if (/\bhybrids?\b/.test(t)) return "hybrid";
-  if (/\bongrid|on[\s-]?grid\b/.test(t)) return "ongrid";
+  if (/\bongrid|on[\s-]?grid|grid[\s-]?tie\b/.test(t)) return "ongrid";
   if (/\boff[\s-]?grid\b/.test(t)) return "offgrid";
   if (/\bbess\b/.test(t)) return "bess";
   if (/\bbatter(?:y|ies)\b/.test(t)) return "battery";
   if (/\bups\b/.test(t)) return "ups";
   if (/\binverters?\b/.test(t)) return "inverter";
   if (/\bsolar\b/.test(t)) return "solar";
+  if (/\be[\s-]?series\b/.test(t)) return "e-series";
+  if (/\breefi\b/.test(t)) return "reefi";
+  // Home / residential customers usually need HF hybrid / inverter range
+  if (USE_CASE_RE.test(t)) return "hf";
   return null;
 }
 
-/** True when customer is asking for a product / price pack from the Products list. */
+/** True when customer is asking about products (broad — kW, category, home, etc.). */
 export function wantsProductPack(text: string): boolean {
   const q = String(text || "").trim();
   if (!q || q.length > 280) return false;
@@ -122,13 +138,21 @@ export function wantsProductPack(text: string): boolean {
   const hasProduct = PRODUCT_WORD_RE.test(q);
   const priceAsk = PRICE_RE.test(q);
   const wantsDetail = DETAIL_RE.test(q);
+  const useCase = USE_CASE_RE.test(q);
+  const categoryLabel = CATEGORY_LABEL_RE.test(q);
 
-  // "3kw inverter price", "5 kw hybrid", bare "3kw" / "inverter"
-  if (hasKw && (hasProduct || priceAsk || wantsDetail)) return true;
-  if (hasKw && q.length <= 48) return true;
-  if (hasProduct && q.length <= 64) return true;
+  if (hasKw && (hasProduct || priceAsk || wantsDetail || useCase || categoryLabel)) return true;
+  if (hasKw && q.length <= 64) return true;
+  if (hasProduct && q.length <= 80) return true;
   if (hasProduct && priceAsk) return true;
+  if (categoryLabel && q.length <= 80) return true;
+  if (useCase && (hasProduct || hasKw || categoryLabel || q.length <= 40)) return true;
   return false;
+}
+
+/** Alias for channels — same as wantsProductPack. */
+export function isProductIntent(text: string): boolean {
+  return wantsProductPack(text);
 }
 
 function scoreProduct(product: DbProduct, query: string, requestedKw: number | null, hint: string | null): number {
@@ -151,8 +175,14 @@ function scoreProduct(product: DbProduct, query: string, requestedKw: number | n
 
   if (hint) {
     if (blob.includes(hint)) score += 35;
-    else if (hint === "inverter" && /inverter|hybrid|solar|ongrid|offgrid/.test(blob)) score += 20;
+    else if (hint === "inverter" && /inverter|hybrid|solar|ongrid|offgrid|\bhf\b/.test(blob)) score += 20;
+    else if (hint === "hf" && /\bhf\b|hybrid|high\s*freq|inverter|residential|home/.test(blob)) score += 40;
+    else if (hint === "lf" && /\blf\b|low\s*freq/.test(blob)) score += 40;
     else if (hint === "ups" && /\bups\b/.test(blob)) score += 35;
+    else if (hint === "hybrid" && /hybrid|hf|solar|inverter/.test(blob)) score += 30;
+    else if (hint === "solar" && /solar|hybrid|ongrid|offgrid/.test(blob)) score += 25;
+    else if (hint === "e-series" && /e[\s-]?series|eseries/.test(blob)) score += 40;
+    else if (hint === "reefi" && /reefi/.test(blob)) score += 40;
   }
 
   const tokens = query
@@ -182,11 +212,13 @@ export function rankProductsForQuery(products: DbProduct[], query: string): DbPr
     .filter((row) => {
       if (requestedKw != null) {
         const pKw = productPowerKw(row.p);
-        // Keep near matches; if no power on product, still allow name hits
-        if (pKw != null && Math.abs(pKw - requestedKw) > 1.01) return false;
-        return row.score >= 40;
+        if (pKw != null && Math.abs(pKw - requestedKw) > 1.51) return false;
+        // Bare "3kw" — accept power match even with modest score
+        if (pKw != null && Math.abs(pKw - requestedKw) <= 1.51) return row.score >= 20;
+        // No power on row — keep if category/hint still scores
+        return row.score >= 35;
       }
-      return row.score >= 30;
+      return row.score >= 25;
     })
     .sort((a, b) => b.score - a.score)
     .map((row) => row.p);
@@ -202,25 +234,29 @@ function productCategoryKey(product: DbProduct): string {
 function matchesCategoryHint(product: DbProduct, hint: string): boolean {
   const blob = `${product.name} ${product.category || ""} ${product.description || ""} ${product.sku}`.toLowerCase();
   if (blob.includes(hint)) return true;
+  if (hint === "hf") return /\bhf\b|high\s*freq|hybrid|inverter/.test(blob);
+  if (hint === "lf") return /\blf\b|low\s*freq/.test(blob);
   if (hint === "inverter") return /inverter|hybrid|\bhf\b/.test(blob);
-  if (hint === "hybrid") return /hybrid|inverter/.test(blob);
+  if (hint === "hybrid") return /hybrid|inverter|\bhf\b|solar/.test(blob);
   if (hint === "ups") return /\bups\b/.test(blob);
   if (hint === "battery") return /batter|lithium|lead/.test(blob);
   if (hint === "solar") return /solar|ongrid|offgrid|hybrid/.test(blob);
   if (hint === "ongrid") return /ongrid|on[\s-]?grid|grid[\s-]?tie/.test(blob);
   if (hint === "offgrid") return /offgrid|off[\s-]?grid/.test(blob);
   if (hint === "bess") return /\bbess\b|battery\s*energy/.test(blob);
+  if (hint === "e-series") return /e[\s-]?series|eseries/.test(blob);
+  if (hint === "reefi") return /reefi/.test(blob);
   return false;
 }
 
 /**
- * Website carousel: all active products in the matched category (not only top kW hits).
- * Seed from ranked matches → expand by shared `category` (or type hint).
+ * Website / WhatsApp: all active products in the matched category (not only top kW hits).
+ * Seed from ranked matches → expand by shared `category` (or broad type hint).
  */
 export function productsForCarousel(products: DbProduct[], query: string): DbProduct[] {
   const hint = categoryHint(query);
-  const ranked = rankProductsForQuery(products, query);
   const requestedKw = extractRequestedKw(query);
+  const ranked = rankProductsForQuery(products, query);
 
   const categories = new Set(
     ranked
@@ -237,23 +273,42 @@ export function productsForCarousel(products: DbProduct[], query: string): DbPro
     pool = products.filter((p) => matchesCategoryHint(p, hint));
   } else if (ranked.length) {
     pool = ranked;
-  } else if (hint) {
-    pool = products.filter((p) => matchesCategoryHint(p, hint));
   }
 
-  // If kW ask found seeds but category expand empty, fall back to ranked
-  if (!pool.length && ranked.length) pool = ranked;
-
-  // Still nothing — try hint alone (e.g. "inverter" with weak scores)
+  // Bare "3kw": prefer exact kW rows; if none, open HF/hybrid/inverter (typical residential)
+  if (!pool.length && requestedKw != null) {
+    pool = products.filter((p) => {
+      const kw = productPowerKw(p);
+      return kw != null && Math.abs(kw - requestedKw) <= 1.51;
+    });
+  }
+  if (!pool.length && requestedKw != null) {
+    pool = products.filter(
+      (p) =>
+        matchesCategoryHint(p, "hf") ||
+        matchesCategoryHint(p, "hybrid") ||
+        matchesCategoryHint(p, "inverter") ||
+        matchesCategoryHint(p, "solar"),
+    );
+  }
   if (!pool.length && hint) {
     pool = products.filter((p) => matchesCategoryHint(p, hint));
   }
+  if (!pool.length && ranked.length) pool = ranked;
 
   if (!pool.length) return [];
 
   return [...pool]
     .sort((a, b) => scoreProduct(b, query, requestedKw, hint) - scoreProduct(a, query, requestedKw, hint))
     .slice(0, 60);
+}
+
+function matchIntro(products: DbProduct[]): string {
+  if (products.length === 1) {
+    return formatProductPackBody(products[0]!);
+  }
+  const blocks = products.map((p, i) => `---\n${i + 1}. ${formatProductPackBody(p)}`);
+  return `Here are the matching products:\n\n${blocks.join("\n\n")}`;
 }
 
 function clarifyMessage(products: DbProduct[]): string {
@@ -281,12 +336,13 @@ function carouselIntro(count: number, categoryLabel?: string | null): string {
  * Resolve product pack from active Products rows.
  * Pending numbered picks: reply "1" / "2" after clarify.
  * presentation "carousel" = website browse cards (no price until I need this).
+ * presentation "whatsapp" = send up to 5 full packs (photo + caption + PDF).
  */
 export async function resolveProductPackRequest(
   query: string,
   options?: {
     pendingProducts?: Array<{ id: string; name: string }>;
-    presentation?: "detail" | "carousel";
+    presentation?: "detail" | "carousel" | "whatsapp";
   },
 ): Promise<ProductPackResult> {
   const q = String(query || "").trim();
@@ -366,8 +422,29 @@ export async function resolveProductPackRequest(
     };
   }
 
+  // WhatsApp: category products as full packs (cap 5)
+  if (presentation === "whatsapp") {
+    const cards = productsForCarousel(products, q);
+    if (!cards.length) return { mode: "none" };
+    const top = cards.slice(0, 5);
+    return {
+      mode: "match",
+      products: top,
+      message:
+        top.length === 1
+          ? "Here is the matching product."
+          : `Here are ${top.length} matching products for you.`,
+    };
+  }
+
   const ranked = rankProductsForQuery(products, q);
-  if (!ranked.length) return { mode: "none" };
+  if (!ranked.length) {
+    // Detail fallback: still try broad category pool
+    const broad = productsForCarousel(products, q);
+    if (!broad.length) return { mode: "none" };
+    const top = broad.slice(0, 3);
+    return { mode: "match", products: top, message: matchIntro(top) };
+  }
 
   if (ranked.length === 1) {
     return { mode: "match", products: ranked.slice(0, 1), message: matchIntro(ranked.slice(0, 1)) };

@@ -27,7 +27,7 @@ import {
 } from "@/lib/session-language";
 import { ensureWhatsAppLeadCustomer } from "@/server/whatsapp-crm";
 import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, wantsReferenceImages, customerAskedForMorePhotos } from "@/server/knowledge";
-import { resolveProductPackRequest, buildProductPackMedia, buildProductsContextForAi } from "@/server/product-pack";
+import { resolveProductPackRequest, buildProductPackMedia, buildProductsContextForAi, isProductIntent } from "@/server/product-pack";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
@@ -646,7 +646,10 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             ? (prevMeta.pending_product_options as Array<{ id: string; name: string }>)
             : [];
 
-          const productPack = await resolveProductPackRequest(text, { pendingProducts });
+          const productPack = await resolveProductPackRequest(text, {
+            pendingProducts,
+            presentation: "whatsapp",
+          });
           if (productPack.mode === "clarify" || productPack.mode === "match") {
             const nextMeta: Record<string, unknown> = { ...prevMeta };
             if (productPack.mode === "clarify") {
@@ -716,7 +719,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
                 await sendWhatsAppText(from, productPack.message, cfg);
               } else {
                 await sendWhatsAppText(from, reply, cfg);
-                for (const item of media.slice(0, 3)) {
+                for (const item of media.slice(0, 5)) {
                   if (item.imageUrl && /^https:\/\//i.test(item.imageUrl)) {
                     try {
                       await sendWhatsAppImage({
@@ -757,6 +760,79 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               }
             } catch (err) {
               console.error("WhatsApp product pack send failed", err);
+            }
+            continue;
+          }
+
+          // Product intent but no Products row: answer from Knowledge Base + catalogue context (never generic greeting)
+          if (isProductIntent(text)) {
+            const [chunks, productsContext] = await Promise.all([
+              retrieveKnowledgeContext(text, 8),
+              buildProductsContextForAi(text, 10),
+            ]);
+            const knowledgeContext = chunks
+              .map((c) => c.content)
+              .join("\n\n")
+              .replace(/https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi, "[file]");
+            const stack = await resolveAgentStack({ channel: "whatsapp", message: text });
+            const agentCfg = agentReplyConfig(stack);
+            const { sanitizeAssistantFileLinks } = await import("@/server/shorten-urls");
+            const downloadLinks: Array<{ title: string; url: string; fileName?: string }> = [];
+            const generated = await generateOpenAiReply({
+              visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
+              latestUserMessage: text,
+              history: (history || []).map((m) => ({
+                sender: m.sender as string,
+                body: m.body as string,
+                created_at: m.created_at as string,
+              })),
+              knowledgeContext,
+              productsContext,
+              downloadLinks,
+              referenceImages: [],
+              systemPrompt: [
+                agentCfg.systemPrompt,
+                "Customer asked about a product (kW / category / home-residential). Answer helpfully using Products catalogue + Knowledge Base.",
+                "Give product name if known, about 4–5 clear features, and price if in context. Do not ask for name/phone. Do not send a generic welcome line.",
+              ].join("\n"),
+              model: agentCfg.model,
+              agentName: agentCfg.agentName,
+              memoryEnabled: agentCfg.memoryEnabled,
+              toolKeys: await resolveAgentToolKeys({ allowedOnAgent: agentCfg.allowedTools }),
+              replyLanguage: sessionLang,
+            });
+            reply = await sanitizeAssistantFileLinks(generated.reply, downloadLinks, { channel: "whatsapp" });
+            if (!reply?.trim() || /thanks for messaging enertech/i.test(reply)) {
+              reply =
+                sessionLang === "hi" || sessionLang === "mixed"
+                  ? "Sir, aapke kW / product ke hisaab se EnerTech solar hybrid / HF range suitable hai. Main features Knowledge Base se share karta hoon — model ya residential/commercial confirm karein to exact catalogue + price bhej dunga."
+                  : "For that kW / use-case, EnerTech solar hybrid / HF range is typically suitable. I can share key features from our datasheets — confirm model or residential/commercial and I’ll send the exact catalogue and price.";
+            }
+            inspector = buildAnswerInspector({
+              chunks,
+              replySource: generated.source,
+              model: generated.model,
+              agentName: agentCfg.agentName,
+              specialistKey: agentCfg.specialistKey,
+              channel: "whatsapp",
+              visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
+              downloadCount: 0,
+              memoryEnabled: agentCfg.memoryEnabled,
+            });
+            (inspector.metadata as Record<string, unknown>).product_kb_fallback = true;
+            await supabase.from("messages").insert({
+              org_id: ORG_ID,
+              conversation_id: convo.id,
+              sender: "ai",
+              body: reply,
+              confidence: inspector.confidence,
+              sources: inspector.sources,
+              metadata: inspector.metadata,
+            });
+            try {
+              await sendWhatsAppText(from, reply, cfg);
+            } catch (err) {
+              console.error("WA product KB fallback send failed", err);
             }
             continue;
           }
@@ -1183,6 +1259,12 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           continue;
         } catch (err) {
           console.error("WhatsApp AI reply failed", err);
+          if (isProductIntent(text)) {
+            reply =
+              sessionLang === "hi" || sessionLang === "mixed"
+                ? "Sir, aapka product request mil gaya. Main Products / Knowledge Base se details nikal raha hoon — thoda wait karein, ya model / kW / residential-commercial confirm karein."
+                : "Got your product request. I’m pulling details from our Products and Knowledge Base — please wait a moment, or share model / kW / residential-commercial.";
+          }
         }
 
         await supabase.from("messages").insert({

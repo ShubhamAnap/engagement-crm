@@ -446,6 +446,14 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 
 ---
 
+### Session 2026-08-06 — WhatsApp broad product + KB answer
+
+**Issue:** `3kw` on WA → generic “Thanks for messaging…”.
+
+**Fix:** Broader intent (kW, HF, home/residential, category labels). WA uses `presentation: "whatsapp"` (up to 5 full packs). If no Products row → answer from Knowledge Base + products context (4–5 features), never generic welcome.
+
+---
+
 ### Session 2026-08-06 — Carousel shows full category
 
 Website carousel expands seed matches to **all active products in that category** (not top 8 only). Soft cap 60.

@@ -33,10 +33,29 @@ export type ProductPackResult =
       message: string;
     }
   | {
+      mode: "carousel";
+      products: DbProduct[];
+      message: string;
+    }
+  | {
       mode: "clarify";
       products: DbProduct[];
       message: string;
     };
+
+export type ProductCarouselCard = {
+  id: string;
+  name: string;
+  imageUrl: string | null;
+};
+
+export function toCarouselCards(products: DbProduct[]): ProductCarouselCard[] {
+  return products.map((p) => ({
+    id: p.id,
+    name: cleanProductDisplayName(p.name),
+    imageUrl: resolveProductImageUrl(p),
+  }));
+}
 
 export function extractRequestedKw(text: string): number | null {
   const m = String(text || "").match(KW_RE);
@@ -186,32 +205,32 @@ function clarifyMessage(products: DbProduct[]): string {
   return `Which product do you want?\n${lines.join("\n")}\n\nReply with the number.`;
 }
 
-function matchIntro(products: DbProduct[]): string {
-  if (products.length === 1) {
-    return formatProductPackBody(products[0]!);
-  }
-  const blocks = products.map((p, i) => `---\n${i + 1}. ${formatProductPackBody(p)}`);
-  return `Here are the matching products:\n\n${blocks.join("\n\n")}`;
+function carouselIntro(count: number): string {
+  if (count <= 1) return "Here’s a matching product — tap I need this for price, features, and catalogue.";
+  return `Here are ${count} matching products — swipe left or right, then tap I need this.`;
 }
 
 /**
  * Resolve product pack from active Products rows.
  * Pending numbered picks: reply "1" / "2" after clarify.
+ * presentation "carousel" = website browse cards (no price until I need this).
  */
 export async function resolveProductPackRequest(
   query: string,
   options?: {
     pendingProducts?: Array<{ id: string; name: string }>;
+    presentation?: "detail" | "carousel";
   },
 ): Promise<ProductPackResult> {
   const q = String(query || "").trim();
+  const presentation = options?.presentation || "detail";
   if (!q) return { mode: "none" };
   if (isAckOnlyMessage(q) || isGreetingOnlyMessage(q)) return { mode: "none" };
   if (isServiceIntent(q) && !/^\d{1,2}$/.test(q)) return { mode: "none" };
 
   const supabase = createServiceSupabase();
 
-  // Follow-up pick after clarify list
+  // Follow-up pick after clarify / carousel list
   if (options?.pendingProducts?.length) {
     const num = q.match(/^(\d{1,2})$/);
     if (num) {
@@ -269,11 +288,20 @@ export async function resolveProductPackRequest(
   const ranked = rankProductsForQuery(products, q);
   if (!ranked.length) return { mode: "none" };
 
+  // Website: always show swipeable cards first
+  if (presentation === "carousel") {
+    const cards = ranked.slice(0, 8);
+    return {
+      mode: "carousel",
+      products: cards,
+      message: carouselIntro(cards.length),
+    };
+  }
+
   if (ranked.length === 1) {
     return { mode: "match", products: ranked.slice(0, 1), message: matchIntro(ranked.slice(0, 1)) };
   }
 
-  // Same kW family with multiple SKUs → clarify unless query named one clearly
   const top = ranked.slice(0, 6);
   const topScoreGap =
     scoreProduct(top[0]!, q, extractRequestedKw(q), categoryHint(q)) -
@@ -283,12 +311,25 @@ export async function resolveProductPackRequest(
     return { mode: "match", products: top.slice(0, 1), message: matchIntro(top.slice(0, 1)) };
   }
 
-  // Strong single winner already handled; 2–3 close matches → send all packs (max 3)
   if (top.length <= 3 && extractRequestedKw(q) != null) {
     return { mode: "match", products: top, message: matchIntro(top) };
   }
 
   return { mode: "clarify", products: top, message: clarifyMessage(top) };
+}
+
+/** Load one active product by id (for I need this). */
+export async function loadActiveProductById(productId: string): Promise<DbProduct | null> {
+  const supabase = createServiceSupabase();
+  const { data, error } = await supabase
+    .from("products")
+    .select("*")
+    .eq("org_id", ORG_ID)
+    .eq("id", productId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as DbProduct) || null;
 }
 
 export type ProductPackMedia = {

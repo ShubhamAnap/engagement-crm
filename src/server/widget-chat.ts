@@ -28,7 +28,14 @@ import {
   humanWaitReplyForLang,
 } from "@/lib/session-language";
 import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, wantsReferenceImages, customerAskedForMorePhotos } from "@/server/knowledge";
-import { resolveProductPackRequest, buildProductPackMedia, buildProductsContextForAi } from "@/server/product-pack";
+import {
+  resolveProductPackRequest,
+  buildProductPackMedia,
+  buildProductsContextForAi,
+  toCarouselCards,
+  loadActiveProductById,
+} from "@/server/product-pack";
+import { formatProductPackBody, cleanProductDisplayName } from "@/lib/product-card";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -269,10 +276,10 @@ async function getConversationMessages(
 ) {
   const { data, error } = await supabase
     .from("messages")
-    .select("sender, body, created_at")
+    .select("id, sender, body, created_at, metadata, confidence, sources")
     .eq("conversation_id", conversationId)
     .order("created_at", { ascending: true })
-    .limit(20);
+    .limit(200);
 
   if (error) throw new Error(error.message);
   return data ?? [];
@@ -832,8 +839,67 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       ? (prevMeta.pending_product_options as Array<{ id: string; name: string }>)
       : [];
 
-    // Products catalogue pack: photo + price + description + PDF (e.g. "3kw inverter price")
-    const productPack = await resolveProductPackRequest(text, { pendingProducts });
+    // Products: website → swipe carousel first; detail only after "I need this"
+    const productPack = await resolveProductPackRequest(text, {
+      pendingProducts,
+      presentation: "carousel",
+    });
+    if (productPack.mode === "carousel") {
+      const nextMeta: Record<string, unknown> = {
+        ...prevMeta,
+        pending_product_options: productPack.products.map((p) => ({
+          id: p.id,
+          name: cleanProductDisplayName(p.name),
+        })),
+      };
+      await supabase.from("conversations").update({ metadata: nextMeta }).eq("id", data.conversationId);
+
+      const cards = toCarouselCards(productPack.products);
+      const reply = productPack.message;
+      const inspector = buildAnswerInspector({
+        chunks: [],
+        replySource: "openai",
+        model: "gpt-4o-mini",
+        agentName: "EnerBot",
+        channel: (convo.channel as string) || "website",
+        visitorName: convo.visitor_name || "Website visitor",
+        downloadCount: 0,
+        memoryEnabled: true,
+      });
+
+      const { error: packErr } = await supabase.from("messages").insert({
+        org_id: ORG_ID,
+        conversation_id: data.conversationId,
+        sender: "ai",
+        body: reply,
+        confidence: inspector.confidence,
+        sources: inspector.sources,
+        metadata: {
+          ...inspector.metadata,
+          product_carousel: true,
+          products: cards,
+        },
+      });
+      if (packErr) throw new Error(packErr.message);
+
+      await supabase
+        .from("conversations")
+        .update({
+          preview: reply.slice(0, 160),
+          last_message_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", data.conversationId);
+
+      return {
+        messages: await getConversationMessages(supabase, data.conversationId),
+        reply,
+        source: "openai",
+        aiPaused: false,
+        status: convo.status,
+      };
+    }
+
     if (productPack.mode === "clarify" || productPack.mode === "match") {
       const nextMeta: Record<string, unknown> = { ...prevMeta };
       if (productPack.mode === "clarify") {
@@ -1342,6 +1408,140 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       source,
       aiPaused: false,
       status: convo.status,
+    };
+  });
+
+/** Website carousel: customer tapped “I need this” → Name, Photo, Price, Features, Catalogue. */
+export const widgetSelectProduct = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      key: z.string().min(1),
+      pageOrigin: z.string().max(500).optional(),
+      conversationId: z.string().uuid(),
+      productId: z.string().uuid(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await assertWidgetAccess(data.key, data.pageOrigin);
+    const supabase = createServiceSupabase();
+
+    const { data: convo, error: convoError } = await supabase
+      .from("conversations")
+      .select("id, status, visitor_name, metadata, unread_count, channel")
+      .eq("id", data.conversationId)
+      .eq("org_id", ORG_ID)
+      .maybeSingle();
+    if (convoError) throw new Error(convoError.message);
+    if (!convo) throw new Error("Conversation not found");
+
+    const aiPaused =
+      convo.status === "human" ||
+      convo.status === "escalated" ||
+      convo.status === "resolved" ||
+      convo.status === "closed";
+
+    const product = await loadActiveProductById(data.productId);
+    if (!product) throw new Error("Product not found");
+
+    const displayName = cleanProductDisplayName(product.name);
+    const customerBody = `I need this — ${displayName}`;
+
+    const { error: customerErr } = await supabase.from("messages").insert({
+      org_id: ORG_ID,
+      conversation_id: data.conversationId,
+      sender: "customer",
+      body: customerBody,
+      metadata: { product_select: true, product_id: product.id },
+    });
+    if (customerErr) throw new Error(customerErr.message);
+
+    const unread = Number(convo.unread_count || 0) + 1;
+    await supabase
+      .from("conversations")
+      .update({
+        unread_count: unread,
+        preview: customerBody.slice(0, 160),
+        last_message_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", data.conversationId);
+
+    if (aiPaused) {
+      return {
+        messages: await getConversationMessages(supabase, data.conversationId),
+        reply: null as string | null,
+        source: "fallback" as const,
+        aiPaused: true,
+        status: convo.status as string,
+      };
+    }
+
+    const media = buildProductPackMedia([product])[0]!;
+    const reply = formatProductPackBody(product);
+    const images = media.imageUrl
+      ? [{ url: media.imageUrl, title: "Product photo", file_name: `${media.productName}.jpg` }]
+      : [];
+    const downloadLinks = media.catalogueUrl
+      ? [
+          {
+            title: "Catalogue",
+            url: media.catalogueUrl,
+            file_name: media.catalogueFileName || "catalogue.pdf",
+          },
+        ]
+      : [];
+
+    const inspector = buildAnswerInspector({
+      chunks: [],
+      replySource: "openai",
+      model: "gpt-4o-mini",
+      agentName: "EnerBot",
+      channel: (convo.channel as string) || "website",
+      visitorName: (convo.visitor_name as string) || "Website visitor",
+      downloadCount: downloadLinks.length,
+      memoryEnabled: true,
+    });
+
+    const prevMeta =
+      convo.metadata && typeof convo.metadata === "object"
+        ? { ...(convo.metadata as Record<string, unknown>) }
+        : {};
+    delete prevMeta.pending_product_options;
+
+    const { error: aiErr } = await supabase.from("messages").insert({
+      org_id: ORG_ID,
+      conversation_id: data.conversationId,
+      sender: "ai",
+      body: reply,
+      confidence: inspector.confidence,
+      sources: inspector.sources,
+      metadata: {
+        ...inspector.metadata,
+        product_pack: true,
+        product_pack_mode: "match",
+        product_ids: [product.id],
+        reference_images: images,
+        download_links: downloadLinks,
+      },
+    });
+    if (aiErr) throw new Error(aiErr.message);
+
+    await supabase
+      .from("conversations")
+      .update({
+        metadata: prevMeta,
+        preview: reply.slice(0, 160),
+        last_message_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", data.conversationId);
+
+    return {
+      messages: await getConversationMessages(supabase, data.conversationId),
+      reply,
+      source: "openai" as const,
+      aiPaused: false,
+      status: convo.status as string,
     };
   });
 

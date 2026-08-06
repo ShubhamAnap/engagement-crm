@@ -16,9 +16,11 @@ import {
   widgetListMessages,
   widgetLookupVisitor,
   widgetSendMessage,
+  widgetSelectProduct,
   widgetUploadAttachment,
 } from "@/server/widget-chat";
 import { ChatDownloadLinks, ChatReferenceImages, cleanChatExtrasCaption } from "@/components/ChatReferenceImages";
+import { ChatProductCarousel, extractProductCarousel, type ChatProductCard } from "@/components/ChatProductCarousel";
 import { useStickToBottomScroll } from "@/lib/chat-scroll";
 
 type ServerMessage = {
@@ -36,6 +38,7 @@ type UiMsg = {
   kind?: "ai" | "agent";
   images?: RefImage[];
   downloads?: DownloadLink[];
+  products?: ChatProductCard[];
 };
 type VisitorProfile = { name: string; email: string; phone: string; company: string; location: string };
 
@@ -156,6 +159,7 @@ function toUi(messages: ServerMessage[]): UiMsg[] {
     kind: m.sender === "agent" ? "agent" : m.sender === "ai" ? "ai" : undefined,
     images: extractReferenceImages(m.metadata),
     downloads: extractDownloadLinks(m.metadata),
+    products: extractProductCarousel(m.metadata),
   }));
 }
 
@@ -566,6 +570,45 @@ export function ChatWidget() {
     }
   };
 
+  const needThisProduct = async (productId: string) => {
+    if (busy || !productId) return;
+    if (!session) {
+      toast.error("Sign in to use the live widget preview");
+      return;
+    }
+    if (!widgetKey) {
+      toast.error("Widget public key is missing.");
+      return;
+    }
+    if (!isProfileComplete(profile)) {
+      setEditingContact(true);
+      toast.error("Please share your name, email, phone, and location so we can help you.");
+      return;
+    }
+
+    setBusy(true);
+    pinToBottom();
+    setTyping(true);
+    try {
+      persistProfile(profile);
+      let convoId = conversationId;
+      if (!convoId) convoId = await syncConversationProfile(profile);
+      else await syncConversationProfile(profile);
+      const result = await widgetSelectProduct({
+        data: { key: widgetKey, pageOrigin, conversationId: convoId, productId },
+      });
+      setMsgs(applyHistory(result.messages as ServerMessage[]));
+      if (result.aiPaused || result.status === "human" || result.status === "escalated") setHumanMode(true);
+      setEditingContact(false);
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "Could not load product details");
+    } finally {
+      setTyping(false);
+      setBusy(false);
+    }
+  };
+
   return (
     <>
       {open && (
@@ -701,6 +744,16 @@ export function ChatWidget() {
                             <p className="whitespace-pre-wrap break-words px-3 py-2">{caption}</p>
                           ) : null;
                         })()}
+                        {m.products && m.products.length > 0 ? (
+                          <div className="px-2 pb-2">
+                            <ChatProductCarousel
+                              products={m.products}
+                              brand={BRAND}
+                              disabled={busy}
+                              onNeedThis={(id) => void needThisProduct(id)}
+                            />
+                          </div>
+                        ) : null}
                         {m.downloads && m.downloads.length > 0 ? (
                           <div className="px-2 pb-2">
                             <ChatDownloadLinks links={m.downloads} brand={BRAND} />

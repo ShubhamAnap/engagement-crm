@@ -15,8 +15,10 @@ import {
   widgetListMessages,
   widgetLookupVisitor,
   widgetSendMessage,
+  widgetSelectProduct,
 } from "@/server/widget-chat";
 import { ChatDownloadLinks, ChatReferenceImages, cleanChatExtrasCaption } from "@/components/ChatReferenceImages";
+import { ChatProductCarousel, extractProductCarousel, type ChatProductCard } from "@/components/ChatProductCarousel";
 import { useStickToBottomScroll } from "@/lib/chat-scroll";
 
 const SESSION_KEY = "enertech-embed-session";
@@ -39,6 +41,7 @@ type UiMsg = {
   kind?: "ai" | "agent";
   images?: RefImage[];
   downloads?: DownloadLink[];
+  products?: ChatProductCard[];
 };
 type VisitorProfile = { name: string; email: string; phone: string; company: string; location: string };
 
@@ -164,6 +167,7 @@ function toUi(messages: ServerMessage[]): UiMsg[] {
     kind: m.sender === "agent" ? "agent" : m.sender === "ai" ? "ai" : undefined,
     images: extractReferenceImages(m.metadata),
     downloads: extractDownloadLinks(m.metadata),
+    products: extractProductCarousel(m.metadata),
   }));
 }
 
@@ -504,13 +508,45 @@ function EmbedChat() {
       const result = await widgetSendMessage({
         data: { key, pageOrigin, conversationId: convoId, body: userText },
       });
-      setMsgs(applyHistory(result.messages as ServerMessage[]));
+      setMsgs(applyHistory(result.messages as unknown as ServerMessage[]));
       if (result.aiPaused || result.status === "human" || result.status === "escalated") setHumanMode(true);
       setEditingContact(false);
       setError(null);
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : "Send failed");
+    } finally {
+      setTyping(false);
+      setBusy(false);
+    }
+  }
+
+  async function needThisProduct(productId: string) {
+    if (!productId || busy || !key) return;
+    if (!isProfileComplete(profile)) {
+      setEditingContact(true);
+      setError("Please share your name, email, phone, and location so we can help you.");
+      return;
+    }
+    setBusy(true);
+    setTyping(true);
+    pinToBottom();
+    try {
+      persistProfile(profile);
+      let convoId = conversationId;
+      if (!convoId) convoId = await syncConversationProfile(profile);
+      else await syncConversationProfile(profile);
+      if (!convoId) throw new Error("Conversation not ready");
+      const result = await widgetSelectProduct({
+        data: { key, pageOrigin, conversationId: convoId, productId },
+      });
+      setMsgs(applyHistory(result.messages as unknown as ServerMessage[]));
+      if (result.aiPaused || result.status === "human" || result.status === "escalated") setHumanMode(true);
+      setEditingContact(false);
+      setError(null);
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : "Could not load product details");
     } finally {
       setTyping(false);
       setBusy(false);
@@ -742,6 +778,16 @@ function EmbedChat() {
                         <p className="whitespace-pre-wrap break-words px-3 py-2">{caption}</p>
                       ) : null;
                     })()}
+                    {m.products && m.products.length > 0 ? (
+                      <div className="px-2 pb-2">
+                        <ChatProductCarousel
+                          products={m.products}
+                          brand={BRAND}
+                          disabled={busy}
+                          onNeedThis={(id) => void needThisProduct(id)}
+                        />
+                      </div>
+                    ) : null}
                     {m.downloads && m.downloads.length > 0 ? (
                       <div className="px-2 pb-2">
                         <ChatDownloadLinks links={m.downloads} brand={BRAND} />

@@ -446,6 +446,16 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 
 ---
 
+### Session 2026-08-06 — Website product carousel (“I need this”)
+
+**UX:** Product ask (`3kw` etc.) → horizontal swipe cards (photo + name + **I need this**). Tap → Name, Photo, Price, Features, Catalogue only.
+
+**Scope:** Website widget + embed. WhatsApp unchanged (full pack / clarify).
+
+**Files:** `ChatProductCarousel.tsx`, `widgetSelectProduct`, `product-pack` carousel mode.
+
+---
+
 ### Session 2026-08-06 — Website chat scroll UX
 
 **Bug:** Widget poll + `scrollIntoView` yanked users back to latest while reading history.

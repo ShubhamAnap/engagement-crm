@@ -1044,9 +1044,17 @@ export async function ingestBrainmineLead(
 
   try {
     const { fireAutomations } = await import("@/server/automation-engine");
-    fireAutomations("lead_created", { leadId: lead.id as string });
+    // New lead only (duplicates update existing and skip this path)
+    fireAutomations("brainmine_lead", {
+      leadId: lead.id as string,
+      source: "brainmine",
+    });
+    fireAutomations("lead_created", {
+      leadId: lead.id as string,
+      source: "brainmine",
+    });
   } catch (err) {
-    console.error("brainmine lead_created automation", err);
+    console.error("brainmine lead automation", err);
   }
 
   return { created: true, updated: false, skipped: false, leadId: lead.id as string };

@@ -446,6 +446,12 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 
 ---
 
+### Session 2026-08-06 — Automation trigger: Brainmine new lead
+
+Added trigger **`brainmine_lead`** (“Brainmine CRM new lead synced”) — fires only on **new** inserts from Brainmine sync (not duplicate updates). Migration `024_brainmine_automation_trigger.sql`.
+
+---
+
 ### Session 2026-08-06 — WhatsApp: only requested kW products
 
 WhatsApp sends **only** matching rating/model packs (e.g. 3kW → ~3kW only, max 3). Full-category carousel remains **website-only**.

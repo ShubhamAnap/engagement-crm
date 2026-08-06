@@ -4,6 +4,7 @@ export type AutomationTrigger =
   | "lead_created"
   | "indiamart_lead"
   | "tradeindia_lead"
+  | "brainmine_lead"
   | "conversation_escalated"
   | "lead_status_changed"
   | "follow_up_due";

@@ -22,6 +22,13 @@ import {
 import { ChatDownloadLinks, ChatReferenceImages, cleanChatExtrasCaption } from "@/components/ChatReferenceImages";
 import { ChatProductCarousel, extractProductCarousel, type ChatProductCard } from "@/components/ChatProductCarousel";
 import { useStickToBottomScroll } from "@/lib/chat-scroll";
+import {
+  DEFAULT_PHONE_COUNTRY,
+  PHONE_COUNTRY_OPTIONS,
+  composeInternationalPhone,
+  formatPhoneCountryOption,
+  splitInternationalPhone,
+} from "@/lib/phone-country";
 
 type ServerMessage = {
   id: string;
@@ -40,7 +47,15 @@ type UiMsg = {
   downloads?: DownloadLink[];
   products?: ChatProductCard[];
 };
-type VisitorProfile = { name: string; email: string; phone: string; company: string; location: string };
+type VisitorProfile = {
+  name: string;
+  email: string;
+  /** National number only (no country dial). */
+  phone: string;
+  phoneCountryCode: string;
+  company: string;
+  location: string;
+};
 
 const SESSION_KEY = "enertech-widget-session";
 const PROFILE_KEY = "enertech-widget-profile";
@@ -52,7 +67,18 @@ const welcome: UiMsg = {
   from: "bot",
   text: "Hi 👋 I'm EnerBot from EnerTech UPS. Ask about products, runtime, service, or request a quotation.",
 };
-const emptyProfile: VisitorProfile = { name: "", email: "", phone: "", company: "", location: "" };
+const emptyProfile: VisitorProfile = {
+  name: "",
+  email: "",
+  phone: "",
+  phoneCountryCode: DEFAULT_PHONE_COUNTRY,
+  company: "",
+  location: "",
+};
+
+function profilePhoneE164(profile: VisitorProfile) {
+  return composeInternationalPhone(profile.phoneCountryCode || DEFAULT_PHONE_COUNTRY, profile.phone);
+}
 
 function getSessionId() {
   let id = localStorage.getItem(SESSION_KEY);
@@ -73,11 +99,26 @@ function loadStoredProfile(): VisitorProfile {
   try {
     const raw = localStorage.getItem(PROFILE_KEY);
     if (!raw) return emptyProfile;
-    const parsed = JSON.parse(raw) as Partial<VisitorProfile>;
+    const parsed = JSON.parse(raw) as Partial<VisitorProfile> & { phoneCountryCode?: string };
+    const storedCode = String(parsed.phoneCountryCode || "").replace(/\D/g, "");
+    const storedPhone = String(parsed.phone || "");
+    // Older profiles stored full E.164 in `phone` without a dial selector
+    if (!storedCode && storedPhone.replace(/\D/g, "").length > 10) {
+      const split = splitInternationalPhone(storedPhone);
+      return {
+        name: String(parsed.name || ""),
+        email: String(parsed.email || ""),
+        phone: split.national,
+        phoneCountryCode: split.countryCode,
+        company: String(parsed.company || ""),
+        location: String(parsed.location || ""),
+      };
+    }
     return {
       name: String(parsed.name || ""),
       email: String(parsed.email || ""),
-      phone: String(parsed.phone || ""),
+      phone: storedPhone,
+      phoneCountryCode: storedCode || DEFAULT_PHONE_COUNTRY,
       company: String(parsed.company || ""),
       location: String(parsed.location || ""),
     };
@@ -94,20 +135,26 @@ function isProfileComplete(profile: VisitorProfile) {
   return Boolean(
     profile.name.trim() &&
       profile.email.trim() &&
-      profile.phone.trim() &&
+      profilePhoneE164(profile).length >= 10 &&
       profile.location.trim(),
   );
 }
 
 function hasIdentity(profile: VisitorProfile) {
-  return Boolean(profile.email.trim() || profile.phone.trim());
+  return Boolean(profile.email.trim() || profilePhoneE164(profile));
 }
 
-function mergeMissingFields(current: VisitorProfile, known: Partial<VisitorProfile>): VisitorProfile {
+function mergeMissingFields(current: VisitorProfile, known: Partial<VisitorProfile> & { phone?: string }): VisitorProfile {
+  const knownSplit = known.phone?.trim() ? splitInternationalPhone(known.phone) : null;
   return {
     name: current.name.trim() || known.name?.trim() || "",
     email: current.email.trim() || known.email?.trim() || "",
-    phone: current.phone.trim() || known.phone?.trim() || "",
+    phone: current.phone.trim() || knownSplit?.national || "",
+    phoneCountryCode:
+      current.phoneCountryCode ||
+      known.phoneCountryCode ||
+      knownSplit?.countryCode ||
+      DEFAULT_PHONE_COUNTRY,
     company: current.company.trim() || known.company?.trim() || "",
     location: current.location.trim() || known.location?.trim() || "",
   };
@@ -306,7 +353,7 @@ export function ChatWidget() {
         pageOrigin,
         visitorName: visitor.name,
         visitorEmail: visitor.email,
-        visitorPhone: visitor.phone,
+        visitorPhone: profilePhoneE164(visitor),
         visitorCompany: visitor.company,
         visitorLocation: visitor.location,
       },
@@ -405,13 +452,14 @@ export function ChatWidget() {
     if (!open || !session || !widgetKey) return;
     if (!hasIdentity(profile)) return;
 
-    const lookupKey = `${profile.email.trim().toLowerCase()}|${profile.phone.trim()}`;
+    const e164 = profilePhoneE164(profile);
+    const lookupKey = `${profile.email.trim().toLowerCase()}|${e164}`;
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
           if (lookedUpRef.current === lookupKey) return;
           const known = await widgetLookupVisitor({
-            data: { key: widgetKey, pageOrigin, email: profile.email, phone: profile.phone },
+            data: { key: widgetKey, pageOrigin, email: profile.email, phone: e164 },
           });
           lookedUpRef.current = lookupKey;
           if (!known) return;
@@ -428,7 +476,7 @@ export function ChatWidget() {
     }, 500);
 
     return () => window.clearTimeout(timer);
-  }, [profile.email, profile.phone, open, session, widgetKey]);
+  }, [profile.email, profile.phone, profile.phoneCountryCode, open, session, widgetKey]);
 
   async function saveContactAndContinue() {
     if (!isProfileComplete(profile)) {
@@ -678,9 +726,32 @@ export function ChatWidget() {
                   <Mail className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" style={{ color: BRAND }} />
                   <Input value={profile.email} onChange={(e) => setProfile((s) => ({ ...s, email: e.target.value }))} placeholder="Email *" className="h-9 border pl-8 text-xs" style={{ borderColor: `${BRAND}44`, color: BRAND }} />
                 </div>
-                <div className="relative">
-                  <Phone className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" style={{ color: BRAND }} />
-                  <Input value={profile.phone} onChange={(e) => setProfile((s) => ({ ...s, phone: e.target.value }))} placeholder="Phone *" className="h-9 border pl-8 text-xs" style={{ borderColor: `${BRAND}44`, color: BRAND }} />
+                <div className="flex gap-1.5">
+                  <select
+                    aria-label="Country code"
+                    value={profile.phoneCountryCode || DEFAULT_PHONE_COUNTRY}
+                    onChange={(e) => setProfile((s) => ({ ...s, phoneCountryCode: e.target.value }))}
+                    className="h-9 w-[4.75rem] shrink-0 rounded-md border bg-white px-1 text-center text-[11px] font-semibold outline-none"
+                    style={{ borderColor: `${BRAND}44`, color: BRAND }}
+                  >
+                    {PHONE_COUNTRY_OPTIONS.map((opt) => (
+                      <option key={opt.code} value={opt.code}>
+                        {formatPhoneCountryOption(opt.code, opt.label)}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="relative min-w-0 flex-1">
+                    <Phone className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" style={{ color: BRAND }} />
+                    <Input
+                      value={profile.phone}
+                      onChange={(e) => setProfile((s) => ({ ...s, phone: e.target.value.replace(/[^\d\s-]/g, "") }))}
+                      placeholder="Mobile number *"
+                      inputMode="tel"
+                      autoComplete="tel-national"
+                      className="h-9 border pl-8 text-xs"
+                      style={{ borderColor: `${BRAND}44`, color: BRAND }}
+                    />
+                  </div>
                 </div>
                 <div className="relative">
                   <MapPin className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" style={{ color: BRAND }} />

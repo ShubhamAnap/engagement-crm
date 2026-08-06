@@ -47,6 +47,7 @@ import {
   whatsappMeUrl,
   type WhatsAppWindowState,
 } from "@/lib/whatsapp-window";
+import { formatDisplayPhone } from "@/lib/phone-country";
 import { RecommendProductDialog } from "@/components/inbox/RecommendProductDialog";
 import { SendWhatsAppTemplateDialog } from "@/components/inbox/SendWhatsAppTemplateDialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -970,7 +971,7 @@ function Page() {
               {[
                 ["Name", selected.customer?.name || selected.visitor_name || "—"],
                 ["Company", selected.customer?.company || selected.visitor_company || "—"],
-                ["Phone", selected.customer?.phone || selected.visitor_phone || "—"],
+                ["Phone", formatDisplayPhone(selected.customer?.phone || selected.visitor_phone) || "—"],
                 ["Email", selected.customer?.email || selected.visitor_email || "—"],
                 ["Assigned", selected.assignee_label || "—"],
                 ["Status", selected.status],

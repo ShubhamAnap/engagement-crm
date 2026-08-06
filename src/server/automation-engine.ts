@@ -9,6 +9,7 @@ import type {
 } from "@/lib/automation-types";
 import { triggerFilterMatches } from "@/lib/automation-types";
 import { createServiceSupabase } from "@/lib/supabase";
+import { normalizeWhatsAppDigits } from "@/lib/whatsapp-window";
 
 export type { AutomationAction, AutomationTrigger } from "@/lib/automation-types";
 
@@ -93,6 +94,10 @@ async function enrichContext(
       out.location = out.location || (lead.location as string) || null;
       out.notes = out.notes || (lead.notes as string) || null;
     }
+  }
+
+  if (out.phone) {
+    out.phone = normalizeWhatsAppDigits(out.phone) || out.phone;
   }
 
   return out;
@@ -263,7 +268,10 @@ function matchesTriggerConfig(
   }
   if (!triggerFilterMatches(config.source, ctx.source)) return false;
   if (!triggerFilterMatches(config.priority, ctx.priority)) return false;
-  if (!triggerFilterMatches(config.channel, ctx.channel)) return false;
+  // Website form capture is always channel=website — don't let a WhatsApp-only filter block welcome WA
+  if (trigger !== "website_visitor_captured") {
+    if (!triggerFilterMatches(config.channel, ctx.channel)) return false;
+  }
   if (!triggerFilterMatches(config.lead_status, ctx.leadStatus)) return false;
   return true;
 }
@@ -648,9 +656,22 @@ export async function runAutomations(
 
   for (const auto of automations) {
     const config = (auto.trigger_config || {}) as AutomationTriggerConfig;
-    if (!matchesTriggerConfig(trigger, config, enriched)) continue;
+    if (!matchesTriggerConfig(trigger, config, enriched)) {
+      console.info("automation skipped (trigger filters)", {
+        name: auto.name,
+        trigger,
+        channel: enriched.channel,
+        source: enriched.source,
+        config,
+      });
+      continue;
+    }
 
-    if (auto.requires_approval !== false) {
+    // Website welcome: send immediately when Live (don't queue for Approve)
+    const needsApproval =
+      trigger !== "website_visitor_captured" && auto.requires_approval !== false;
+
+    if (needsApproval) {
       try {
         await enqueueApproval(supabase, auto, trigger, enriched);
         pending += 1;

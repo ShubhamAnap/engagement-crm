@@ -36,6 +36,7 @@ import {
   loadActiveProductById,
 } from "@/server/product-pack";
 import { formatProductPackBody, cleanProductDisplayName } from "@/lib/product-card";
+import { normalizeWhatsAppDigits } from "@/lib/whatsapp-window";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -111,10 +112,13 @@ async function assertWidgetAccess(key: string, pageOrigin?: string | null) {
 }
 
 function normalizeVisitor(fields: VisitorFields) {
+  const rawPhone = fields.visitorPhone?.trim() || null;
+  // Store E.164-style digits (91… for Indian 10-digit mobiles) so WA templates / inbox match
+  const waPhone = normalizeWhatsAppDigits(rawPhone);
   return {
     visitor_name: fields.visitorName?.trim() || null,
     visitor_email: fields.visitorEmail?.trim() || null,
-    visitor_phone: fields.visitorPhone?.trim() || null,
+    visitor_phone: waPhone || rawPhone,
     visitor_company: fields.visitorCompany?.trim() || null,
     visitor_location: fields.visitorLocation?.trim() || null,
   };
@@ -161,16 +165,22 @@ async function findCustomerByEmailOrPhone(
   }
 
   if (normalizedPhone) {
-    const { data, error } = await supabase
-      .from("customers")
-      .select("id, name, email, phone, company, metadata")
-      .eq("org_id", ORG_ID)
-      .eq("phone", normalizedPhone)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    if (data) return data;
+    const waDigits = normalizeWhatsAppDigits(normalizedPhone) || normalizedPhone.replace(/\D/g, "");
+    const variants = Array.from(
+      new Set([normalizedPhone, waDigits, waDigits.length === 12 && waDigits.startsWith("91") ? waDigits.slice(2) : ""].filter(Boolean)),
+    );
+    for (const phone of variants) {
+      const { data, error } = await supabase
+        .from("customers")
+        .select("id, name, email, phone, company, metadata")
+        .eq("org_id", ORG_ID)
+        .eq("phone", phone)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (data) return data;
+    }
   }
 
   return null;
@@ -436,19 +446,64 @@ async function syncConversationIdentity(
         >),
         website_visitor_captured_at: captureAt,
       };
-      await supabase.from("conversations").update({ metadata: nextMeta }).eq("id", convo.id);
+      const phoneForWa =
+        normalizeWhatsAppDigits(
+          (linked?.visitor_phone as string) || updates.visitor_phone,
+        ) ||
+        (linked?.visitor_phone as string) ||
+        updates.visitor_phone;
+      const displayName =
+        (linked?.visitor_name as string) || updates.visitor_name || "Website visitor";
+      const preview = `Form submitted · ${displayName}${phoneForWa ? ` · ${phoneForWa}` : ""}`.slice(
+        0,
+        160,
+      );
 
-      const { fireAutomations } = await import("@/server/automation-engine");
-      fireAutomations("website_visitor_captured", {
+      // Surface in Inbox: preview + unread + timestamp (form-only chats otherwise sink)
+      await supabase
+        .from("conversations")
+        .update({
+          metadata: nextMeta,
+          visitor_phone: phoneForWa || updates.visitor_phone,
+          preview,
+          last_message_at: captureAt,
+          updated_at: captureAt,
+          unread_count: 1,
+        })
+        .eq("id", convo.id);
+
+      await supabase.from("messages").insert({
+        org_id: ORG_ID,
+        conversation_id: convo.id,
+        sender: "system",
+        body: `Website chat form saved${phoneForWa ? ` · WhatsApp ${phoneForWa}` : ""}.`,
+        metadata: { website_visitor_captured: true },
+      });
+
+      if (leadId && phoneForWa) {
+        await supabase.from("leads").update({ phone: phoneForWa }).eq("id", leadId);
+      }
+      const custId = (linked?.customer_id as string) || customerId || convo.customer_id;
+      if (custId && phoneForWa) {
+        await supabase.from("customers").update({ phone: phoneForWa }).eq("id", custId);
+      }
+
+      const { runAutomations } = await import("@/server/automation-engine");
+      const result = await runAutomations("website_visitor_captured", {
         conversationId: convo.id,
         leadId: leadId || null,
         source: "website",
         channel: "website",
-        phone: (linked?.visitor_phone as string) || updates.visitor_phone,
+        phone: phoneForWa,
         email: (linked?.visitor_email as string) || updates.visitor_email,
-        leadName: (linked?.visitor_name as string) || updates.visitor_name,
+        leadName: displayName,
         company: (linked?.visitor_company as string) || updates.visitor_company,
         leadStatus: "New",
+      });
+      console.info("website_visitor_captured", {
+        conversationId: convo.id,
+        phone: phoneForWa,
+        ...result,
       });
     } catch (err) {
       console.error("website_visitor_captured automation", err);

@@ -502,6 +502,20 @@ Website carousel expands seed matches to **all active products in that category*
 
 ---
 
+### Session 2026-08-06 — Website chatbot country code + welcome WA fix
+
+**UX:** Chat contact form (`ChatWidget` + `embed`) has a compact country dial selector (default **IN +91**) beside the mobile field. Full number (`91…`) is saved to conversation / lead / customer.
+
+**Inbox:** Form capture bumps unread + preview + system line so website visitors surface in the feed. Phone shown with `+` country code.
+
+**Automation:** `website_visitor_captured` ignores channel filter mismatch, auto-runs when Live (no Approve queue), normalizes phone before WA template send.
+
+**Files:** `src/lib/phone-country.ts`, `ChatWidget.tsx`, `embed.tsx`, `widget-chat.ts`, `automation-engine.ts`, `inbox.tsx`.
+
+**Ops:** Ensure migrations `025` (+ `026` if using sales directory) are applied in Supabase.
+
+---
+
 ### Session 2026-08-06 — Website chat scroll UX
 
 **Bug:** Widget poll + `scrollIntoView` yanked users back to latest while reading history.

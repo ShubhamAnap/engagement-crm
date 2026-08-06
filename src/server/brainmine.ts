@@ -354,17 +354,14 @@ function buildAuthHeaders(cfg: BrainmineChannelConfig): Record<string, string> {
   }
   if (style === "token") {
     // ERPNext: Authorization: token api_key:api_secret
+    // Support users pasting the full "key:secret" token into the API key field.
+    if (key.includes(":")) {
+      return { Authorization: `token ${key}` };
+    }
     if (!secret) {
       throw new Error(
         "Brainmine API secret is missing. For token auth, save both API key and API secret under Channels → Configure Brainmine.",
       );
-    }
-    // If user pasted "key:secret" into the key field alone, don't double-append secret
-    if (key.includes(":") && !secret) {
-      return { Authorization: `token ${key}` };
-    }
-    if (key.includes(":")) {
-      return { Authorization: `token ${key}` };
     }
     return { Authorization: `token ${key}:${secret}` };
   }

@@ -21,15 +21,46 @@ export type InboxConversation = DbConversation & {
   lead?: Pick<DbLead, "id" | "name" | "status" | "score" | "priority" | "product_label"> | null;
 };
 
-export async function listConversations(orgId: string = ENERTECH_ORG_ID): Promise<InboxConversation[]> {
+export type ListConversationsOptions = {
+  /** DB channel value, e.g. website | whatsapp | indiamart */
+  channel?: string | null;
+  /** unread_count > 0 */
+  unreadOnly?: boolean;
+  /** Has assignee_id or assignee_label */
+  assignedOnly?: boolean;
+  limit?: number;
+};
+
+export async function listConversations(
+  orgId: string = ENERTECH_ORG_ID,
+  options: ListConversationsOptions = {},
+): Promise<InboxConversation[]> {
   const supabase = getBrowserSupabase();
-  const { data, error } = await supabase
+  const limit = Math.min(Math.max(options.limit ?? 200, 1), 500);
+
+  let query = supabase
     .from("conversations")
-    .select("*, customer:customers(id, name, company, email, phone), lead:leads(id, name, status, score, priority, product_label)")
-    .eq("org_id", orgId)
-    .order("last_message_at", { ascending: false, nullsFirst: false })
+    .select(
+      "*, customer:customers(id, name, company, email, phone), lead:leads(id, name, status, score, priority, product_label)",
+    )
+    .eq("org_id", orgId);
+
+  if (options.channel) {
+    query = query.eq("channel", options.channel);
+  }
+  if (options.unreadOnly) {
+    query = query.gt("unread_count", 0);
+  }
+  if (options.assignedOnly) {
+    query = query.or("assignee_id.not.is.null,assignee_label.not.is.null");
+  }
+
+  // Prefer activity time: messages update last_message_at; form/create update updated_at
+  const { data, error } = await query
     .order("updated_at", { ascending: false })
-    .limit(100);
+    .order("last_message_at", { ascending: false, nullsFirst: false })
+    .limit(limit);
+
   if (error) throw error;
   return (data ?? []) as InboxConversation[];
 }

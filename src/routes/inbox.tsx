@@ -53,6 +53,28 @@ import { SendWhatsAppTemplateDialog } from "@/components/inbox/SendWhatsAppTempl
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
 const filters = ["All", "Unread", "Assigned", "Website", "WhatsApp", "IndiaMART", "TradeIndia", "Instagram", "Facebook", "Email"];
+
+/** Map Inbox chip label → DB channel (null = no channel eq). */
+function inboxChannelParam(filter: string): string | null {
+  switch (filter) {
+    case "Website":
+      return "website";
+    case "WhatsApp":
+      return "whatsapp";
+    case "IndiaMART":
+      return "indiamart";
+    case "TradeIndia":
+      return "tradeindia";
+    case "Instagram":
+      return "instagram";
+    case "Facebook":
+      return "facebook";
+    case "Email":
+      return "email";
+    default:
+      return null;
+  }
+}
 const leadStatuses: LeadStatus[] = ["New", "Contacted", "Qualified", "Proposal", "Negotiation", "Won", "Lost"];
 const leadPriorities: PriorityLevel[] = ["High", "Medium", "Low"];
 const LAYOUT_KEY = "enertech-inbox-layout-v1";
@@ -174,20 +196,19 @@ function Page() {
   }, []);
 
   const conversationsQuery = useQuery({
-    queryKey: ["conversations", orgId],
-    queryFn: () => listConversations(orgId),
+    queryKey: ["conversations", orgId, channelFilter],
+    queryFn: () =>
+      listConversations(orgId, {
+        channel: inboxChannelParam(channelFilter),
+        unreadOnly: channelFilter === "Unread",
+        assignedOnly: channelFilter === "Assigned",
+        limit: channelFilter === "All" ? 250 : 200,
+      }),
     refetchInterval: 5000,
   });
 
   const conversations = useMemo(() => {
-    const all = conversationsQuery.data ?? [];
-    let rows = all;
-    if (channelFilter === "Unread") rows = all.filter((c) => c.unread_count > 0);
-    else if (channelFilter === "Assigned") {
-      rows = all.filter((c) => Boolean(c.assignee_id || c.assignee_label));
-    } else if (channelFilter !== "All") {
-      rows = all.filter((c) => c.channel === channelFilter.toLowerCase());
-    }
+    const rows = conversationsQuery.data ?? [];
     const q = listSearch.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((c) => {
@@ -200,13 +221,14 @@ function Page() {
         c.assignee_label,
         c.lead?.name,
         c.lead?.company,
+        c.channel,
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [conversationsQuery.data, channelFilter, listSearch]);
+  }, [conversationsQuery.data, listSearch]);
 
   useEffect(() => {
     if (deepLinkId) {
@@ -586,7 +608,11 @@ function Page() {
           <div className="p-4">
             <EmptyState
               title="No conversations yet"
-              description="Open Website chat and send a message — it will appear here."
+              description={
+                channelFilter === "Website"
+                  ? "No website chats in range yet. Open the chatbot, save contact details or send a message — it will show here."
+                  : "Open Website chat and send a message — it will appear here."
+              }
             />
           </div>
         ) : (

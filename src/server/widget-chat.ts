@@ -668,6 +668,7 @@ export const widgetGetOrCreateConversation = createServerFn({ method: "POST" })
     }
 
     const channelId = await getWebsiteChannelId(supabase);
+    const nowIso = new Date().toISOString();
     const { data: created, error: createError } = await supabase
       .from("conversations")
       .insert({
@@ -690,6 +691,9 @@ export const widgetGetOrCreateConversation = createServerFn({ method: "POST" })
         widget_session_id: data.sessionId,
         tags: ["Website", "Embed"],
         unread_count: 0,
+        preview: "New website chat",
+        last_message_at: nowIso,
+        updated_at: nowIso,
       })
       .select("*")
       .single();

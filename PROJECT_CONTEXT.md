@@ -502,6 +502,14 @@ Website carousel expands seed matches to **all active products in that category*
 
 ---
 
+### Session 2026-08-06 — Website chats missing from Inbox
+
+**Cause:** Inbox loaded only the latest **100** rows ordered by `last_message_at`, then filtered **Website** in the browser. Heavy WhatsApp/marketplace traffic pushed website threads out of that window — Website chip looked empty.
+
+**Fix:** Channel / Unread / Assigned filters query Supabase directly; sort by `updated_at`; raise limit; new website sessions stamp `last_message_at` + preview so they surface immediately.
+
+---
+
 ### Session 2026-08-06 — Website chatbot country code + welcome WA fix
 
 **UX:** Chat contact form (`ChatWidget` + `embed`) has a compact country dial selector (default **IN +91**) beside the mobile field. Full number (`91…`) is saved to conversation / lead / customer.

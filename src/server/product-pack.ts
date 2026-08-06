@@ -350,12 +350,9 @@ function clarifyMessage(products: DbProduct[]): string {
   return `Which product do you want?\n${lines.join("\n")}\n\nReply with the number.`;
 }
 
-function carouselIntro(count: number, categoryLabel?: string | null): string {
-  if (count <= 1) return "Here’s a matching product — tap I need this for price, features, and catalogue.";
-  if (categoryLabel) {
-    return `Here are all ${count} products in ${categoryLabel} — swipe left or right, then tap I need this.`;
-  }
-  return `Here are ${count} matching products — swipe left or right, then tap I need this.`;
+function carouselIntro(count: number, _categoryLabel?: string | null): string {
+  if (count <= 1) return "Here is the requested product.";
+  return "Here are the requested products.";
 }
 
 /**
@@ -438,13 +435,10 @@ export async function resolveProductPackRequest(
   if (presentation === "carousel") {
     const cards = productsForCarousel(products, q);
     if (!cards.length) return { mode: "none" };
-    const cat =
-      cards.find((p) => p.category?.trim())?.category?.trim() ||
-      (categoryHint(q) ? categoryHint(q)!.replace(/^\w/, (c) => c.toUpperCase()) : null);
     return {
       mode: "carousel",
       products: cards,
-      message: carouselIntro(cards.length, cat),
+      message: carouselIntro(cards.length),
     };
   }
 

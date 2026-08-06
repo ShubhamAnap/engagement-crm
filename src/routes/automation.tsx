@@ -1171,6 +1171,13 @@ function Page() {
                 </Select>
               </div>
             ) : null}
+            {formTrigger === "website_visitor_captured" ? (
+              <p className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
+                Fires once when a website chatbot visitor saves the contact form with a phone number
+                (first capture). Use action <strong>Send WhatsApp template</strong> with an approved
+                welcome template — free-form WhatsApp text will not work for first contact.
+              </p>
+            ) : null}
 
             <div className="space-y-2 rounded-lg border border-border p-3">
               <Label className="text-xs uppercase text-muted-foreground">

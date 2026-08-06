@@ -315,8 +315,18 @@ async function syncConversationIdentity(
     metadata?: Record<string, unknown> | null;
   },
   fields: VisitorFields,
+  opts?: { treatAsFirstCapture?: boolean },
 ) {
   const normalized = normalizeVisitor(fields);
+  const priorMeta =
+    convo.metadata && typeof convo.metadata === "object" ? { ...convo.metadata } : {};
+  const priorPhoneDigits = (convo.visitor_phone || "").replace(/\D/g, "");
+  const hadPhoneBefore = priorPhoneDigits.length >= 8;
+  const incomingPhone = normalized.visitor_phone;
+  const phoneDigits = (incomingPhone || convo.visitor_phone || "").replace(/\D/g, "");
+  const hasUsablePhone = phoneDigits.length >= 8;
+  const alreadyCaptured = Boolean(priorMeta.website_visitor_captured_at);
+
   const updates = {
     visitor_name: normalized.visitor_name || convo.visitor_name || "Website visitor",
     visitor_email: normalized.visitor_email || convo.visitor_email,
@@ -359,11 +369,12 @@ async function syncConversationIdentity(
     }
   }
 
-  if (convo.lead_id) {
+  let leadId = convo.lead_id;
+  if (leadId) {
     const { data: lead } = await supabase
       .from("leads")
       .select("name, email, phone, company, metadata")
-      .eq("id", convo.lead_id)
+      .eq("id", leadId)
       .maybeSingle();
 
     await supabase
@@ -379,7 +390,69 @@ async function syncConversationIdentity(
           normalized.visitor_location,
         ),
       })
-      .eq("id", convo.lead_id);
+      .eq("id", leadId);
+  }
+
+  // First time this chat gets a usable phone from the visitor form → welcome automation
+  const shouldCapture =
+    hasUsablePhone &&
+    !alreadyCaptured &&
+    (Boolean(opts?.treatAsFirstCapture) || !hadPhoneBefore);
+
+  if (shouldCapture) {
+    try {
+      // Ensure customer + lead exist so WhatsApp template merge fields work
+      await ensureConversationLinks(
+        supabase,
+        {
+          id: convo.id,
+          customer_id: customerId || convo.customer_id,
+          lead_id: leadId,
+          visitor_name: updates.visitor_name,
+          visitor_email: updates.visitor_email,
+          visitor_phone: updates.visitor_phone,
+          visitor_company: updates.visitor_company,
+          metadata: updates.metadata,
+          tags: null,
+        },
+        "Website chat visitor details saved",
+      );
+
+      const { data: linked } = await supabase
+        .from("conversations")
+        .select(
+          "id, lead_id, customer_id, visitor_name, visitor_email, visitor_phone, visitor_company, metadata",
+        )
+        .eq("id", convo.id)
+        .maybeSingle();
+
+      leadId = (linked?.lead_id as string) || leadId;
+
+      const captureAt = new Date().toISOString();
+      const nextMeta = {
+        ...(((linked?.metadata as Record<string, unknown> | null) || updates.metadata || {}) as Record<
+          string,
+          unknown
+        >),
+        website_visitor_captured_at: captureAt,
+      };
+      await supabase.from("conversations").update({ metadata: nextMeta }).eq("id", convo.id);
+
+      const { fireAutomations } = await import("@/server/automation-engine");
+      fireAutomations("website_visitor_captured", {
+        conversationId: convo.id,
+        leadId: leadId || null,
+        source: "website",
+        channel: "website",
+        phone: (linked?.visitor_phone as string) || updates.visitor_phone,
+        email: (linked?.visitor_email as string) || updates.visitor_email,
+        leadName: (linked?.visitor_name as string) || updates.visitor_name,
+        company: (linked?.visitor_company as string) || updates.visitor_company,
+        leadStatus: "New",
+      });
+    } catch (err) {
+      console.error("website_visitor_captured automation", err);
+    }
   }
 }
 
@@ -568,7 +641,10 @@ export const widgetGetOrCreateConversation = createServerFn({ method: "POST" })
 
     if (createError) throw new Error(createError.message);
     if (matched || visitor.visitor_email || visitor.visitor_phone || visitor.visitor_name) {
-      await syncConversationIdentity(supabase, created, data);
+      await syncConversationIdentity(supabase, created, data, {
+        // New unknown visitor who submitted phone on the form (insert already stamped phone)
+        treatAsFirstCapture: !matched && Boolean(visitor.visitor_phone),
+      });
       const { data: refreshed, error: refreshError } = await supabase
         .from("conversations")
         .select("*")

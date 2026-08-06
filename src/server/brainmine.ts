@@ -312,6 +312,18 @@ function formatBrainmineApiError(json: unknown, status: number, bodyText: string
     bodyText ||
     JSON.stringify(json) ||
     "";
+
+  if (/PermissionError|check_read_permission|has_permission/i.test(blob) || status === 403) {
+    const doctype =
+      blob.match(/doctype['":\s]+([A-Za-z0-9 %]+)/i)?.[1]?.trim() ||
+      blob.match(/resource\/([A-Za-z0-9% ]+)/i)?.[1]?.replace(/%20/g, " ") ||
+      "Lead";
+    return (
+      `Brainmine permission denied: this API user cannot read "${doctype}" records. ` +
+      "Ask your Brainmine/ERPNext admin to grant Read permission on Lead for the API key user, then try Sync leads now again."
+    );
+  }
+
   if (/AuthenticationError|validate_api_key_secret|401/i.test(blob) || status === 401) {
     return (
       "Brainmine authentication failed. Open Channels → Configure Brainmine and re-save both " +
@@ -323,7 +335,23 @@ function formatBrainmineApiError(json: unknown, status: number, bodyText: string
     return `Field not permitted in query: ${permitted[1]}`;
   }
   const msg = getByPath(json, "message");
-  if (typeof msg === "string" && msg.trim()) return msg.trim();
+  if (typeof msg === "string" && msg.trim()) {
+    const trimmed = msg.trim();
+    if (/PermissionError|check_read_permission/i.test(trimmed)) {
+      return (
+        "Brainmine permission denied: this API user cannot read Lead records. " +
+        "Ask Brainmine admin to grant Read permission on Lead for your API key user."
+      );
+    }
+    // Frappe sometimes returns a long Python traceback — don't dump it in the UI.
+    if (trimmed.length > 280 || /Traceback \(most recent call last\)/i.test(trimmed)) {
+      return (
+        "Brainmine returned a server error (likely permissions). " +
+        "Ask Brainmine admin to grant Read access on Lead for your API user."
+      );
+    }
+    return trimmed;
+  }
   if (Array.isArray(msg) && msg.length) {
     const joined = msg.map((m) => (typeof m === "string" ? m : JSON.stringify(m))).join("\n");
     const again = joined.match(/Field not permitted in query:\s*([a-zA-Z0-9_]+)/i);
@@ -331,6 +359,12 @@ function formatBrainmineApiError(json: unknown, status: number, bodyText: string
     if (/AuthenticationError/i.test(joined)) {
       return (
         "Brainmine authentication failed. Re-save API key + API secret under Channels → Configure Brainmine."
+      );
+    }
+    if (/PermissionError|check_read_permission/i.test(joined)) {
+      return (
+        "Brainmine permission denied: this API user cannot read Lead records. " +
+        "Ask Brainmine admin to grant Read permission on Lead for your API key user."
       );
     }
     return joined.slice(0, 400);

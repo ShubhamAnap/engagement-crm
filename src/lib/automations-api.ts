@@ -60,6 +60,10 @@ export const TRIGGER_OPTIONS: Array<{ value: AutomationTrigger; label: string }>
   { value: "indiamart_lead", label: "IndiaMART lead synced" },
   { value: "tradeindia_lead", label: "TradeIndia lead synced" },
   { value: "brainmine_lead", label: "Brainmine CRM new lead synced" },
+  {
+    value: "website_visitor_captured",
+    label: "Website chat form submitted (first time)",
+  },
   { value: "conversation_escalated", label: "Conversation escalated" },
   { value: "lead_status_changed", label: "Lead status changed" },
   { value: "follow_up_due", label: "Follow-up due (scheduled)" },
@@ -225,6 +229,7 @@ export const fireAutomationTrigger = createServerFn({ method: "POST" })
         "indiamart_lead",
         "tradeindia_lead",
         "brainmine_lead",
+        "website_visitor_captured",
         "conversation_escalated",
         "lead_status_changed",
         "follow_up_due",

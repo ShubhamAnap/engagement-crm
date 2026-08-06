@@ -446,6 +446,12 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 
 ---
 
+### Session 2026-08-06 — Website chat welcome automation trigger
+
+Added trigger **`website_visitor_captured`** (“Website chat form submitted (first time)”). Fires once when a website chatbot visitor saves contact details with a usable phone (first capture per conversation). Migration `025_website_visitor_captured_trigger.sql`. Wire automation action: Send WhatsApp template (approved welcome).
+
+---
+
 ### Session 2026-08-06 — WhatsApp Meta template sync fix
 
 **Issue:** Sync from Meta often failed or returned empty — usually Phone Number ID used as WABA, missing WABA, or truncated token.

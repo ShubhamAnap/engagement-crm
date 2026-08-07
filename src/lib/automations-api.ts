@@ -172,7 +172,7 @@ export async function createAutomation(
     })
     .select("*")
     .single();
-  if (error) throw error;
+  if (error) throw new Error(formatAutomationDbError(error, input.triggerType));
   return data as DbAutomation;
 }
 
@@ -195,8 +195,25 @@ export async function updateAutomation(
     .eq("id", automationId)
     .select("*")
     .single();
-  if (error) throw error;
+  if (error) throw new Error(formatAutomationDbError(error, input.triggerType));
   return data as DbAutomation;
+}
+
+function formatAutomationDbError(
+  error: { message?: string; code?: string; details?: string; hint?: string },
+  triggerType?: string,
+): string {
+  const msg = [error.message, error.details, error.hint].filter(Boolean).join(" — ");
+  const lower = msg.toLowerCase();
+  if (
+    triggerType &&
+    (lower.includes("automation_trigger") ||
+      lower.includes("invalid input value for enum") ||
+      lower.includes("22p02"))
+  ) {
+    return `Database is missing trigger “${triggerType}”. Run the matching Supabase migration (e.g. 025 for website_visitor_captured, 024 for brainmine_lead), then save again. (${msg || error.code || "enum error"})`;
+  }
+  return msg || error.code || "Could not save workflow";
 }
 
 export async function setAutomationStatus(

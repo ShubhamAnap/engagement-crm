@@ -983,7 +983,14 @@ function Page() {
       setSelectedId(row.id);
       toast.success(editing ? "Workflow updated" : "Workflow created");
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Save failed"),
+    onError: (error) =>
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : error && typeof error === "object" && "message" in error
+            ? String((error as { message: unknown }).message)
+            : "Save failed",
+      ),
   });
 
   const toggleMutation = useMutation({

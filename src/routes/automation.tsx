@@ -1447,6 +1447,14 @@ function Page() {
                 free-form WhatsApp text will not work for first contact.
               </p>
             ) : null}
+            {formTrigger === "brainmine_lead" ? (
+              <p className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
+                Fires when Brainmine sync <strong>creates</strong> a new Engage lead (not on updates).
+                After delete + re-sync, use <strong>Pull date range</strong> if Quick Sync does not
+                re-import. Channel filter is ignored for this trigger. When Live, WhatsApp sends
+                immediately (no Approve queue). Keep Source = brainmine or All.
+              </p>
+            ) : null}
 
             <div className="space-y-2 rounded-lg border border-border p-3">
               <Label className="text-xs uppercase text-muted-foreground">

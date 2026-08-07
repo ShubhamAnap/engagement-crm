@@ -268,8 +268,8 @@ function matchesTriggerConfig(
   }
   if (!triggerFilterMatches(config.source, ctx.source)) return false;
   if (!triggerFilterMatches(config.priority, ctx.priority)) return false;
-  // Website form capture is always channel=website — don't let a WhatsApp-only filter block welcome WA
-  if (trigger !== "website_visitor_captured") {
+  // Website / Brainmine CRM sync don't carry a chat channel — don't let WhatsApp-only filter block WA templates
+  if (trigger !== "website_visitor_captured" && trigger !== "brainmine_lead") {
     if (!triggerFilterMatches(config.channel, ctx.channel)) return false;
   }
   if (!triggerFilterMatches(config.lead_status, ctx.leadStatus)) return false;
@@ -667,9 +667,11 @@ export async function runAutomations(
       continue;
     }
 
-    // Website welcome: send immediately when Live (don't queue for Approve)
+    // Website welcome + Brainmine new lead: send immediately when Live (don't queue for Approve)
     const needsApproval =
-      trigger !== "website_visitor_captured" && auto.requires_approval !== false;
+      trigger !== "website_visitor_captured" &&
+      trigger !== "brainmine_lead" &&
+      auto.requires_approval !== false;
 
     if (needsApproval) {
       try {

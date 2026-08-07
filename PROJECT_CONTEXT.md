@@ -502,6 +502,14 @@ Website carousel expands seed matches to **all active products in that category*
 
 ---
 
+### Session 2026-08-07 — Brainmine WhatsApp automation after delete+sync
+
+**Issues:** Channel=whatsapp filter blocked CRM sync (no channel); Approval queued sends; Quick Sync may not re-fetch unmodified CRM leads after Engage delete.
+
+**Fix:** `brainmine_lead` ignores channel filter, auto-runs when Live, passes phone/name into context. Re-import after delete → use date-range pull if Quick Sync skips the lead.
+
+---
+
 ### Session 2026-08-07 — Brainmine Requirement without query_about
 
 **Finding:** Opportunity API often has **no** `query_about` field. Product text may live in **Items** (`item_name` / `description`) or on the linked **Lead**.

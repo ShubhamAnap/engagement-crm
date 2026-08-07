@@ -1208,15 +1208,27 @@ export async function ingestBrainmineLead(
   if (error) throw new Error(error.message);
 
   try {
-    const { fireAutomations } = await import("@/server/automation-engine");
+    const { runAutomations } = await import("@/server/automation-engine");
     // New lead only (duplicates update existing and skip this path)
-    fireAutomations("brainmine_lead", {
+    const ctx = {
       leadId: lead.id as string,
       source: "brainmine",
-    });
-    fireAutomations("lead_created", {
-      leadId: lead.id as string,
-      source: "brainmine",
+      phone: mapped.phone,
+      email: mapped.email,
+      leadName: mapped.name,
+      company: mapped.company,
+      salesPerson: mapped.salesPerson,
+      requirement: mapped.requirement,
+      location: mapped.location,
+      leadStatus: mapped.status,
+    };
+    const bm = await runAutomations("brainmine_lead", ctx);
+    const created = await runAutomations("lead_created", ctx);
+    console.info("brainmine lead automation", {
+      leadId: lead.id,
+      phone: mapped.phone,
+      brainmine_lead: bm,
+      lead_created: created,
     });
   } catch (err) {
     console.error("brainmine lead automation", err);

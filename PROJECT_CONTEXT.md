@@ -302,6 +302,9 @@ Record decisions here so we don't re-debate.
 
 Brief notes from each working session — append, don't delete.
 
+### Session 2026-08-07 — Formulas load totals in kW / kVA
+- Calculator totals: appliances stay in **W**; **Total load** shows **kW · kVA** (`1000 W = 1 kW`, `1 kW = 1.2 kVA`). Auto-fills `total_w` / `total_kw` / `total_kva`. Migration `028_formulas_kw_kva.sql` updates inverter seed to `total_kva * surge_factor`.
+
 ### Session 2026-08-07 — Intelligence → Formulas (Phase A)
 - **New page** `/formulas` (sidebar under Intelligence): tabs **Calculator**, **Formulas**, **Load applications**.
 - **DB** migration `027_sizing_formulas.sql` — tables `sizing_formulas` + `load_applications` with seeds (solar_home/industry, inverter, battery, bess, hybrid + common appliances).

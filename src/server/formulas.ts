@@ -4,6 +4,21 @@ import { createServiceSupabase } from "@/lib/supabase";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
+/** Company rule: 1 kW = 1.2 kVA (internal conversion). */
+export const KW_TO_KVA_FACTOR = 1.2;
+
+export function wattsToKw(watts: number): number {
+  return watts / 1000;
+}
+
+export function kwToKva(kw: number, factor = KW_TO_KVA_FACTOR): number {
+  return kw * factor;
+}
+
+export function wattsToKva(watts: number, factor = KW_TO_KVA_FACTOR): number {
+  return kwToKva(wattsToKw(watts), factor);
+}
+
 export const FORMULA_CATEGORIES = [
   "solar_home",
   "solar_industry",
@@ -392,10 +407,23 @@ export const runSizingFormula = createServerFn({ method: "POST" })
       }
       merged[v.key] = n;
     }
-    // Allow extra keys (total_kw helpers) if present in expression
+    // Allow extra keys if present in expression
     for (const [k, v] of Object.entries(data.values)) {
       if (Number.isFinite(v) && !(k in merged)) merged[k] = v;
     }
+
+    // Normalize load helpers: 1000 W = 1 kW, 1 kW = 1.2 kVA
+    if (Number.isFinite(merged.total_w)) {
+      if (!Number.isFinite(merged.total_kw)) merged.total_kw = wattsToKw(merged.total_w);
+      if (!Number.isFinite(merged.total_kva)) merged.total_kva = wattsToKva(merged.total_w);
+    } else if (Number.isFinite(merged.total_kw)) {
+      if (!Number.isFinite(merged.total_w)) merged.total_w = merged.total_kw * 1000;
+      if (!Number.isFinite(merged.total_kva)) merged.total_kva = kwToKva(merged.total_kw);
+    } else if (Number.isFinite(merged.total_kva)) {
+      if (!Number.isFinite(merged.total_kw)) merged.total_kw = merged.total_kva / KW_TO_KVA_FACTOR;
+      if (!Number.isFinite(merged.total_w)) merged.total_w = merged.total_kw * 1000;
+    }
+
     const result = evaluateSizingExpression(formula.expression, merged);
     return {
       result,
@@ -404,5 +432,6 @@ export const runSizingFormula = createServerFn({ method: "POST" })
       expression: formula.expression,
       values: merged,
       name: formula.name,
+      kwToKvaFactor: KW_TO_KVA_FACTOR,
     };
   });

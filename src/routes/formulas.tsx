@@ -27,6 +27,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { EmptyState, ListSkeleton, PageHeader, Panel, Pill } from "@/components/shared/ui-kit";
 import {
   FORMULA_CATEGORIES,
+  KW_TO_KVA_FACTOR,
   LOAD_CATEGORIES,
   createLoadApplication,
   createSizingFormula,
@@ -38,6 +39,8 @@ import {
   runSizingFormula,
   updateLoadApplication,
   updateSizingFormula,
+  wattsToKva,
+  wattsToKw,
   type FormulaCategory,
   type FormulaVariable,
   type LoadApplication,
@@ -90,12 +93,12 @@ function emptyFormula(): {
     name: "",
     category: "battery",
     description: "",
-    expression: "(total_w * backup_hours) / (system_voltage * dod * efficiency)",
-    result_label: "Result",
+    expression: "(total_kw * 1000 * backup_hours) / (system_voltage * dod * efficiency)",
+    result_label: "Battery capacity",
     result_unit: "Ah",
     variablesJson: JSON.stringify(
       [
-        { key: "total_w", label: "Total load", unit: "W", default_value: 1000 },
+        { key: "total_kw", label: "Total load", unit: "kW", default_value: 1 },
         { key: "backup_hours", label: "Backup time", unit: "h", default_value: 4 },
         { key: "system_voltage", label: "DC voltage", unit: "V", default_value: 48 },
         { key: "dod", label: "DoD", unit: "0–1", default_value: 0.5 },
@@ -104,7 +107,7 @@ function emptyFormula(): {
       null,
       2,
     ),
-    notes: "",
+    notes: "total_kw auto-fills from calculator (1000 W = 1 kW). Use total_kva for inverter sizing (1 kW = 1.2 kVA).",
     sort_order: 100,
     is_active: true,
   };
@@ -173,14 +176,18 @@ function Page() {
 
   const loadTotals = useMemo(() => {
     let watts = 0;
-    let surge = 0;
+    let surgeWatts = 0;
     for (const load of activeLoads) {
       const qty = qtyByLoad[load.id] ?? 0;
       if (qty <= 0) continue;
       watts += load.watts * qty;
-      surge += (load.surge_watts ?? load.watts) * qty;
+      surgeWatts += (load.surge_watts ?? load.watts) * qty;
     }
-    return { watts, surge, kw: watts / 1000 };
+    const kw = wattsToKw(watts);
+    const kva = wattsToKva(watts);
+    const surgeKw = wattsToKw(surgeWatts);
+    const surgeKva = wattsToKva(surgeWatts);
+    return { watts, surgeWatts, kw, kva, surgeKw, surgeKva };
   }, [activeLoads, qtyByLoad]);
 
   const selectedFormula = activeFormulas.find((f) => f.id === selectedFormulaId) || null;
@@ -198,12 +205,14 @@ function Page() {
       if (v.key === "total_w") next[v.key] = String(Math.round(loadTotals.watts) || v.default_value || 0);
       else if (v.key === "total_kw")
         next[v.key] = String(Number(loadTotals.kw.toFixed(3)) || v.default_value || 0);
+      else if (v.key === "total_kva")
+        next[v.key] = String(Number(loadTotals.kva.toFixed(3)) || v.default_value || 0);
       else next[v.key] = String(varValues[v.key] ?? v.default_value ?? "");
     }
     setVarValues(next);
     setCalcResult(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh when formula or load totals change
-  }, [selectedFormulaId, loadTotals.watts, loadTotals.kw]);
+  }, [selectedFormulaId, loadTotals.watts, loadTotals.kw, loadTotals.kva]);
 
   async function invalidateAll() {
     await Promise.all([
@@ -311,6 +320,7 @@ function Page() {
       const values: Record<string, number> = {
         total_w: loadTotals.watts,
         total_kw: loadTotals.kw,
+        total_kva: loadTotals.kva,
       };
       for (const [k, raw] of Object.entries(varValues)) {
         const n = Number(raw);
@@ -403,7 +413,10 @@ function Page() {
 
         <TabsContent value="calculator" className="space-y-4">
           <div className="grid gap-4 lg:grid-cols-2">
-            <Panel title="Customer loads" description="Set qty for each appliance. Totals feed formulas that use total_w / total_kw.">
+            <Panel
+              title="Customer loads"
+              description={`Appliances stay in watts. Totals use 1000 W = 1 kW and 1 kW = ${KW_TO_KVA_FACTOR} kVA. Formulas can use total_kw / total_kva.`}
+            >
               {loadsQuery.isLoading ? (
                 <ListSkeleton rows={6} />
               ) : activeLoads.length === 0 ? (
@@ -446,28 +459,44 @@ function Page() {
                   ))}
                 </div>
               )}
-              <div className="mt-3 flex flex-wrap gap-3 text-sm">
-                <Pill tone="info">Total {Math.round(loadTotals.watts)} W</Pill>
-                <Pill tone="info">{loadTotals.kw.toFixed(2)} kW</Pill>
-                <Pill tone="warning">Surge ~{Math.round(loadTotals.surge)} W</Pill>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    const next: Record<string, number> = {};
-                    for (const l of activeLoads) next[l.id] = l.default_qty || 0;
-                    setQtyByLoad(next);
-                  }}
-                >
-                  Use default qtys
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setQtyByLoad({})}>
-                  Clear
-                </Button>
+              <div className="mt-3 space-y-2">
+                <div className="rounded-lg border border-primary/25 bg-primary/5 px-3 py-2.5">
+                  <p className="text-xs text-muted-foreground">Total load</p>
+                  <p className="text-lg font-semibold tracking-tight">
+                    {loadTotals.kw.toFixed(2)} kW
+                    <span className="mx-2 text-muted-foreground">·</span>
+                    {loadTotals.kva.toFixed(2)} kVA
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {Math.round(loadTotals.watts)} W · rule 1 kW = {KW_TO_KVA_FACTOR} kVA
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-3 text-sm">
+                  <Pill tone="warning">
+                    Surge ~{loadTotals.surgeKw.toFixed(2)} kW · {loadTotals.surgeKva.toFixed(2)} kVA
+                  </Pill>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const next: Record<string, number> = {};
+                      for (const l of activeLoads) next[l.id] = l.default_qty || 0;
+                      setQtyByLoad(next);
+                    }}
+                  >
+                    Use default qtys
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setQtyByLoad({})}>
+                    Clear
+                  </Button>
+                </div>
               </div>
             </Panel>
 
-            <Panel title="Run formula" description="Pick a sizing formula and adjust variables, then calculate.">
+            <Panel
+              title="Run formula"
+              description="Pick a sizing formula. total_kw / total_kva auto-fill from the load totals above."
+            >
               <div className="space-y-3">
                 <div className="space-y-1">
                   <Label>Formula</Label>
@@ -685,8 +714,8 @@ function Page() {
           <DialogHeader>
             <DialogTitle>{editingFormula ? "Edit formula" : "Add formula"}</DialogTitle>
             <DialogDescription>
-              Expression may use variable keys and + − × ÷ ( ). Example: (total_w * backup_hours) /
-              (system_voltage * dod * efficiency)
+              Expression may use variable keys and + − × ÷ ( ). Load helpers: total_w, total_kw,
+              total_kva (1 kW = {KW_TO_KVA_FACTOR} kVA). Example: total_kva * surge_factor
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">

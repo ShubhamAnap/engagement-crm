@@ -120,12 +120,12 @@ from (
     'a0000000-0000-4000-8000-000000000001'::uuid,
     'Inverter / UPS size (kVA)',
     'inverter',
-    'Inverter rating from continuous load with surge margin and power factor.',
-    '(total_w * surge_factor) / (1000 * power_factor)',
+    'Inverter rating from load kVA (1 kW = 1.2 kVA) with surge margin.',
+    'total_kva * surge_factor',
     'Inverter size',
     'kVA',
-    '[{"key":"total_w","label":"Total load","unit":"W","default_value":1000},{"key":"surge_factor","label":"Surge / safety factor","unit":"×","default_value":1.25},{"key":"power_factor","label":"Power factor","unit":"0–1","default_value":0.8}]',
-    'Use higher surge_factor when motors/ACs start on UPS.',
+    '[{"key":"total_kva","label":"Total load","unit":"kVA","default_value":1.2},{"key":"surge_factor","label":"Surge / safety factor","unit":"×","default_value":1.25}]',
+    'total_kva is auto-filled from selected loads (1000 W = 1 kW, 1 kW = 1.2 kVA).',
     30
   ),
   (

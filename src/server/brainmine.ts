@@ -414,6 +414,9 @@ function leadListFields(isOpp: boolean): string[] {
         "customer_name",
         "contact_email",
         "contact_mobile",
+        "contact_display",
+        "contact_person",
+        "contact_name",
         "city",
         "state",
         "country",
@@ -711,7 +714,7 @@ async function enrichRowsWithQueryAbout(
         if (full) merged = { ...row, ...full };
       }
     }
-    if (!pickQueryAbout(merged)) {
+    if (!pickQueryAbout(merged) || !asString(merged.lead_name) || !asString(merged.contact_display)) {
       const party = asString(merged.party_name);
       if (party && /^CRM-LEAD/i.test(party)) {
         try {
@@ -723,9 +726,19 @@ async function enrichRowsWithQueryAbout(
             (getByPath(leadJson, "data") as Record<string, unknown> | undefined) ||
             (leadJson as Record<string, unknown>);
           const leadReq = pickQueryAbout(leadDoc);
-          if (leadReq) {
-            merged = { ...merged, query_about: leadReq };
-          }
+          const leadName =
+            asString(leadDoc.lead_name) ||
+            asString(leadDoc.contact_name) ||
+            [asString(leadDoc.first_name), asString(leadDoc.last_name)].filter(Boolean).join(" ").trim() ||
+            null;
+          merged = {
+            ...merged,
+            ...(leadReq && !pickQueryAbout(merged) ? { query_about: leadReq } : {}),
+            ...(leadName && !asString(merged.lead_name) ? { lead_name: leadName } : {}),
+            ...(!asString(merged.contact_display) && asString(leadDoc.lead_name)
+              ? { contact_display: asString(leadDoc.lead_name) }
+              : {}),
+          };
         } catch {
           // Linked Lead may be permission-blocked — keep Opportunity as-is
         }
@@ -964,6 +977,52 @@ function resolveSalesPerson(row: Record<string, unknown>, fm: Required<Brainmine
   return { salesPerson, opportunityOwner, leadOwner, assignee, docOwner };
 }
 
+function isCrmDocumentRef(value: string | null | undefined): boolean {
+  const s = (value || "").trim();
+  if (!s) return false;
+  // Brainmine / ERPNext naming series ids must never become the person Name column
+  return /^(CRM-LEAD|CRM-OPP|LEAD-|OPP-|OPTY-)/i.test(s);
+}
+
+/** Person name for Engage — never use CRM-LEAD / CRM-OPP document ids. */
+function pickPersonName(row: Record<string, unknown>, fm: Required<BrainmineFieldMap>): string {
+  const mapped = asString(getByPath(row, fm.name));
+  const contactDisplay = asString(row.contact_display);
+  const contactPersonRaw = asString(row.contact_person);
+  const contactPerson =
+    contactPersonRaw && /-\d+$/.test(contactPersonRaw)
+      ? contactPersonRaw.replace(/-\d+$/, "").trim()
+      : contactPersonRaw;
+  const fullName =
+    [asString(row.first_name), asString(row.last_name)].filter(Boolean).join(" ").trim() || null;
+  const candidates = [
+    mapped && !isCrmDocumentRef(mapped) ? mapped : null,
+    asString(row.lead_name),
+    contactDisplay,
+    contactPerson,
+    asString(row.contact_name),
+    asString(row.full_name),
+    fullName,
+    asString(row.customer_name) && !isCrmDocumentRef(asString(row.customer_name))
+      ? asString(row.customer_name)
+      : null,
+    asString(row.title) && !isCrmDocumentRef(asString(row.title)) ? asString(row.title) : null,
+  ].filter((v): v is string => Boolean(v && String(v).trim() && !isCrmDocumentRef(v)));
+
+  return candidates[0] || "Brainmine lead";
+}
+
+function pickCompanyName(row: Record<string, unknown>, fm: Required<BrainmineFieldMap>): string | null {
+  const mapped = asString(getByPath(row, fm.company));
+  const candidates = [
+    mapped && !isCrmDocumentRef(mapped) ? mapped : null,
+    asString(row.company_name),
+    asString(row.customer_name),
+    asString(row.title),
+  ].filter((v): v is string => Boolean(v && String(v).trim() && !isCrmDocumentRef(v)));
+  return candidates[0] || null;
+}
+
 function mapRow(
   row: Record<string, unknown>,
   fieldMap: BrainmineFieldMap,
@@ -992,19 +1051,8 @@ function mapRow(
     asString(row.name) ||
     asString(row.uuid) ||
     "";
-  const name =
-    asString(getByPath(row, fm.name)) ||
-    asString(row.lead_name) ||
-    asString(row.party_name) ||
-    asString(row.customer_name) ||
-    asString(row.contact_name) ||
-    asString(row.full_name) ||
-    "Brainmine lead";
-  const company =
-    asString(getByPath(row, fm.company)) ||
-    asString(row.customer_name) ||
-    asString(row.party_name) ||
-    null;
+  const name = pickPersonName(row, fm);
+  const company = pickCompanyName(row, fm);
   const email =
     asString(getByPath(row, fm.email)) ||
     asString(row.contact_email) ||

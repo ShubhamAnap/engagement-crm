@@ -70,6 +70,11 @@ export type BrainmineChannelConfig = {
   auto_sync_interval_value?: number;
   auto_sync_interval_unit?: BrainmineIntervalUnit;
   last_auto_sync_at?: string;
+  /** Last cron/manual auto attempt (even if skipped/failed) */
+  last_auto_sync_attempt_at?: string;
+  /** Short status: ok / skipped / error summary */
+  last_auto_sync_result?: string;
+  last_auto_sync_error?: string;
 };
 
 const DEFAULT_SYNC_LIMIT = 30;
@@ -131,6 +136,35 @@ export function isBrainmineAutoSyncDue(cfg: BrainmineChannelConfig, now = new Da
   const elapsed = now.getTime() - (Number.isFinite(lastMs) ? lastMs : 0);
   const slackMs = Math.min(45_000, Math.floor(needMs * 0.05));
   return elapsed >= needMs - slackMs;
+}
+
+/** ISO timestamp when the next auto sync becomes due (null if off). */
+export function nextBrainmineAutoSyncDueAt(
+  cfg: BrainmineChannelConfig,
+  now = new Date(),
+): string | null {
+  if (!cfg.auto_sync_enabled) return null;
+  const { value, unit } = normalizeBrainmineInterval(
+    cfg.auto_sync_interval_value,
+    cfg.auto_sync_interval_unit,
+  );
+  const needMs = brainmineIntervalToMs(value, unit);
+  const lastMs = cfg.last_auto_sync_at ? new Date(cfg.last_auto_sync_at).getTime() : 0;
+  if (!Number.isFinite(lastMs) || lastMs <= 0) return now.toISOString();
+  return new Date(lastMs + needMs).toISOString();
+}
+
+function formatBrainmineAutoSyncResult(opts: {
+  created?: number;
+  updated?: number;
+  fetched?: number;
+  skipped?: string;
+}): string {
+  if (opts.skipped) return opts.skipped;
+  const created = opts.created ?? 0;
+  const updated = opts.updated ?? 0;
+  const fetched = opts.fetched ?? 0;
+  return `ok · ${created} new · ${updated} updated · ${fetched} fetched`;
 }
 
 async function persistBrainmineConfig(
@@ -230,6 +264,9 @@ export async function loadBrainmineConfig(): Promise<BrainmineChannelConfig> {
         cfg.auto_sync_interval_unit,
       ).unit,
       last_auto_sync_at: cfg.last_auto_sync_at,
+      last_auto_sync_attempt_at: cfg.last_auto_sync_attempt_at,
+      last_auto_sync_result: cfg.last_auto_sync_result,
+      last_auto_sync_error: cfg.last_auto_sync_error,
     };
   } catch {
     return {
@@ -1278,6 +1315,10 @@ export const getBrainmineSetup = createServerFn({ method: "GET" }).handler(async
       cfg.auto_sync_interval_unit,
     ).unit,
     lastAutoSyncAt: cfg.last_auto_sync_at || null,
+    lastAutoSyncAttemptAt: cfg.last_auto_sync_attempt_at || null,
+    lastAutoSyncResult: cfg.last_auto_sync_result || null,
+    lastAutoSyncError: cfg.last_auto_sync_error || null,
+    nextAutoSyncDueAt: nextBrainmineAutoSyncDueAt(cfg),
     autoSyncDescription: describeBrainmineAutoSync(cfg),
   };
 });
@@ -1403,7 +1444,23 @@ export const saveBrainmineAutoSync = createServerFn({ method: "POST" })
       auto_sync_enabled: data.enabled,
       auto_sync_interval_value: interval.value,
       auto_sync_interval_unit: interval.unit,
+      // Force next cron tick to run soon when turning On / saving schedule
+      ...(data.enabled
+        ? {
+            last_auto_sync_at: undefined,
+            last_auto_sync_error: undefined,
+            last_auto_sync_result: "schedule_saved — waiting for cron (≈5 min)",
+            last_auto_sync_attempt_at: new Date().toISOString(),
+          }
+        : {
+            last_auto_sync_result: "auto sync off",
+          }),
     };
+    // Explicitly clear due clock so JSON doesn't keep a stale ISO from spread
+    if (data.enabled) {
+      delete next.last_auto_sync_at;
+      delete next.last_auto_sync_error;
+    }
     await persistBrainmineConfig(
       next,
       data.enabled
@@ -1415,31 +1472,75 @@ export const saveBrainmineAutoSync = createServerFn({ method: "POST" })
       autoSyncIntervalValue: interval.value,
       autoSyncIntervalUnit: interval.unit,
       lastAutoSyncAt: next.last_auto_sync_at || null,
+      lastAutoSyncAttemptAt: next.last_auto_sync_attempt_at || null,
+      lastAutoSyncResult: next.last_auto_sync_result || null,
+      lastAutoSyncError: next.last_auto_sync_error || null,
+      nextAutoSyncDueAt: nextBrainmineAutoSyncDueAt(next),
       autoSyncDescription: describeBrainmineAutoSync(next),
     };
   });
 
 /**
  * Cron: if auto sync enabled and due, pull latest updated leads (max 20, upsert).
+ * Pass force=true to run even when the interval is not due (UI "Run auto sync now").
  */
-export async function tickBrainmineAutoSync(): Promise<{
+export async function tickBrainmineAutoSync(opts?: {
+  force?: boolean;
+}): Promise<{
   ran: boolean;
   skipped?: string;
   created?: number;
   updated?: number;
   fetched?: number;
 }> {
+  const force = Boolean(opts?.force);
   const cfg = await loadBrainmineConfig();
-  if (!brainmineConfigReady(cfg)) return { ran: false, skipped: "not_configured" };
-  if (!isBrainmineAutoSyncDue(cfg)) return { ran: false, skipped: "not_due" };
+  const attemptAt = new Date().toISOString();
+
+  const stampAttempt = async (
+    patch: Partial<BrainmineChannelConfig>,
+    clearError = false,
+  ) => {
+    const latest = await loadBrainmineConfig();
+    const next: BrainmineChannelConfig = {
+      ...latest,
+      last_auto_sync_attempt_at: attemptAt,
+      ...patch,
+    };
+    if (clearError) delete next.last_auto_sync_error;
+    await persistBrainmineConfig(next);
+  };
+
+  if (!brainmineConfigReady(cfg)) {
+    await stampAttempt({
+      last_auto_sync_result: "skipped: not_configured",
+      last_auto_sync_error: "Configure Brainmine API credentials",
+    });
+    return { ran: false, skipped: "not_configured" };
+  }
+  if (!cfg.auto_sync_enabled && !force) {
+    return { ran: false, skipped: "disabled" };
+  }
+  if (!force && !isBrainmineAutoSyncDue(cfg)) {
+    // Prove cron is alive without overwriting the last success/error summary
+    await stampAttempt({});
+    return { ran: false, skipped: "not_due" };
+  }
 
   try {
     const result = await syncBrainmineWindow();
-    const latest = await loadBrainmineConfig();
-    await persistBrainmineConfig({
-      ...latest,
-      last_auto_sync_at: new Date().toISOString(),
+    const summary = formatBrainmineAutoSyncResult({
+      created: result.created,
+      updated: result.updated,
+      fetched: result.fetched,
     });
+    await stampAttempt(
+      {
+        last_auto_sync_at: new Date().toISOString(),
+        last_auto_sync_result: summary,
+      },
+      true,
+    );
     return {
       ran: true,
       created: result.created,
@@ -1447,12 +1548,37 @@ export async function tickBrainmineAutoSync(): Promise<{
       fetched: result.fetched,
     };
   } catch (err) {
+    const msg = err instanceof Error ? err.message : "auto_sync_failed";
+    await stampAttempt({
+      last_auto_sync_result: `error: ${msg}`,
+      last_auto_sync_error: msg,
+    });
     return {
       ran: false,
-      skipped: err instanceof Error ? err.message : "auto_sync_failed",
+      skipped: msg,
     };
   }
 }
+
+export const runBrainmineAutoSyncNow = createServerFn({ method: "POST" }).handler(async () => {
+  const cfg = await loadBrainmineConfig();
+  if (!brainmineConfigReady(cfg)) {
+    throw new Error("Configure Brainmine API credentials first");
+  }
+  if (!cfg.auto_sync_enabled) {
+    throw new Error("Turn Auto lead sync On and Save schedule first");
+  }
+  const result = await tickBrainmineAutoSync({ force: true });
+  if (!result.ran) {
+    throw new Error(result.skipped || "Auto sync did not run");
+  }
+  return {
+    created: result.created ?? 0,
+    updated: result.updated ?? 0,
+    fetched: result.fetched ?? 0,
+    lastAutoSyncAt: new Date().toISOString(),
+  };
+});
 
 const REQUIREMENT_KEY_RE =
   /requir|quer|enquir|product|message|subject|interest|item|kva|inverter|ups|solar|hybrid|catalogue|catalog|need|request_type|market_segment|notes|comment|detail|description|title/i;

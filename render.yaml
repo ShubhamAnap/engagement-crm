@@ -86,7 +86,7 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22.14.0"
-      # e.g. https://enertech-engage.onrender.com/api/cron/automations
+      # e.g. https://enertechups-ai.onrender.com/api/cron/automations
       - key: CRON_URL
         sync: false
       - key: CRON_SECRET

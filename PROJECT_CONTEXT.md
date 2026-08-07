@@ -1,7 +1,7 @@
 # EnerTech Engage — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
-> **Last updated:** 2026-08-06
+> **Last updated:** 2026-08-07
 
 ---
 
@@ -301,6 +301,11 @@ Record decisions here so we don't re-debate.
 ## Session Log
 
 Brief notes from each working session — append, don't delete.
+
+### Session 2026-08-07 — Brainmine auto sync visibility + force due
+- **Problem:** Auto lead sync On (e.g. every 3 min) but UI “Last sync” looked stuck — that field is **manual/range** `last_sync_at`, not auto. Auto only runs when Render Cron hits `/api/cron/automations` (~every 5 min) with `CRON_URL` + `CRON_SECRET`.
+- **Fix:** Channels shows **Last auto sync / Next due / Last cron check / Result / Error**. **Save schedule** (On) clears due clock so next cron pulls soon. **Run auto sync now** forces the same tick. Cron attempts stamp `last_auto_sync_attempt_at` even when not due (proves cron is alive). Setup query refetches every 60s while auto is On.
+- **Ops:** Confirm Render Cron `CRON_URL=https://enertechups-ai.onrender.com/api/cron/automations` and matching `CRON_SECRET` on web + cron services.
 
 ### 2026-07-30
 - **Brainmine Inspect CRM fields (Step A):** Channels → **Inspect CRM fields** pulls one full Lead + DocField/Custom Field meta and lists requirement/query-like keys for mapping approval. **Requirement** ← `query_about`. **Sales Person** ← `opportunity_owner` → `lead_owner` → `_assign` → document `owner` if usable sales email (creator may equal opportunity owner). Skips `customercare@` / non-sales inboxes.

@@ -84,6 +84,7 @@ import {
   ensureBrainmineChannel,
   getBrainmineSetup,
   inspectBrainmineLeadFields,
+  runBrainmineAutoSyncNow,
   saveBrainmineAutoSync,
   saveBrainmineChannelConfig,
   syncBrainmineLeads,
@@ -299,6 +300,7 @@ function Page() {
   const bmSetupQuery = useQuery({
     queryKey: ["brainmine-setup"],
     queryFn: () => getBrainmineSetup(),
+    refetchInterval: (q) => (q.state.data?.autoSyncEnabled ? 60_000 : false),
   });
 
   useEffect(() => {
@@ -890,12 +892,26 @@ function Page() {
       await invalidate();
       toast.success(
         result.autoSyncEnabled
-          ? `Brainmine auto sync saved — every ${result.autoSyncIntervalValue} ${result.autoSyncIntervalUnit}`
+          ? `Brainmine auto sync saved — every ${result.autoSyncIntervalValue} ${result.autoSyncIntervalUnit}. Next cron (~5 min) will pull soon.`
           : "Brainmine auto sync off — use Sync leads now",
       );
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Could not save Brainmine auto sync"),
+  });
+
+  const bmRunAutoNowMutation = useMutation({
+    mutationFn: () => runBrainmineAutoSyncNow(),
+    onSuccess: async (result) => {
+      await invalidate();
+      await queryClient.invalidateQueries({ queryKey: ["leads"] });
+      await queryClient.invalidateQueries({ queryKey: ["brainmine-setup"] });
+      toast.success(
+        `Auto sync ran: ${result.created} new · ${result.updated} updated · ${result.fetched} fetched`,
+      );
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Auto sync failed"),
   });
 
   const inspectBmMutation = useMutation({
@@ -2069,7 +2085,7 @@ function Page() {
             {brainmine
               ? bmSetupQuery.data?.configured
                 ? bmSetupQuery.data.lastSyncAt
-                  ? `Connected. Last sync ${new Date(bmSetupQuery.data.lastSyncAt).toLocaleString()}.`
+                  ? `Connected. Last manual/range sync ${new Date(bmSetupQuery.data.lastSyncAt).toLocaleString()}.`
                   : "Credentials saved — run Sync leads now or a date range."
                 : "Channel card ready — click Configure Brainmine."
               : "Brainmine card missing. Click Create Brainmine card (requires migration 011 + 011b)."}
@@ -2082,9 +2098,6 @@ function Page() {
                 <p className="text-xs text-muted-foreground">
                   {bmSetupQuery.data?.autoSyncDescription ||
                     "Auto sync off — use Sync leads now"}
-                  {bmSetupQuery.data?.lastAutoSyncAt
-                    ? ` · Last auto ${new Date(bmSetupQuery.data.lastAutoSyncAt).toLocaleString()}`
-                    : ""}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -2103,6 +2116,37 @@ function Page() {
               Fetches only the <strong>latest updated</strong> leads (max 20), upserts so nothing
               duplicates. Not a historical backfill — use Date range below for that.
             </p>
+            <div className="mt-3 space-y-1 rounded-md border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+              <p>
+                <span className="font-medium text-foreground">Last auto sync:</span>{" "}
+                {bmSetupQuery.data?.lastAutoSyncAt
+                  ? new Date(bmSetupQuery.data.lastAutoSyncAt).toLocaleString()
+                  : "Never (waiting for first cron or Run now)"}
+              </p>
+              <p>
+                <span className="font-medium text-foreground">Next due:</span>{" "}
+                {bmSetupQuery.data?.autoSyncEnabled
+                  ? bmSetupQuery.data.nextAutoSyncDueAt
+                    ? new Date(bmSetupQuery.data.nextAutoSyncDueAt).toLocaleString()
+                    : "—"
+                  : "Off"}
+              </p>
+              <p>
+                <span className="font-medium text-foreground">Last cron check:</span>{" "}
+                {bmSetupQuery.data?.lastAutoSyncAttemptAt
+                  ? new Date(bmSetupQuery.data.lastAutoSyncAttemptAt).toLocaleString()
+                  : "No cron hit yet — check Render Cron CRON_URL / CRON_SECRET"}
+              </p>
+              <p>
+                <span className="font-medium text-foreground">Result:</span>{" "}
+                {bmSetupQuery.data?.lastAutoSyncResult || "—"}
+              </p>
+              {bmSetupQuery.data?.lastAutoSyncError ? (
+                <p className="text-destructive">
+                  <span className="font-medium">Error:</span> {bmSetupQuery.data.lastAutoSyncError}
+                </p>
+              ) : null}
+            </div>
             <div className="mt-3 flex flex-wrap items-end gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Every</Label>
@@ -2149,10 +2193,29 @@ function Page() {
               >
                 {bmAutoSyncMutation.isPending ? "Saving…" : "Save schedule"}
               </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={
+                  !bmSetupQuery.data?.configured ||
+                  !bmSetupQuery.data?.autoSyncEnabled ||
+                  bmRunAutoNowMutation.isPending ||
+                  bmAutoSyncMutation.isPending
+                }
+                onClick={() => bmRunAutoNowMutation.mutate()}
+              >
+                {bmRunAutoNowMutation.isPending ? "Running…" : "Run auto sync now"}
+              </Button>
             </div>
             <p className="mt-2 text-[11px] text-muted-foreground">
-              Cron runs about every 1–5 minutes — intervals under that wait for the next tick.
-              Seconds minimum is 60 after save.
+              Render Cron hits{" "}
+              <code className="text-[10px]">/api/cron/automations</code> about every{" "}
+              <strong>5 minutes</strong> (not a browser timer). Set schedule to 3 min → effective
+              pull is still ~every cron tick after due. Seconds minimum is 60 after save. If “Last
+              cron check” never updates, fix Cron job env:{" "}
+              <code className="text-[10px]">CRON_URL</code> = this app’s{" "}
+              <code className="text-[10px]">…/api/cron/automations</code> and matching{" "}
+              <code className="text-[10px]">CRON_SECRET</code>.
             </p>
           </div>
 

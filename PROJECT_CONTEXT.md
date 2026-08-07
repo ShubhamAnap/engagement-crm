@@ -302,6 +302,11 @@ Record decisions here so we don't re-debate.
 
 Brief notes from each working session — append, don't delete.
 
+### Session 2026-08-07 — Knowledge image tags (state / place)
+- **Feature:** Tag Knowledge Base images (e.g. Maharashtra) via tag icon on image cards. Stored in `knowledge_documents.metadata.tags`.
+- **AI:** `findReferenceImages` boosts tag matches across any collection; when a visitor names a tagged place, only tagged hits are preferred (fallback if none).
+- Re-index preserves existing tags. No new migration required.
+
 ### Session 2026-08-07 — Brainmine auto sync visibility + force due
 - **Problem:** Auto lead sync On (e.g. every 3 min) but UI “Last sync” looked stuck — that field is **manual/range** `last_sync_at`, not auto. Auto only runs when Render Cron hits `/api/cron/automations` (~every 5 min) with `CRON_URL` + `CRON_SECRET`.
 - **Fix:** Channels shows **Last auto sync / Next due / Last cron check / Result / Error**. **Save schedule** (On) clears due clock so next cron pulls soon. **Run auto sync now** forces the same tick. Cron attempts stamp `last_auto_sync_attempt_at` even when not due (proves cron is alive). Setup query refetches every 60s while auto is On.

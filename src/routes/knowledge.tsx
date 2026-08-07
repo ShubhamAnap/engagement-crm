@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, type DragEvent } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileUp, ImageIcon, Plus, Trash2, Upload } from "lucide-react";
+import { FileUp, ImageIcon, Plus, Tag, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,7 +30,9 @@ import {
   indexKnowledgeDocument,
   listKnowledgeCollections,
   listKnowledgeDocuments,
+  normalizeKnowledgeTags,
   prepareKnowledgeUpload,
+  updateKnowledgeDocumentTags,
   uploadPreparedKnowledgeDocument,
 } from "@/server/knowledge";
 import { getBrowserSupabase } from "@/lib/supabase";
@@ -57,8 +59,30 @@ type KnowledgeDoc = {
   mime_type?: string | null;
   download_url?: string | null;
   updated_at: string;
-  metadata?: { fileName?: string; kind?: string } | null;
+  metadata?: { fileName?: string; kind?: string; tags?: string[] } | null;
 };
+
+const STATE_TAG_SUGGESTIONS = [
+  "Maharashtra",
+  "Gujarat",
+  "Rajasthan",
+  "Karnataka",
+  "Tamil Nadu",
+  "Kerala",
+  "Telangana",
+  "Andhra Pradesh",
+  "Delhi",
+  "Punjab",
+  "Haryana",
+  "Madhya Pradesh",
+  "Uttar Pradesh",
+  "West Bengal",
+  "Goa",
+];
+
+function docTags(d: KnowledgeDoc): string[] {
+  return normalizeKnowledgeTags(d.metadata?.tags);
+}
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -136,6 +160,9 @@ function Page() {
   const [files, setFiles] = useState<File[]>([]);
   const [search, setSearch] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  const [tagsDoc, setTagsDoc] = useState<KnowledgeDoc | null>(null);
+  const [tagDraft, setTagDraft] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
 
   const collectionsQuery = useQuery({
     queryKey: ["knowledge-collections"],
@@ -155,7 +182,10 @@ function Page() {
     const all = (documentsQuery.data ?? []) as KnowledgeDoc[];
     if (!search.trim()) return all;
     const q = search.toLowerCase();
-    return all.filter((d) => String(d.title || "").toLowerCase().includes(q));
+    return all.filter((d) => {
+      if (String(d.title || "").toLowerCase().includes(q)) return true;
+      return docTags(d).some((t) => t.toLowerCase().includes(q));
+    });
   }, [documentsQuery.data, search]);
 
   const imageDocs = useMemo(() => documents.filter(isImageDoc), [documents]);
@@ -240,6 +270,43 @@ function Page() {
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Delete failed"),
   });
+
+  const tagsMutation = useMutation({
+    mutationFn: async () => {
+      if (!tagsDoc) throw new Error("No image selected");
+      return updateKnowledgeDocumentTags({
+        data: { documentId: tagsDoc.id, tags: tagDraft },
+      });
+    },
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["knowledge-documents"] });
+      setTagsDoc(null);
+      setTagDraft([]);
+      setTagInput("");
+      toast.success(
+        result.tags.length
+          ? `Tags saved (${result.tags.length})`
+          : "Tags cleared",
+      );
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not save tags"),
+  });
+
+  function openTagsEditor(doc: KnowledgeDoc) {
+    setTagsDoc(doc);
+    setTagDraft(docTags(doc));
+    setTagInput("");
+  }
+
+  function addTagFromInput() {
+    const next = normalizeKnowledgeTags([...tagDraft, tagInput]);
+    setTagDraft(next);
+    setTagInput("");
+  }
+
+  function removeTag(tag: string) {
+    setTagDraft((prev) => prev.filter((t) => t.toLowerCase() !== tag.toLowerCase()));
+  }
 
   const activeCollection = collections.find((c: { id: string }) => c.id === activeCollectionId) ?? null;
 
@@ -429,7 +496,9 @@ function Page() {
                         </Button>
                       </div>
                       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                        {imageDocs.map((d) => (
+                        {imageDocs.map((d) => {
+                          const tags = docTags(d);
+                          return (
                           <div key={d.id} className="overflow-hidden rounded-lg border border-border bg-card">
                             <a href={d.download_url || "#"} target="_blank" rel="noreferrer" className="block aspect-square bg-muted">
                               {d.download_url ? (
@@ -438,32 +507,69 @@ function Page() {
                                 <div className="flex size-full items-center justify-center text-xs text-muted-foreground">No preview</div>
                               )}
                             </a>
-                            <div className="flex items-start gap-1 p-2">
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-xs font-medium">{d.title}</p>
-                                <Pill
-                                  tone={d.status === "ready" ? "success" : d.status === "failed" ? "danger" : "warning"}
-                                  dot
+                            <div className="space-y-1.5 p-2">
+                              <div className="flex items-start gap-1">
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-xs font-medium">{d.title}</p>
+                                  <Pill
+                                    tone={d.status === "ready" ? "success" : d.status === "failed" ? "danger" : "warning"}
+                                    dot
+                                  >
+                                    {d.status}
+                                  </Pill>
+                                </div>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="size-7 shrink-0"
+                                  aria-label="Edit tags"
+                                  title="Tags (state / place)"
+                                  onClick={() => openTagsEditor(d)}
                                 >
-                                  {d.status}
-                                </Pill>
+                                  <Tag className="size-3.5" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="size-7 shrink-0 text-destructive"
+                                  aria-label="Delete image"
+                                  onClick={() => {
+                                    if (confirm("Delete this image and its embeddings?")) {
+                                      deleteMutation.mutate(d.id);
+                                    }
+                                  }}
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </Button>
                               </div>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="size-7 shrink-0 text-destructive"
-                                aria-label="Delete image"
-                                onClick={() => {
-                                  if (confirm("Delete this image and its embeddings?")) {
-                                    deleteMutation.mutate(d.id);
-                                  }
-                                }}
-                              >
-                                <Trash2 className="size-3.5" />
-                              </Button>
+                              {tags.length > 0 ? (
+                                <div className="flex flex-wrap gap-1">
+                                  {tags.slice(0, 4).map((t) => (
+                                    <span
+                                      key={t}
+                                      className="max-w-full truncate rounded bg-secondary px-1.5 py-0.5 text-[10px] text-secondary-foreground"
+                                      title={t}
+                                    >
+                                      {t}
+                                    </span>
+                                  ))}
+                                  {tags.length > 4 ? (
+                                    <span className="text-[10px] text-muted-foreground">+{tags.length - 4}</span>
+                                  ) : null}
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="text-left text-[10px] text-muted-foreground underline-offset-2 hover:underline"
+                                  onClick={() => openTagsEditor(d)}
+                                >
+                                  Add state / place tags
+                                </button>
+                              )}
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   ) : null}
@@ -517,6 +623,10 @@ function Page() {
               <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
                 <li>Create a collection per site or product line (e.g. <span className="font-medium text-foreground">Cold Storage</span>, <span className="font-medium text-foreground">Petrol Pump</span>).</li>
                 <li>Upload many images and docs into that collection — they stay grouped together.</li>
+                <li>
+                  Tag images with <span className="font-medium text-foreground">state / place</span> (e.g. Maharashtra).
+                  When a visitor asks for references by state, EnerBot prefers matching tags from any collection.
+                </li>
                 <li>Files are stored in Supabase Storage; text stubs are embedded for EnerBot search.</li>
                 <li>If a visitor asks for Cold Storage photos or a Petrol Pump catalogue, EnerBot can share the matching links.</li>
               </ul>
@@ -599,6 +709,102 @@ function Page() {
             <Button variant="outline" onClick={() => setUploadOpen(false)}>Cancel</Button>
             <Button disabled={files.length === 0 || uploadMutation.isPending} onClick={() => uploadMutation.mutate()}>
               {uploadMutation.isPending ? "Uploading…" : "Upload & index"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(tagsDoc)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setTagsDoc(null);
+            setTagDraft([]);
+            setTagInput("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Image tags</DialogTitle>
+            <DialogDescription>
+              Add state or place tags (e.g. Maharashtra). When customers ask for references by name,
+              EnerBot prefers matching tagged photos from any collection.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="truncate text-sm font-medium text-foreground">{tagsDoc?.title}</p>
+            <div className="flex flex-wrap gap-1.5">
+              {tagDraft.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No tags yet</p>
+              ) : (
+                tagDraft.map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground"
+                  >
+                    {t}
+                    <button
+                      type="button"
+                      className="rounded-sm opacity-70 hover:opacity-100"
+                      aria-label={`Remove ${t}`}
+                      onClick={() => removeTag(t)}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </span>
+                ))
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Input
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                placeholder="Maharashtra, Pune, …"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addTagFromInput();
+                  }
+                }}
+              />
+              <Button type="button" variant="secondary" onClick={addTagFromInput} disabled={!tagInput.trim()}>
+                Add
+              </Button>
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">Quick states</p>
+              <div className="flex flex-wrap gap-1.5">
+                {STATE_TAG_SUGGESTIONS.map((s) => {
+                  const on = tagDraft.some((t) => t.toLowerCase() === s.toLowerCase());
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      disabled={on}
+                      className="rounded-md border border-border px-2 py-1 text-[11px] hover:bg-secondary disabled:opacity-40"
+                      onClick={() => setTagDraft((prev) => normalizeKnowledgeTags([...prev, s]))}
+                    >
+                      {s}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setTagsDoc(null);
+                setTagDraft([]);
+                setTagInput("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button disabled={tagsMutation.isPending} onClick={() => tagsMutation.mutate()}>
+              {tagsMutation.isPending ? "Saving…" : "Save tags"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -34,6 +34,35 @@ function isImageFile(fileName: string, mimeType?: string | null): boolean {
   );
 }
 
+/** Normalize free-form image tags (state, city, site type, …). */
+export function normalizeKnowledgeTags(raw: unknown): string[] {
+  const list = Array.isArray(raw)
+    ? raw
+    : typeof raw === "string"
+      ? raw.split(/[,;|]/)
+      : [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of list) {
+    const tag = String(item || "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .slice(0, 40);
+    if (tag.length < 2) continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag);
+    if (out.length >= 20) break;
+  }
+  return out;
+}
+
+function readDocTags(metadata: unknown): string[] {
+  const meta = (metadata && typeof metadata === "object" ? metadata : {}) as Record<string, unknown>;
+  return normalizeKnowledgeTags(meta.tags);
+}
+
 function assertSupportedFile(fileName: string, mimeType?: string | null) {
   const lower = fileName.toLowerCase();
   const mime = (mimeType || "").toLowerCase();
@@ -148,6 +177,18 @@ async function indexBuffer(options: {
     .maybeSingle();
   const collectionName = (collection?.name as string | undefined) || "Knowledge Base";
 
+  const { data: existingDoc } = await supabase
+    .from("knowledge_documents")
+    .select("metadata")
+    .eq("id", documentId)
+    .maybeSingle();
+  const preservedTags = readDocTags(existingDoc?.metadata);
+  const nextMeta: Record<string, unknown> = {
+    fileName,
+    kind: isImageFile(fileName, mimeType) ? "image" : "document",
+  };
+  if (preservedTags.length) nextMeta.tags = preservedTags;
+
   await supabase
     .from("knowledge_documents")
     .update({
@@ -155,7 +196,7 @@ async function indexBuffer(options: {
       source_url: sourceUrl,
       status: "processing",
       mime_type: mimeType,
-      metadata: { fileName, kind: isImageFile(fileName, mimeType) ? "image" : "document" },
+      metadata: nextMeta,
     })
     .eq("id", documentId);
 
@@ -362,9 +403,17 @@ async function indexDocumentById(documentId: string) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Indexing failed";
+    const tags = readDocTags(doc.metadata);
     await supabase
       .from("knowledge_documents")
-      .update({ status: "failed", metadata: { fileName, error: message } })
+      .update({
+        status: "failed",
+        metadata: {
+          fileName,
+          error: message,
+          ...(tags.length ? { tags } : {}),
+        },
+      })
       .eq("id", doc.id);
     throw new Error(message);
   }
@@ -404,9 +453,17 @@ async function uploadBytesToPreparedDocument(options: {
     upsert: true,
   });
   if (uploadError) {
+    const tags = readDocTags(doc.metadata);
     await supabase
       .from("knowledge_documents")
-      .update({ status: "failed", metadata: { fileName, error: uploadError.message } })
+      .update({
+        status: "failed",
+        metadata: {
+          fileName,
+          error: uploadError.message,
+          ...(tags.length ? { tags } : {}),
+        },
+      })
       .eq("id", doc.id);
     throw new Error(`Storage upload failed: ${uploadError.message}`);
   }
@@ -485,6 +542,43 @@ export const deleteKnowledgeDocument = createServerFn({ method: "POST" })
 
     await refreshCollectionCounts(supabase, doc.collection_id as string);
     return { ok: true };
+  });
+
+/** Set free-form tags on a knowledge document (e.g. state Maharashtra). Preserves other metadata. */
+export const updateKnowledgeDocumentTags = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      documentId: z.string().uuid(),
+      tags: z.array(z.string().max(40)).max(20),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const supabase = createServiceSupabase();
+    const { data: doc, error } = await supabase
+      .from("knowledge_documents")
+      .select("id, metadata")
+      .eq("id", data.documentId)
+      .eq("org_id", ORG_ID)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!doc) throw new Error("Document not found");
+
+    const prev = (doc.metadata && typeof doc.metadata === "object" ? doc.metadata : {}) as Record<
+      string,
+      unknown
+    >;
+    const tags = normalizeKnowledgeTags(data.tags);
+    const nextMeta: Record<string, unknown> = { ...prev };
+    if (tags.length) nextMeta.tags = tags;
+    else delete nextMeta.tags;
+
+    const { error: updError } = await supabase
+      .from("knowledge_documents")
+      .update({ metadata: nextMeta, updated_at: new Date().toISOString() })
+      .eq("id", data.documentId)
+      .eq("org_id", ORG_ID);
+    if (updError) throw new Error(updError.message);
+    return { ok: true, tags };
   });
 
 export type RetrievedChunk = {
@@ -1103,14 +1197,35 @@ const COLLECTION_ALIASES: Array<{ match: RegExp; boost: string }> = [
   { match: /school|college|university|campus/, boost: "school" },
 ];
 
+function scoreTagMatches(query: string, tags: string[]): number {
+  const q = query.toLowerCase();
+  let score = 0;
+  for (const tag of tags) {
+    const t = tag.toLowerCase().trim();
+    if (t.length < 2) continue;
+    if (q.includes(t)) {
+      score += 18;
+      continue;
+    }
+    const parts = t.split(/[^a-z0-9]+/).filter((w) => w.length > 2);
+    if (parts.length > 1 && parts.every((p) => q.includes(p))) {
+      score += 16;
+    }
+  }
+  return score;
+}
+
 function scoreReferenceDoc(options: {
   query: string;
   title: string;
   fileName: string;
   collectionName: string;
+  tags?: string[];
 }): number {
   const q = options.query.toLowerCase();
-  const hay = `${options.title} ${options.fileName} ${options.collectionName}`.toLowerCase();
+  const tags = options.tags || [];
+  const tagHay = tags.join(" ").toLowerCase();
+  const hay = `${options.title} ${options.fileName} ${options.collectionName} ${tagHay}`.toLowerCase();
   let score = 0;
 
   const tokens = q.split(/[^a-z0-9]+/).filter((w) => w.length > 2);
@@ -1127,6 +1242,8 @@ function scoreReferenceDoc(options: {
       score += 3;
     }
   }
+
+  score += scoreTagMatches(q, tags);
 
   // Soft boost for install/reference intent even without exact collection name
   if (/install|reference|refrence|gallery|site\s*photo|dikhao/.test(q)) score += 1;
@@ -1171,13 +1288,19 @@ export async function findReferenceImages(
     return [];
   }
 
-  const scored: Array<ReferenceImage & { score: number }> = [];
+  const scored: Array<ReferenceImage & { score: number; tagBoost: number }> = [];
 
   for (const doc of docs ?? []) {
     if (exclude.has(String(doc.id))) continue;
     const mime = (doc.mime_type as string | null) || "";
-    const fileName = String((doc.metadata as { fileName?: string; kind?: string } | null)?.fileName || "");
-    const kind = String((doc.metadata as { kind?: string } | null)?.kind || "");
+    const meta = (doc.metadata && typeof doc.metadata === "object" ? doc.metadata : {}) as {
+      fileName?: string;
+      kind?: string;
+      tags?: unknown;
+    };
+    const fileName = String(meta.fileName || "");
+    const kind = String(meta.kind || "");
+    const tags = normalizeKnowledgeTags(meta.tags);
     const collectionRel = doc.collection as { name?: string } | { name?: string }[] | null;
     const collectionName = String(
       Array.isArray(collectionRel) ? collectionRel[0]?.name || "" : collectionRel?.name || "",
@@ -1191,11 +1314,14 @@ export async function findReferenceImages(
     const imageUrl = shortKnowledgeDocumentUrl(String(doc.id));
     if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) continue;
 
+    const scoreQuery = askingMore && hasPrefer ? prefer : query;
+    const tagBoost = scoreTagMatches(scoreQuery.toLowerCase(), tags);
     let score = scoreReferenceDoc({
-      query: askingMore && hasPrefer ? prefer : query,
+      query: scoreQuery,
       title: String(doc.title || ""),
       fileName,
       collectionName,
+      tags,
     });
     if (hasPrefer && collectionName.toLowerCase().includes(preferLower)) score += 20;
 
@@ -1207,17 +1333,23 @@ export async function findReferenceImages(
       mimeType: mime || "image/jpeg",
       fileName: fileName || "reference.jpg",
       score,
+      tagBoost,
     });
   }
 
   scored.sort((a, b) => b.score - a.score);
   const namedApp = COLLECTION_ALIASES.some((a) => a.match.test(query.toLowerCase()));
+  const hasTagHit = scored.some((s) => s.tagBoost >= 15);
   const filtered = hasPrefer
     ? scored
-    : namedApp
+    : namedApp || hasTagHit
       ? scored.filter((s) => s.score >= 5)
       : scored.filter((s) => s.score >= 1);
-  const pool = filtered.length > 0 ? filtered : scored;
+  // When visitor named a tagged place, prefer tagged hits; fall back to untagged only if none
+  const tagPreferred =
+    !hasPrefer && hasTagHit ? scored.filter((s) => s.tagBoost >= 15 && s.score >= 5) : [];
+  const pool =
+    tagPreferred.length > 0 ? tagPreferred : filtered.length > 0 ? filtered : scored;
 
   const seen = new Set<string>();
   const out: ReferenceImage[] = [];

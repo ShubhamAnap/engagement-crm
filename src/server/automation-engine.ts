@@ -388,10 +388,7 @@ async function executeLeafAction(
       return "add_system_message";
     }
     case "send_whatsapp_template": {
-      const phone = ctx.phone;
-      if (!phone) return "skipped:send_whatsapp_template (no phone)";
-      const { sendWhatsAppTemplateMessage } = await import("@/server/whatsapp-broadcast");
-      const { resolveWaBodyParams, parseStoredBindings } = await import("@/lib/wa-template-merge");
+      const { normalizeWhatsAppDigits } = await import("@/lib/whatsapp-window");
       const { data: directoryRows } = await supabase
         .from("sales_person_directory")
         .select("email, display_name, mobile, is_active")
@@ -409,13 +406,25 @@ async function executeLeafAction(
         status: ctx.toStatus || ctx.leadStatus,
         notes: ctx.notes,
       };
+      const { applySalesPersonDirectory, resolveWaBodyParams, parseStoredBindings } = await import(
+        "@/lib/wa-template-merge"
+      );
+      const merged = applySalesPersonDirectory(fields, directoryRows || []);
+      const toSource = action.toPhoneSource || "phone";
+      const phoneRaw =
+        toSource === "sales_person_mobile"
+          ? merged.sales_person_mobile || null
+          : merged.phone || ctx.phone || null;
+      const phone = normalizeWhatsAppDigits(phoneRaw);
+      if (!phone) {
+        return `skipped:send_whatsapp_template (no phone from ${toSource})`;
+      }
+      const { sendWhatsAppTemplateMessage } = await import("@/server/whatsapp-broadcast");
       let bodyParams: string[] = [];
       if (action.bodyParamBindings && action.bodyParamBindings.length > 0) {
         const bindings = parseStoredBindings(action.bodyParamBindings, []);
         bodyParams = resolveWaBodyParams(bindings, fields, directoryRows || []);
       } else {
-        const { applySalesPersonDirectory } = await import("@/lib/wa-template-merge");
-        const merged = applySalesPersonDirectory(fields, directoryRows || []);
         const ctxResolved = { ...ctx, salesPerson: merged.sales_person };
         bodyParams = (action.bodyParams || []).map((p) => fillVars(p, ctxResolved));
       }
@@ -425,7 +434,7 @@ async function executeLeafAction(
         language: action.language || "en",
         bodyParams: bodyParams.length ? bodyParams : undefined,
       });
-      return `send_whatsapp_template=${action.templateName}:${waId || "ok"}`;
+      return `send_whatsapp_template=${action.templateName}:${waId || "ok"}→${phone}`;
     }
     case "send_email": {
       const to = ctx.email;

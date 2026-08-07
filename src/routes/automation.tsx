@@ -201,6 +201,7 @@ function WaTemplateActionEditor({
       ...action,
       templateName: tpl.name,
       language: tpl.language || "en",
+      toPhoneSource: action.toPhoneSource || "phone",
       bodyParamBindings: defaultBindingsForLabels(labels),
       bodyParams: undefined,
     });
@@ -208,6 +209,32 @@ function WaTemplateActionEditor({
 
   return (
     <div className="space-y-2 sm:col-span-2">
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">Send WhatsApp to (phone column)</Label>
+        <Select
+          value={action.toPhoneSource || "phone"}
+          onValueChange={(v) =>
+            onChange({
+              ...action,
+              toPhoneSource: v as "phone" | "sales_person_mobile",
+            })
+          }
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Phone column" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="phone">Phone (Leads — customer number)</SelectItem>
+            <SelectItem value="sales_person_mobile">
+              Sales person mobile (from directory)
+            </SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-[11px] text-muted-foreground">
+          Default is the lead <strong>Phone</strong> from Leads. Numbers are normalized: 10-digit →
+          91…, 0XXXXXXXXXX → 91…, already 91XXXXXXXXXX kept.
+        </p>
+      </div>
       <div className="grid gap-2 sm:grid-cols-2">
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Meta template</Label>
@@ -246,8 +273,8 @@ function WaTemplateActionEditor({
       </div>
       {!action.templateName ? (
         <p className="text-[11px] text-muted-foreground">
-          Pick an APPROVED template from Broadcasting sync. Message is sent to the{" "}
-          <strong>customer/lead phone</strong>.
+          Pick an APPROVED template from Broadcasting sync. Message is sent to the mapped phone
+          column (default: customer Phone on the lead).
         </p>
       ) : (
         <p className="text-[11px] text-muted-foreground">
@@ -542,6 +569,7 @@ function defaultLeafAction(type: AutomationLeafAction["type"]): AutomationLeafAc
         type,
         templateName: "followup_01",
         language: "en",
+        toPhoneSource: "phone",
         bodyParamBindings: [{ source: "name" }],
       };
     case "send_email":

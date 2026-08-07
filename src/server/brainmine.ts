@@ -13,6 +13,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import type { LeadStatus } from "@/lib/db-types";
+import { normalizeWhatsAppDigits } from "@/lib/whatsapp-window";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -268,9 +269,7 @@ function asString(v: unknown): string | null {
 }
 
 function cleanPhone(raw: string | null): string | null {
-  if (!raw) return null;
-  const digits = raw.replace(/\D/g, "");
-  return digits.length >= 8 ? digits : null;
+  return normalizeWhatsAppDigits(raw);
 }
 
 function mapBrainmineStatus(raw: string | null): LeadStatus {

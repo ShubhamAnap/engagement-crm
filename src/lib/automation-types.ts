@@ -72,6 +72,11 @@ export type AutomationLeafAction =
       type: "send_whatsapp_template";
       templateName: string;
       language: string;
+      /**
+       * Lead column used as WhatsApp destination. Default: phone (Leads Phone).
+       * Numbers are normalized (10→91…, 0XXXXXXXXXX→91…, 91XXXXXXXXXX kept).
+       */
+      toPhoneSource?: "phone" | "sales_person_mobile";
       /** @deprecated Prefer bodyParamBindings — tokens like {{name}} still work via fillVars */
       bodyParams?: string[];
       /** Ordered map of each Meta body variable → CRM column or fixed text */

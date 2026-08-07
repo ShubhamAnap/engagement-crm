@@ -101,15 +101,27 @@ export function isMarketplaceLeadChannel(channel: string | null | undefined): bo
   return channel === "indiamart" || channel === "tradeindia";
 }
 
-/** Digits only; Indian 10-digit mobiles get country code 91. */
+/** Digits only; Indian mobiles normalized for WhatsApp / Leads storage.
+ * - 10 digits → prefix 91
+ * - 11 digits starting with 0 → drop 0, prefix 91
+ * - 12 digits starting with 91 → keep
+ */
 export function normalizeWhatsAppDigits(phone: string | null | undefined): string | null {
   if (!phone) return null;
   let digits = phone.replace(/\D/g, "");
   if (!digits) return null;
+  // Strip leading 00 international prefix
+  if (digits.startsWith("00")) digits = digits.slice(2);
   if (digits.startsWith("0") && digits.length === 11) digits = digits.slice(1);
   if (digits.length === 10) digits = `91${digits}`;
+  // Already 91XXXXXXXXXX (12) — keep; longer international numbers kept if ≥10
   if (digits.length < 10) return null;
   return digits;
+}
+
+/** Alias for Leads CRM storage — same rules as WhatsApp. */
+export function normalizeLeadPhone(phone: string | null | undefined): string | null {
+  return normalizeWhatsAppDigits(phone);
 }
 
 export function conversationRepliesViaWhatsApp(c: {

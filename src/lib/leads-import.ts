@@ -2,6 +2,7 @@ import { downloadCsv } from "@/lib/csv";
 import { getBrowserSupabase } from "@/lib/supabase";
 import type { ChannelType, LeadStatus, PriorityLevel } from "@/lib/db-types";
 import { createLead, type LeadInput } from "@/lib/leads-api";
+import { normalizeLeadPhone } from "@/lib/whatsapp-window";
 
 export const LEAD_IMPORT_HEADERS = [
   "name",
@@ -174,9 +175,7 @@ function parsePriority(raw: string | undefined): PriorityLevel {
 }
 
 function normalizePhone(raw: string | null | undefined): string | null {
-  if (!raw?.trim()) return null;
-  const digits = raw.replace(/\D/g, "");
-  return digits || null;
+  return normalizeLeadPhone(raw);
 }
 
 function normalizeEmail(raw: string | null | undefined): string | null {

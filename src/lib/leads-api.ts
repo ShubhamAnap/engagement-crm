@@ -1,5 +1,6 @@
 ﻿import { getBrowserSupabase } from "@/lib/supabase";
 import type { ChannelType, DbLead, LeadStatus, PriorityLevel } from "@/lib/db-types";
+import { normalizeLeadPhone } from "@/lib/whatsapp-window";
 
 export type LeadInput = {
   orgId: string;
@@ -52,7 +53,7 @@ function buildLeadPayload(input: LeadInput, includeRef: boolean) {
     source: input.source ?? "website",
     name: input.name.trim(),
     company: input.company?.trim() || null,
-    phone: input.phone?.trim() || null,
+    phone: normalizeLeadPhone(input.phone) || input.phone?.trim() || null,
     email: input.email?.trim() || null,
     product_label: requirement,
     requirement,

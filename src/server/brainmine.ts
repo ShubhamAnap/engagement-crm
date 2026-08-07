@@ -428,6 +428,8 @@ function leadListFields(isOpp: boolean): string[] {
         "annual_revenue",
         "query_about",
         "custom_query_about",
+        "custom_product_name",
+        "items",
         "modified",
         "creation",
       ]
@@ -613,21 +615,87 @@ function pickQueryAbout(row: Record<string, unknown>): string | null {
   const direct =
     asRequirementText(row.query_about) ||
     asRequirementText(row.custom_query_about) ||
+    asRequirementText(row.custom_product_name) ||
     asRequirementText(getByPath(row, "query_about")) ||
-    asRequirementText(getByPath(row, "custom_query_about"));
+    asRequirementText(getByPath(row, "custom_query_about")) ||
+    asRequirementText(getByPath(row, "custom_product_name"));
   if (direct) return direct;
   for (const [k, v] of Object.entries(row)) {
-    if (/^custom_?query_?about$/i.test(k) || /^query_?about$/i.test(k)) {
+    if (
+      /^custom_?query_?about$/i.test(k) ||
+      /^query_?about$/i.test(k) ||
+      /^custom_?product_?name$/i.test(k)
+    ) {
       const t = asRequirementText(v);
       if (t) return t;
     }
   }
-  return null;
+  // Opportunity often has no query_about — product text lives on Items child table
+  return pickRequirementFromItems(row.items);
+}
+
+/** ERPNext Opportunity Items: item_name / description often hold “Solar Hybrid Inverter 10kW”. */
+function pickRequirementFromItems(items: unknown): string | null {
+  if (!Array.isArray(items) || items.length === 0) return null;
+  const parts: string[] = [];
+  for (const raw of items) {
+    if (!raw || typeof raw !== "object") continue;
+    const row = raw as Record<string, unknown>;
+    const label =
+      asRequirementText(row.item_name) ||
+      asRequirementText(row.description) ||
+      asRequirementText(row.item_code) ||
+      asRequirementText(row.item) ||
+      null;
+    if (label) parts.push(label);
+  }
+  if (!parts.length) return null;
+  // Dedupe while preserving order
+  return Array.from(new Set(parts)).join("; ");
+}
+
+function expandItemsForInspect(items: unknown): Array<Record<string, string>> {
+  if (!Array.isArray(items)) return [];
+  return items.slice(0, 20).map((raw, idx) => {
+    if (!raw || typeof raw !== "object") {
+      return { index: String(idx), preview: previewValue(raw) };
+    }
+    const row = raw as Record<string, unknown>;
+    const keys = [
+      "item_code",
+      "item_name",
+      "description",
+      "item",
+      "qty",
+      "uom",
+      "rate",
+      "amount",
+    ];
+    const out: Record<string, string> = { index: String(idx) };
+    for (const k of keys) {
+      const v = asRequirementText(row[k]) || asString(row[k]);
+      if (v) out[k] = v;
+    }
+    if (Object.keys(out).length <= 1) {
+      out.preview = previewValue(row, 220);
+    }
+    return out;
+  });
+}
+
+function doctypeFromLeadsPath(leadsPath: string): string {
+  const m = leadsPath.match(/\/resource\/([^/?#]+)/i);
+  if (!m?.[1]) return "Lead";
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return m[1];
+  }
 }
 
 /**
- * List responses often lack custom fields. If query_about is missing, fetch full docs
- * (needed so Requirement maps correctly).
+ * List responses often lack custom fields / items. If requirement is missing, fetch full docs
+ * (and for Opportunity, try linked Lead) so Requirement can fill.
  */
 async function enrichRowsWithQueryAbout(
   cfg: BrainmineChannelConfig,
@@ -635,17 +703,35 @@ async function enrichRowsWithQueryAbout(
 ): Promise<Record<string, unknown>[]> {
   const out: Record<string, unknown>[] = [];
   for (const row of rows) {
-    if (pickQueryAbout(row)) {
-      out.push(row);
-      continue;
+    let merged: Record<string, unknown> = row;
+    if (!pickQueryAbout(merged)) {
+      const id = asString(row.name) || asString(row.id);
+      if (id) {
+        const full = await fetchBrainmineDocByName(cfg, id);
+        if (full) merged = { ...row, ...full };
+      }
     }
-    const id = asString(row.name) || asString(row.id);
-    if (!id) {
-      out.push(row);
-      continue;
+    if (!pickQueryAbout(merged)) {
+      const party = asString(merged.party_name);
+      if (party && /^CRM-LEAD/i.test(party)) {
+        try {
+          const leadJson = await brainmineGetJson(
+            cfg,
+            `/api/resource/Lead/${encodeURIComponent(party)}`,
+          );
+          const leadDoc =
+            (getByPath(leadJson, "data") as Record<string, unknown> | undefined) ||
+            (leadJson as Record<string, unknown>);
+          const leadReq = pickQueryAbout(leadDoc);
+          if (leadReq) {
+            merged = { ...merged, query_about: leadReq };
+          }
+        } catch {
+          // Linked Lead may be permission-blocked — keep Opportunity as-is
+        }
+      }
     }
-    const full = await fetchBrainmineDocByName(cfg, id);
-    out.push(full ? { ...row, ...full } : row);
+    out.push(merged);
   }
   return out;
 }
@@ -1355,8 +1441,8 @@ async function brainmineGetJson(
 }
 
 /**
- * Step A — read-only discovery: one full Lead + DocField/Custom Field hints
- * for Requirement / Query mapping (no writes to Engage or Brainmine).
+ * Step A — read-only discovery: one full Lead/Opportunity + Items + linked Lead
+ * + DocField/Custom Field hints for Requirement / Query mapping.
  */
 export const inspectBrainmineLeadFields = createServerFn({ method: "POST" }).handler(async () => {
   const cfg = await loadBrainmineConfig();
@@ -1367,8 +1453,10 @@ export const inspectBrainmineLeadFields = createServerFn({ method: "POST" }).han
   const leadsPath = (cfg.leads_path || "/api/resource/Lead").startsWith("/")
     ? cfg.leads_path || "/api/resource/Lead"
     : `/${cfg.leads_path}`;
+  const doctype = doctypeFromLeadsPath(leadsPath);
+  const isOpp = /opportunity/i.test(doctype);
 
-  // 1) List latest lead id (name) only
+  // 1) List latest id (name) only
   const listJson = await brainmineGetJson(
     cfg,
     `${leadsPath}?limit_page_length=1&order_by=${encodeURIComponent("modified desc")}&fields=${encodeURIComponent(JSON.stringify(["name"]))}`,
@@ -1408,15 +1496,74 @@ export const inspectBrainmineLeadFields = createServerFn({ method: "POST" }).han
     });
 
   const candidatesFromSample = allFields.filter((f) => f.looksLikeRequirement);
+  const itemsExpanded = expandItemsForInspect(doc.items);
+  const resolvedRequirement = pickQueryAbout(doc);
 
-  // 3) DocField meta (standard + some customs depending on site)
+  // 2b) If Opportunity, also inspect linked Lead (party_name) for query_about
+  let linkedLead: {
+    id: string;
+    fieldCount: number;
+    hasQueryAbout: boolean;
+    requirementPreview: string | null;
+    queryLikeFields: Array<{ key: string; valuePreview: string; empty: boolean }>;
+  } | null = null;
+  const partyName = asString(doc.party_name);
+  if (isOpp && partyName && /^CRM-LEAD/i.test(partyName)) {
+    try {
+      const leadJson = await brainmineGetJson(
+        cfg,
+        `/api/resource/Lead/${encodeURIComponent(partyName)}`,
+      );
+      const leadDoc =
+        (getByPath(leadJson, "data") as Record<string, unknown> | undefined) ||
+        (leadJson as Record<string, unknown>);
+      const leadReq = pickQueryAbout(leadDoc);
+      const leadFields = Object.keys(leadDoc)
+        .filter((k) => !k.startsWith("_"))
+        .map((key) => {
+          const value = leadDoc[key];
+          const valuePreview = previewValue(value);
+          const empty =
+            value == null ||
+            value === "" ||
+            (Array.isArray(value) && value.length === 0);
+          return {
+            key,
+            valuePreview,
+            empty,
+            looksLikeRequirement: REQUIREMENT_KEY_RE.test(key) && !empty,
+          };
+        });
+      linkedLead = {
+        id: partyName,
+        fieldCount: leadFields.length,
+        hasQueryAbout: Boolean(
+          asRequirementText(leadDoc.query_about) ||
+            asRequirementText(leadDoc.custom_query_about),
+        ),
+        requirementPreview: leadReq,
+        queryLikeFields: leadFields.filter((f) => f.looksLikeRequirement),
+      };
+    } catch {
+      linkedLead = {
+        id: partyName,
+        fieldCount: 0,
+        hasQueryAbout: false,
+        requirementPreview: null,
+        queryLikeFields: [],
+      };
+    }
+  }
+
+  // 3) DocField / Custom Field meta for the *actual* synced DocType
   let metaFields: Array<{ fieldname: string; label: string; fieldtype: string }> = [];
+  let metaError: string | null = null;
   try {
     const metaJson = await brainmineGetJson(
       cfg,
       `/api/resource/DocField?limit_page_length=500&fields=${encodeURIComponent(
         JSON.stringify(["fieldname", "label", "fieldtype"]),
-      )}&filters=${encodeURIComponent(JSON.stringify([["parent", "=", "Lead"]]))}`,
+      )}&filters=${encodeURIComponent(JSON.stringify([["parent", "=", doctype]]))}`,
     );
     const rows = extractList(metaJson, "data");
     metaFields = rows
@@ -1426,18 +1573,19 @@ export const inspectBrainmineLeadFields = createServerFn({ method: "POST" }).han
         fieldtype: asString(r.fieldtype) || "",
       }))
       .filter((r) => r.fieldname);
-  } catch {
+  } catch (err) {
+    metaError = err instanceof Error ? err.message : "DocField meta unavailable";
     metaFields = [];
   }
 
-  // 4) Custom Field meta (Brainmine often stores enquiry text here)
   let customFields: Array<{ fieldname: string; label: string; fieldtype: string }> = [];
+  let customError: string | null = null;
   try {
     const customJson = await brainmineGetJson(
       cfg,
       `/api/resource/Custom%20Field?limit_page_length=200&fields=${encodeURIComponent(
         JSON.stringify(["fieldname", "label", "fieldtype", "dt"]),
-      )}&filters=${encodeURIComponent(JSON.stringify([["dt", "=", "Lead"]]))}`,
+      )}&filters=${encodeURIComponent(JSON.stringify([["dt", "=", doctype]]))}`,
     );
     const rows = extractList(customJson, "data");
     customFields = rows
@@ -1447,7 +1595,8 @@ export const inspectBrainmineLeadFields = createServerFn({ method: "POST" }).han
         fieldtype: asString(r.fieldtype) || "",
       }))
       .filter((r) => r.fieldname);
-  } catch {
+  } catch (err) {
+    customError = err instanceof Error ? err.message : "Custom Field meta unavailable";
     customFields = [];
   }
 
@@ -1470,7 +1619,6 @@ export const inspectBrainmineLeadFields = createServerFn({ method: "POST" }).han
       };
     });
 
-  // Dedupe meta candidates by key
   const seenMeta = new Set<string>();
   const uniqueMetaCandidates = metaCandidates.filter((m) => {
     if (seenMeta.has(m.key)) return false;
@@ -1478,18 +1626,42 @@ export const inspectBrainmineLeadFields = createServerFn({ method: "POST" }).han
     return true;
   });
 
+  const hasTopLevelQuery =
+    Object.prototype.hasOwnProperty.call(doc, "query_about") ||
+    Object.prototype.hasOwnProperty.call(doc, "custom_query_about");
+
+  let diagnosis: string;
+  if (resolvedRequirement) {
+    diagnosis = `Engage can fill Requirement from this document (resolved preview: “${resolvedRequirement.slice(0, 120)}”). Source preference: query_about → custom_product_name → Opportunity items.item_name/description.`;
+  } else if (itemsExpanded.length) {
+    diagnosis =
+      "No query_about / custom_query_about text on this document. Items rows exist but item_name/description were empty or unreadable — open Items in Brainmine UI or check API permissions on child table fields.";
+  } else if (linkedLead?.requirementPreview) {
+    diagnosis = `No requirement on the Opportunity; linked Lead ${linkedLead.id} has text we can use after Lead enrich.`;
+  } else if (!hasTopLevelQuery) {
+    diagnosis =
+      "Brainmine is not exposing any query_about / Query About field on this DocType via API. Requirement text is either not stored, stored only in UI-only fields, or blocked by API user permissions. Ask Brainmine admin to add a Data/Text/Long Text custom field (e.g. custom_query_about) on Opportunity/Lead and grant Read to the API user — or confirm product text should come from Items.";
+  } else {
+    diagnosis =
+      "query_about field exists but is empty on this sample. Inspect another Opportunity/Lead that clearly shows product text in Brainmine UI.";
+  }
+
   return {
     leadId: firstId,
     leadsPath,
+    doctype,
     sampleFieldCount: allFields.length,
-    /** Fields on the sample lead that look like requirement/query AND have a value */
+    resolvedRequirement,
+    itemsExpanded,
+    linkedLead,
     candidatesFromSample,
-    /** DocType / Custom Field definitions that look like requirement/query */
     candidatesFromMeta: uniqueMetaCandidates,
-    /** Full key list from the sample lead (for you to pick) */
     allFields,
     customFieldCount: customFields.length,
     docFieldCount: metaFields.length,
-    hint: "Pick the field that holds text like “Solar Hybrid Inverter 10kW”. Tell me the key (e.g. custom_query) and we map it to Requirement.",
+    metaError,
+    customError,
+    diagnosis,
+    hint: "If Items show item_name/description, Engage now maps those to Requirement automatically. If still empty, Brainmine must expose a Query field on the API.",
   };
 });

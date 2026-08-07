@@ -2858,7 +2858,55 @@ function Page() {
             <p className="text-sm text-muted-foreground">No inspection result yet.</p>
           ) : (
             <div className="space-y-4 text-sm">
+              {"diagnosis" in bmInspectResult && bmInspectResult.diagnosis ? (
+                <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-foreground">
+                  {bmInspectResult.diagnosis}
+                </p>
+              ) : null}
               <p className="text-xs text-muted-foreground">{bmInspectResult.hint}</p>
+
+              {"resolvedRequirement" in bmInspectResult && bmInspectResult.resolvedRequirement ? (
+                <div>
+                  <p className="mb-1.5 font-medium text-foreground">Resolved Requirement preview</p>
+                  <p className="rounded-md border border-border bg-secondary/40 px-3 py-2 text-xs">
+                    {bmInspectResult.resolvedRequirement}
+                  </p>
+                </div>
+              ) : null}
+
+              {"itemsExpanded" in bmInspectResult &&
+              Array.isArray(bmInspectResult.itemsExpanded) &&
+              bmInspectResult.itemsExpanded.length > 0 ? (
+                <div>
+                  <p className="mb-1.5 font-medium text-foreground">
+                    Opportunity Items (expanded)
+                  </p>
+                  <ul className="max-h-40 space-y-1.5 overflow-y-auto rounded-md border border-border p-2 font-mono text-[11px]">
+                    {bmInspectResult.itemsExpanded.map((row, i) => (
+                      <li key={i}>
+                        {Object.entries(row)
+                          .map(([k, v]) => `${k}=${v}`)
+                          .join(" · ")}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {"linkedLead" in bmInspectResult && bmInspectResult.linkedLead ? (
+                <div>
+                  <p className="mb-1.5 font-medium text-foreground">
+                    Linked Lead {bmInspectResult.linkedLead.id}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {bmInspectResult.linkedLead.requirementPreview
+                      ? `Requirement: ${bmInspectResult.linkedLead.requirementPreview}`
+                      : bmInspectResult.linkedLead.hasQueryAbout
+                        ? "Has query_about field but empty"
+                        : "No query_about / requirement text on linked Lead"}
+                  </p>
+                </div>
+              ) : null}
 
               <div>
                 <p className="mb-1.5 font-medium text-foreground">
@@ -2866,8 +2914,8 @@ function Page() {
                 </p>
                 {bmInspectResult.candidatesFromSample.length === 0 ? (
                   <p className="text-xs text-muted-foreground">
-                    No keyword matches with data on this sample. Check the full list below or try
-                    another lead in CRM.
+                    No keyword matches with data on this sample. Check Items / linked Lead above, or
+                    ask Brainmine to expose a Query About field on the API.
                   </p>
                 ) : (
                   <ul className="max-h-40 space-y-1.5 overflow-y-auto rounded-md border border-border p-2">

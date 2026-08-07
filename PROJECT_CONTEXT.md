@@ -502,6 +502,16 @@ Website carousel expands seed matches to **all active products in that category*
 
 ---
 
+### Session 2026-08-07 — Brainmine Requirement without query_about
+
+**Finding:** Opportunity API often has **no** `query_about` field. Product text may live in **Items** (`item_name` / `description`) or on the linked **Lead**.
+
+**Shipped (`ba9e1a1`):** Requirement resolve order = `query_about` → `custom_product_name` → Opportunity **items** → linked Lead. Inspect shows diagnosis, expanded Items, linked Lead, resolved preview.
+
+**Ops:** After Render deploy → Channels → **Inspect CRM fields** → then **Sync leads now** / date pull; check Leads **Requirement**.
+
+---
+
 ### Session 2026-08-07 — Inbox only after chatbot form submit
 
 **Rule:** Do not put anonymous widget opens in Inbox as “Website visitor”.

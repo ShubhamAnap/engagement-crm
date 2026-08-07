@@ -321,7 +321,23 @@ async function getConversationMessages(
     .limit(200);
 
   if (error) throw new Error(error.message);
-  return data ?? [];
+  // Never expose backend/system metadata lines to the website chatbot visitor
+  return (data ?? []).filter((m) => isCustomerFacingChatMessage(m));
+}
+
+function isCustomerFacingChatMessage(m: {
+  sender?: string | null;
+  metadata?: Record<string, unknown> | null;
+}) {
+  const sender = (m.sender || "").toLowerCase();
+  if (sender === "system") return false;
+  const meta = m.metadata && typeof m.metadata === "object" ? m.metadata : null;
+  if (meta) {
+    if (meta.website_visitor_captured === true) return false;
+    if (meta.hide_from_visitor === true) return false;
+    if (meta.internal === true) return false;
+  }
+  return true;
 }
 
 function inferLeadLabel(text: string): string | null {
@@ -542,13 +558,8 @@ async function syncConversationIdentity(
         })
         .eq("id", convo.id);
 
-      await supabase.from("messages").insert({
-        org_id: ORG_ID,
-        conversation_id: convo.id,
-        sender: "system",
-        body: `Contact saved · ${displayName}${phoneForWa ? ` · ${phoneForWa}` : ""}.`,
-        metadata: { website_visitor_captured: true, session_id: sessionId },
-      });
+      // Do not insert customer-visible system/metadata messages into the chat thread.
+      // Inbox already gets name/phone via conversation fields + preview.
 
       if (leadId) {
         await supabase
@@ -880,7 +891,7 @@ export const widgetListMessages = createServerFn({ method: "POST" })
       .order("created_at", { ascending: true });
 
     if (error) throw new Error(error.message);
-    return messages ?? [];
+    return (messages ?? []).filter((m) => isCustomerFacingChatMessage(m));
   });
 
 export const widgetSendMessage = createServerFn({ method: "POST" })

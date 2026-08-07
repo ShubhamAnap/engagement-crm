@@ -205,15 +205,17 @@ function extractDownloadLinks(meta: Record<string, unknown> | null | undefined):
 }
 
 function toUi(messages: ServerMessage[]): UiMsg[] {
-  return messages.map((m) => ({
-    id: m.id,
-    from: m.sender === "customer" ? "user" : "bot",
-    text: m.body,
-    kind: m.sender === "agent" ? "agent" : m.sender === "ai" ? "ai" : undefined,
-    images: extractReferenceImages(m.metadata),
-    downloads: extractDownloadLinks(m.metadata),
-    products: extractProductCarousel(m.metadata),
-  }));
+  return messages
+    .filter((m) => m.sender !== "system")
+    .map((m) => ({
+      id: m.id,
+      from: m.sender === "customer" ? "user" : "bot",
+      text: m.body,
+      kind: m.sender === "agent" ? "agent" : m.sender === "ai" ? "ai" : undefined,
+      images: extractReferenceImages(m.metadata),
+      downloads: extractDownloadLinks(m.metadata),
+      products: extractProductCarousel(m.metadata),
+    }));
 }
 
 function applyHistory(messages: ServerMessage[]): UiMsg[] {

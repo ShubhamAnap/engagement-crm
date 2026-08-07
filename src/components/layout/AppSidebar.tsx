@@ -5,6 +5,7 @@ import {
   Bot,
   BookOpen,
   Boxes,
+  Calculator,
   ChevronsLeft,
   Cpu,
   FileBarChart,
@@ -43,6 +44,7 @@ const groups: { label: string; items: Item[] }[] = [
     items: [
       { to: "/agents", label: "AI Agents", icon: Bot },
       { to: "/tools", label: "Tools", icon: Cpu },
+      { to: "/formulas", label: "Formulas", icon: Calculator },
       { to: "/knowledge", label: "Knowledge Base", icon: BookOpen },
       { to: "/automation", label: "Automation", icon: Workflow },
       { to: "/broadcasting", label: "Broadcasting", icon: Megaphone },

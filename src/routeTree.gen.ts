@@ -29,6 +29,7 @@ import { Route as ProductsRouteImport } from './routes/products'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ToolsRouteImport } from './routes/tools'
+import { Route as FormulasRouteImport } from './routes/formulas'
 import { Route as CSkuRouteImport } from './routes/c.$sku'
 import { Route as DDocumentIdRouteImport } from './routes/d.$documentId'
 import { Route as FFileSlugRouteImport } from './routes/f.$fileSlug'
@@ -140,6 +141,11 @@ const ToolsRoute = ToolsRouteImport.update({
   path: '/tools',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FormulasRoute = FormulasRouteImport.update({
+  id: '/formulas',
+  path: '/formulas',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CSkuRoute = CSkuRouteImport.update({
   id: '/c/$sku',
   path: '/c/$sku',
@@ -212,6 +218,7 @@ export interface FileRoutesByFullPath {
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
   '/tools': typeof ToolsRoute
+  '/formulas': typeof FormulasRoute
   '/c/$sku': typeof CSkuRoute
   '/d/$documentId': typeof DDocumentIdRoute
   '/f/$fileSlug': typeof FFileSlugRoute
@@ -244,6 +251,7 @@ export interface FileRoutesByTo {
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
   '/tools': typeof ToolsRoute
+  '/formulas': typeof FormulasRoute
   '/c/$sku': typeof CSkuRoute
   '/d/$documentId': typeof DDocumentIdRoute
   '/f/$fileSlug': typeof FFileSlugRoute
@@ -277,6 +285,7 @@ export interface FileRoutesById {
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
   '/tools': typeof ToolsRoute
+  '/formulas': typeof FormulasRoute
   '/c/$sku': typeof CSkuRoute
   '/d/$documentId': typeof DDocumentIdRoute
   '/f/$fileSlug': typeof FFileSlugRoute
@@ -311,6 +320,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/settings'
     | '/tools'
+    | '/formulas'
     | '/c/$sku'
     | '/d/$documentId'
     | '/f/$fileSlug'
@@ -343,6 +353,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/settings'
     | '/tools'
+    | '/formulas'
     | '/c/$sku'
     | '/d/$documentId'
     | '/f/$fileSlug'
@@ -375,6 +386,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/settings'
     | '/tools'
+    | '/formulas'
     | '/c/$sku'
     | '/d/$documentId'
     | '/f/$fileSlug'
@@ -408,6 +420,7 @@ export interface RootRouteChildren {
   ReportsRoute: typeof ReportsRoute
   SettingsRoute: typeof SettingsRoute
   ToolsRoute: typeof ToolsRoute
+  FormulasRoute: typeof FormulasRoute
   CSkuRoute: typeof CSkuRoute
   DDocumentIdRoute: typeof DDocumentIdRoute
   FFileSlugRoute: typeof FFileSlugRoute
@@ -562,6 +575,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ToolsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/formulas': {
+      id: '/formulas'
+      path: '/formulas'
+      fullPath: '/formulas'
+      preLoaderRoute: typeof FormulasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/c/$sku': {
       id: '/c/$sku'
       path: '/c/$sku'
@@ -656,6 +676,7 @@ const rootRouteChildren: RootRouteChildren = {
   ReportsRoute: ReportsRoute,
   SettingsRoute: SettingsRoute,
   ToolsRoute: ToolsRoute,
+  FormulasRoute: FormulasRoute,
   CSkuRoute: CSkuRoute,
   DDocumentIdRoute: DDocumentIdRoute,
   FFileSlugRoute: FFileSlugRoute,

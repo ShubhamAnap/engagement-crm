@@ -54,6 +54,7 @@ const searchTargets = [
   { label: "AI Chat Support", to: "/ai-chat" },
   { label: "AI Agents", to: "/agents" },
   { label: "Tools", to: "/tools" },
+  { label: "Formulas", to: "/formulas" },
   { label: "Knowledge Base", to: "/knowledge" },
   { label: "Products", to: "/products" },
   { label: "Customers", to: "/customers" },

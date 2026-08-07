@@ -502,6 +502,14 @@ Website carousel expands seed matches to **all active products in that category*
 
 ---
 
+### Session 2026-08-07 — Inbox only after chatbot form submit
+
+**Rule:** Do not put anonymous widget opens in Inbox as “Website visitor”.
+
+**Behavior:** Conversation is created only when name + email + phone are submitted. Inbox lists those with real name/details. Empty placeholders are hidden/deleted.
+
+---
+
 ### Session 2026-08-06 — Website welcome WA every session
 
 **Was:** `website_visitor_captured` fired only once per conversation (`website_visitor_captured_at`).

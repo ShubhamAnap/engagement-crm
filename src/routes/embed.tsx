@@ -407,7 +407,9 @@ function EmbedChat() {
     setDraft("");
     setTyping(false);
     setEditingContact(!isProfileComplete(keep));
-    await syncConversationProfile(keep);
+    if (isProfileComplete(keep)) {
+      await syncConversationProfile(keep);
+    }
   }
 
   async function resumeOrStartConversation() {
@@ -416,6 +418,13 @@ function EmbedChat() {
     profileRef.current = initial;
     setEditingContact(!isProfileComplete(initial));
     lookedUpRef.current = "";
+    if (!isProfileComplete(initial)) {
+      setConversationId(null);
+      conversationIdRef.current = null;
+      setMsgs([welcome]);
+      setHumanMode(false);
+      return;
+    }
     const convoId = await syncConversationProfile(initial);
     if (!convoId || !key) return;
     const history = (await widgetListMessages({

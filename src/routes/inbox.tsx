@@ -610,7 +610,7 @@ function Page() {
               title="No conversations yet"
               description={
                 channelFilter === "Website"
-                  ? "No website chats in range yet. Open the chatbot, save contact details or send a message — it will show here."
+                  ? "No submitted website contacts yet. When a visitor saves name, email, and phone in the chatbot, they appear here with their details."
                   : "Open Website chat and send a message — it will appear here."
               }
             />

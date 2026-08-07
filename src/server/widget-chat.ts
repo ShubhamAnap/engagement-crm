@@ -138,9 +138,38 @@ function withLocationMetadata(
 
 function preferExisting(existing: string | null | undefined, incoming: string | null | undefined) {
   const current = existing?.trim();
-  if (current) return current;
+  if (current && !isAnonymousVisitorName(current)) return current;
   const next = incoming?.trim();
   return next || null;
+}
+
+/** Prefer the form name so Inbox never sticks on "Website visitor". */
+function preferContactName(existing: string | null | undefined, incoming: string | null | undefined) {
+  const next = incoming?.trim();
+  if (next && !isAnonymousVisitorName(next)) return next;
+  const current = existing?.trim();
+  if (current && !isAnonymousVisitorName(current)) return current;
+  return next || current || null;
+}
+
+function isAnonymousVisitorName(name: string | null | undefined) {
+  const n = (name || "").trim().toLowerCase();
+  return !n || n === "website visitor" || n === "visitor";
+}
+
+/** Inbox + welcome only after real chatbot form details (name + phone + email). */
+function hasWebsiteContactDetails(
+  visitor: {
+    visitor_name?: string | null;
+    visitor_email?: string | null;
+    visitor_phone?: string | null;
+  },
+  matched?: { name?: string | null; email?: string | null; phone?: string | null } | null,
+) {
+  const name = (visitor.visitor_name || matched?.name || "").trim();
+  const email = (visitor.visitor_email || matched?.email || "").trim();
+  const phoneDigits = (visitor.visitor_phone || matched?.phone || "").replace(/\D/g, "");
+  return Boolean(!isAnonymousVisitorName(name) && email && phoneDigits.length >= 10);
 }
 
 async function findCustomerByEmailOrPhone(
@@ -357,12 +386,12 @@ async function syncConversationIdentity(
   const sessionId = (fields.sessionId || "").trim();
   const priorMeta =
     convo.metadata && typeof convo.metadata === "object" ? { ...convo.metadata } : {};
-  const incomingPhone = normalized.visitor_phone;
-  const phoneDigits = (incomingPhone || convo.visitor_phone || "").replace(/\D/g, "");
-  const hasUsablePhone = phoneDigits.length >= 8;
 
   const updates = {
-    visitor_name: normalized.visitor_name || convo.visitor_name || "Website visitor",
+    visitor_name:
+      preferContactName(convo.visitor_name, normalized.visitor_name) ||
+      convo.visitor_name ||
+      "Website visitor",
     visitor_email: normalized.visitor_email || convo.visitor_email,
     visitor_phone: normalized.visitor_phone || convo.visitor_phone,
     visitor_company: normalized.visitor_company || convo.visitor_company,
@@ -387,7 +416,7 @@ async function syncConversationIdentity(
     await supabase
       .from("customers")
       .update({
-        name: preferExisting(customer?.name, updates.visitor_name) || "Website visitor",
+        name: preferContactName(customer?.name, updates.visitor_name) || "Website visitor",
         email: preferExisting(customer?.email, updates.visitor_email),
         phone: preferExisting(customer?.phone, updates.visitor_phone),
         company: preferExisting(customer?.company, updates.visitor_company),
@@ -414,7 +443,7 @@ async function syncConversationIdentity(
     await supabase
       .from("leads")
       .update({
-        name: preferExisting(lead?.name, updates.visitor_name) || "Website visitor",
+        name: preferContactName(lead?.name, updates.visitor_name) || "Website visitor",
         email: preferExisting(lead?.email, updates.visitor_email),
         phone: preferExisting(lead?.phone, updates.visitor_phone),
         company: preferExisting(lead?.company, updates.visitor_company),
@@ -427,9 +456,16 @@ async function syncConversationIdentity(
       .eq("id", leadId);
   }
 
-  // Every website chat session with a known phone → welcome WhatsApp automation
+  // Contact form submitted (name + phone + email) → Inbox + welcome WhatsApp per session
   const shouldWelcome =
-    hasUsablePhone &&
+    hasWebsiteContactDetails(
+      {
+        visitor_name: updates.visitor_name,
+        visitor_email: updates.visitor_email,
+        visitor_phone: updates.visitor_phone,
+      },
+      null,
+    ) &&
     Boolean(sessionId) &&
     shouldSendWebsiteWelcome(priorMeta, sessionId);
 
@@ -448,7 +484,7 @@ async function syncConversationIdentity(
           metadata: updates.metadata,
           tags: null,
         },
-        "Website chat visitor session",
+        "Website chat contact form submitted",
       );
 
       const { data: linked } = await supabase
@@ -462,18 +498,6 @@ async function syncConversationIdentity(
       leadId = (linked?.lead_id as string) || leadId;
 
       const sentAt = new Date().toISOString();
-      const nextMeta = {
-        ...(((linked?.metadata as Record<string, unknown> | null) || updates.metadata || {}) as Record<
-          string,
-          unknown
-        >),
-        website_visitor_captured_at:
-          typeof priorMeta.website_visitor_captured_at === "string"
-            ? priorMeta.website_visitor_captured_at
-            : sentAt,
-        website_welcome_sent_at: sentAt,
-        website_welcome_session_id: sessionId,
-      };
       const phoneForWa =
         normalizeWhatsAppDigits(
           (linked?.visitor_phone as string) || updates.visitor_phone,
@@ -481,41 +505,71 @@ async function syncConversationIdentity(
         (linked?.visitor_phone as string) ||
         updates.visitor_phone;
       const displayName =
-        (linked?.visitor_name as string) || updates.visitor_name || "Website visitor";
-      const preview = `Website session · ${displayName}${phoneForWa ? ` · ${phoneForWa}` : ""}`.slice(
-        0,
-        160,
-      );
+        preferContactName(
+          (linked?.visitor_name as string) || null,
+          updates.visitor_name,
+        ) || "Customer";
+      const nextMeta = {
+        ...(((linked?.metadata as Record<string, unknown> | null) || updates.metadata || {}) as Record<
+          string,
+          unknown
+        >),
+        contact_form_submitted_at:
+          typeof priorMeta.contact_form_submitted_at === "string"
+            ? priorMeta.contact_form_submitted_at
+            : sentAt,
+        website_visitor_captured_at:
+          typeof priorMeta.website_visitor_captured_at === "string"
+            ? priorMeta.website_visitor_captured_at
+            : sentAt,
+        website_welcome_sent_at: sentAt,
+        website_welcome_session_id: sessionId,
+        inbox_visible: true,
+      };
+      const preview = `${displayName}${phoneForWa ? ` · ${phoneForWa}` : ""}`.slice(0, 160);
 
-      const bumpInbox = Boolean(opts?.formSubmit || opts?.treatAsFirstCapture);
       await supabase
         .from("conversations")
         .update({
           metadata: nextMeta,
+          visitor_name: displayName,
           visitor_phone: phoneForWa || updates.visitor_phone,
+          visitor_email: updates.visitor_email,
           preview,
           last_message_at: sentAt,
           updated_at: sentAt,
-          ...(bumpInbox ? { unread_count: 1 } : {}),
+          unread_count: 1,
         })
         .eq("id", convo.id);
 
-      if (bumpInbox) {
-        await supabase.from("messages").insert({
-          org_id: ORG_ID,
-          conversation_id: convo.id,
-          sender: "system",
-          body: `Website chat welcome queued${phoneForWa ? ` · WhatsApp ${phoneForWa}` : ""}.`,
-          metadata: { website_visitor_captured: true, session_id: sessionId },
-        });
-      }
+      await supabase.from("messages").insert({
+        org_id: ORG_ID,
+        conversation_id: convo.id,
+        sender: "system",
+        body: `Contact saved · ${displayName}${phoneForWa ? ` · ${phoneForWa}` : ""}.`,
+        metadata: { website_visitor_captured: true, session_id: sessionId },
+      });
 
-      if (leadId && phoneForWa) {
-        await supabase.from("leads").update({ phone: phoneForWa }).eq("id", leadId);
+      if (leadId) {
+        await supabase
+          .from("leads")
+          .update({
+            name: displayName,
+            phone: phoneForWa || updates.visitor_phone,
+            email: updates.visitor_email,
+          })
+          .eq("id", leadId);
       }
       const custId = (linked?.customer_id as string) || customerId || convo.customer_id;
-      if (custId && phoneForWa) {
-        await supabase.from("customers").update({ phone: phoneForWa }).eq("id", custId);
+      if (custId) {
+        await supabase
+          .from("customers")
+          .update({
+            name: displayName,
+            phone: phoneForWa || updates.visitor_phone,
+            email: updates.visitor_email,
+          })
+          .eq("id", custId);
       }
 
       const { runAutomations } = await import("@/server/automation-engine");
@@ -534,6 +588,7 @@ async function syncConversationIdentity(
         conversationId: convo.id,
         sessionId,
         phone: phoneForWa,
+        name: displayName,
         ...result,
       });
     } catch (err) {
@@ -574,7 +629,7 @@ async function ensureConversationLinks(
       await supabase
         .from("customers")
         .update({
-          name: preferExisting(existing.name, convo.visitor_name) || "Website visitor",
+          name: preferContactName(existing.name, convo.visitor_name) || "Website visitor",
           email: preferExisting(existing.email, convo.visitor_email),
           phone: preferExisting(existing.phone, convo.visitor_phone),
           company: preferExisting(existing.company, convo.visitor_company),
@@ -673,25 +728,47 @@ export const widgetGetOrCreateConversation = createServerFn({ method: "POST" })
       visitor.visitor_phone,
     );
 
-    // Prefer the contact's latest open website conversation when identity is known.
-    if (visitor.visitor_email || visitor.visitor_phone || matched?.id) {
-      const contactConvo = await findLatestOpenWebsiteConversation(supabase, {
-        customerId: matched?.id ?? null,
-        email: visitor.visitor_email || matched?.email,
-        phone: visitor.visitor_phone || matched?.phone,
-        excludeId: null,
-      });
+    const hasContact = hasWebsiteContactDetails(visitor, matched);
 
-      if (contactConvo) {
-        // If this browser session already has an empty placeholder thread, drop it.
-        if (bySession && bySession.id !== contactConvo.id) {
-          const msgCount = await countConversationMessages(supabase, bySession.id);
-          if (msgCount === 0) {
-            await supabase.from("conversations").delete().eq("id", bySession.id);
-          }
+    // Drop empty anonymous placeholders left from older builds (no Inbox noise).
+    if (bySession && !hasContact) {
+      const anonymous =
+        isAnonymousVisitorName(bySession.visitor_name as string) &&
+        !(bySession.visitor_phone as string | null)?.replace(/\D/g, "");
+      if (anonymous) {
+        const msgCount = await countConversationMessages(supabase, bySession.id);
+        if (msgCount === 0) {
+          await supabase.from("conversations").delete().eq("id", bySession.id);
         }
-        return attachSessionAndSync(supabase, contactConvo, data);
       }
+    }
+
+    // Do not create Inbox threads until chatbot contact form is submitted.
+    if (!hasContact) {
+      throw new Error("Please submit your name, email, and phone to start chat.");
+    }
+
+    const displayName =
+      preferContactName(visitor.visitor_name, matched?.name as string | null) ||
+      visitor.visitor_name ||
+      "Customer";
+
+    // Prefer the contact's latest open website conversation when identity is known.
+    const contactConvo = await findLatestOpenWebsiteConversation(supabase, {
+      customerId: matched?.id ?? null,
+      email: visitor.visitor_email || matched?.email,
+      phone: visitor.visitor_phone || matched?.phone,
+      excludeId: null,
+    });
+
+    if (contactConvo) {
+      if (bySession && bySession.id !== contactConvo.id) {
+        const msgCount = await countConversationMessages(supabase, bySession.id);
+        if (msgCount === 0) {
+          await supabase.from("conversations").delete().eq("id", bySession.id);
+        }
+      }
+      return attachSessionAndSync(supabase, contactConvo, data);
     }
 
     if (bySession) {
@@ -708,21 +785,21 @@ export const widgetGetOrCreateConversation = createServerFn({ method: "POST" })
         channel: "website",
         external_ref: `CV-${Date.now().toString().slice(-6)}`,
         status: "ai",
-        assignee_label: "AI ? GPT-4o-mini",
-        visitor_name: visitor.visitor_name || matched?.name || "Website visitor",
+        assignee_label: "AI · Support Agent",
+        visitor_name: displayName,
         visitor_email: visitor.visitor_email || matched?.email,
         visitor_phone: visitor.visitor_phone || matched?.phone,
         visitor_company: visitor.visitor_company || matched?.company,
         metadata: withLocationMetadata(
-          {},
+          { contact_form_submitted_at: nowIso, inbox_visible: true },
           visitor.visitor_location ||
             (typeof matched?.metadata?.location === "string" ? matched.metadata.location : null),
         ),
         customer_id: matched?.id ?? null,
         widget_session_id: data.sessionId,
         tags: ["Website", "Embed"],
-        unread_count: 0,
-        preview: "New website chat",
+        unread_count: 1,
+        preview: displayName,
         last_message_at: nowIso,
         updated_at: nowIso,
       })
@@ -730,21 +807,18 @@ export const widgetGetOrCreateConversation = createServerFn({ method: "POST" })
       .single();
 
     if (createError) throw new Error(createError.message);
-    if (matched || visitor.visitor_email || visitor.visitor_phone || visitor.visitor_name) {
-      await syncConversationIdentity(supabase, created, data, {
-        // New unknown visitor who submitted phone on the form (insert already stamped phone)
-        treatAsFirstCapture: !matched && Boolean(visitor.visitor_phone),
-        formSubmit: Boolean(visitor.visitor_phone || visitor.visitor_name || visitor.visitor_email),
-      });
-      const { data: refreshed, error: refreshError } = await supabase
-        .from("conversations")
-        .select("*")
-        .eq("id", created.id)
-        .single();
-      if (refreshError) throw new Error(refreshError.message);
-      return refreshed;
-    }
-    return created;
+
+    await syncConversationIdentity(supabase, created, data, {
+      treatAsFirstCapture: !matched && Boolean(visitor.visitor_phone),
+      formSubmit: true,
+    });
+    const { data: refreshed, error: refreshError } = await supabase
+      .from("conversations")
+      .select("*")
+      .eq("id", created.id)
+      .single();
+    if (refreshError) throw new Error(refreshError.message);
+    return refreshed;
   });
 
 export const widgetLookupVisitor = createServerFn({ method: "POST" })

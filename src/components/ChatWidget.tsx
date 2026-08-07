@@ -388,7 +388,10 @@ export function ChatWidget() {
     setDraft("");
     setTyping(false);
     setEditingContact(!isProfileComplete(keep));
-    await syncConversationProfile(keep);
+    // Only create Inbox conversation after contact form is complete
+    if (isProfileComplete(keep)) {
+      await syncConversationProfile(keep);
+    }
   }
 
   async function resumeOrStartConversation() {
@@ -397,6 +400,14 @@ export function ChatWidget() {
     setProfile(initial);
     profileRef.current = initial;
     setEditingContact(!isProfileComplete(initial));
+    // Opening the widget alone must not create an empty "Website visitor" Inbox thread
+    if (!isProfileComplete(initial)) {
+      setConversationId(null);
+      conversationIdRef.current = null;
+      setMsgs([welcome]);
+      setHumanMode(false);
+      return;
+    }
     const convoId = await syncConversationProfile(initial);
     const history = (await widgetListMessages({
       data: { key: widgetKey, pageOrigin, conversationId: convoId },

@@ -62,7 +62,19 @@ export async function listConversations(
     .limit(limit);
 
   if (error) throw error;
-  return (data ?? []) as InboxConversation[];
+
+  const rows = (data ?? []) as InboxConversation[];
+  // Website: only show chats after chatbot contact form (real name + phone) — hide anonymous opens
+  return rows.filter((c) => {
+    if (c.channel !== "website") return true;
+    const phone = (c.visitor_phone || c.customer?.phone || "").replace(/\D/g, "");
+    const name = (c.customer?.name || c.visitor_name || "").trim();
+    const anon =
+      !name ||
+      name.toLowerCase() === "website visitor" ||
+      name.toLowerCase() === "visitor";
+    return phone.length >= 10 && !anon;
+  });
 }
 
 export async function listMessages(conversationId: string): Promise<DbMessage[]> {

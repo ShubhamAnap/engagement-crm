@@ -1,6 +1,7 @@
 import { createStart, createCsrfMiddleware, createMiddleware } from "@tanstack/react-start";
 
 import { renderErrorPage } from "./lib/error-page";
+import { captureException } from "./lib/observability";
 import { staffAuthMiddleware } from "./server/staff-auth-middleware";
 
 const errorMiddleware = createMiddleware().server(async ({ next }) => {
@@ -10,7 +11,7 @@ const errorMiddleware = createMiddleware().server(async ({ next }) => {
     if (error != null && typeof error === "object" && "statusCode" in error) {
       throw error;
     }
-    console.error(error);
+    void captureException(error, { route: "request-middleware" });
     return new Response(renderErrorPage(), {
       status: 500,
       headers: { "content-type": "text/html; charset=utf-8" },

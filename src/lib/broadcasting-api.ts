@@ -264,8 +264,6 @@ export async function createAndSendEmailBroadcast(options: {
   const result = await runGmailEmailBroadcast({ data: { broadcastId: broadcast.id as string } });
   return {
     broadcastId: broadcast.id as string,
-    delayMinSec,
-    delayMaxSec,
     ...result,
   };
 }

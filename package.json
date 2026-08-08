@@ -15,6 +15,8 @@
     "start:check": "node --input-type=commonjs -e \"const fs=require('fs');if(!fs.existsSync('.output/server/index.mjs')){console.error('Missing .output/server/index.mjs. On Render set Build Command to: npm install --include=dev && npm run build (Runtime: Node, not Bun)');process.exit(1)}\" && node .output/server/index.mjs",
     "seed:admin": "node --env-file=.env scripts/seed-admin.mjs",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "check:migrations": "node scripts/check-migrations.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {

@@ -156,9 +156,13 @@ function Page() {
               key={`${k.label}-${i}`}
               label={k.label}
               value={k.value}
-              hint={"hint" in k ? k.hint : undefined}
-              delta={"delta" in k ? k.delta : undefined}
-              trend={"trend" in k ? k.trend : undefined}
+              hint={typeof (k as Record<string, unknown>).hint === "string" ? String((k as Record<string, unknown>).hint) : undefined}
+              delta={typeof (k as Record<string, unknown>).delta === "string" ? String((k as Record<string, unknown>).delta) : undefined}
+              trend={
+                (k as Record<string, unknown>).trend === "up" || (k as Record<string, unknown>).trend === "down"
+                  ? ((k as Record<string, unknown>).trend as "up" | "down")
+                  : undefined
+              }
             />
           ))}
         </div>

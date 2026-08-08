@@ -18,7 +18,7 @@ export function getOrCreateWidgetSessionId(): string {
 
 export type InboxConversation = DbConversation & {
   customer?: Pick<DbCustomer, "id" | "name" | "company" | "email" | "phone"> | null;
-  lead?: Pick<DbLead, "id" | "name" | "status" | "score" | "priority" | "product_label"> | null;
+  lead?: Pick<DbLead, "id" | "name" | "company" | "status" | "score" | "priority" | "product_label"> | null;
 };
 
 export type ListConversationsOptions = {
@@ -41,7 +41,7 @@ export async function listConversations(
   let query = supabase
     .from("conversations")
     .select(
-      "*, customer:customers(id, name, company, email, phone), lead:leads(id, name, status, score, priority, product_label)",
+      "*, customer:customers(id, name, company, email, phone), lead:leads(id, name, company, status, score, priority, product_label)",
     )
     .eq("org_id", orgId);
 
@@ -278,7 +278,7 @@ export async function listHandoffQueue(orgId: string = ENERTECH_ORG_ID): Promise
   const { data, error } = await supabase
     .from("conversations")
     .select(
-      "*, customer:customers(id, name, company, email, phone), lead:leads(id, name, status, score, priority, product_label)",
+      "*, customer:customers(id, name, company, email, phone), lead:leads(id, name, company, status, score, priority, product_label)",
     )
     .eq("org_id", orgId)
     .in("status", ["escalated", "human", "resolved"])

@@ -9,7 +9,7 @@
 
 Run **EnerTech Engage** as a **working enterprise AI customer engagement platform** for EnerTech UPS Pvt. Ltd., with architecture that can later become multi-tenant SaaS.
 
-**Current state:** Phases 0–9 largely live. **Enterprise hardening Phase 1 done; Phase 2 in progress** (unique indexes, cron lease, claim-before-act, profile/channel ACL). Next: Phase 3 CI/observability.
+**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped (auth/HMAC/claim → integrity → CI/health/observability). Soft Meta signature (advisory) until App Secret is verified. Next: Phase 4 AI/ops reliability.
 **Approach:** Prefer stabilize and ship focused improvements; new modules only when requested.
 
 ---
@@ -301,6 +301,13 @@ Record decisions here so we don't re-debate.
 ## Session Log
 
 Brief notes from each working session — append, don't delete.
+
+### Session 2026-08-08 — Enterprise hardening Phase 3 (CI / health / observability)
+- GitHub Actions CI: migrations gate + `tsc` + build (lint warn-only for now).
+- `/api/health` checks Supabase; Render `healthCheckPath` pointed at it.
+- Optional Sentry via `SENTRY_DSN` / `VITE_SENTRY_DSN` (no-op if unset).
+- Cron emits `cronRunId` + structured JSON logs; job errors captured.
+- Docs: `supabase/MIGRATIONS.md`. Fixed pre-existing typecheck errors so CI can gate.
 
 ### Session 2026-08-08 — Enterprise hardening Phase 2 (data integrity)
 - **Unique indexes:** Brainmine / IndiaMART / TradeIndia lead external ids + WA/FB/IG/email message ids (dedupe then index) — `030_phase2_integrity.sql`.

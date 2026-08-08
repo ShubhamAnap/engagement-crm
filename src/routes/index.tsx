@@ -157,7 +157,18 @@ function Dashboard() {
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {(loading ? Array.from({ length: 8 }, (_, i) => ({ label: "…", value: "—" })) : data?.kpis ?? []).map((k, i) => (
-            <StatCard key={`${k.label}-${i}`} label={k.label} value={k.value} delta={"delta" in k ? k.delta : undefined} trend={"trend" in k ? k.trend : undefined} hint={"hint" in k ? k.hint : undefined} />
+            <StatCard
+              key={`${k.label}-${i}`}
+              label={k.label}
+              value={k.value}
+              delta={typeof (k as Record<string, unknown>).delta === "string" ? String((k as Record<string, unknown>).delta) : undefined}
+              trend={
+                (k as Record<string, unknown>).trend === "up" || (k as Record<string, unknown>).trend === "down"
+                  ? ((k as Record<string, unknown>).trend as "up" | "down")
+                  : undefined
+              }
+              hint={typeof (k as Record<string, unknown>).hint === "string" ? String((k as Record<string, unknown>).hint) : undefined}
+            />
           ))}
         </div>
 
@@ -234,7 +245,18 @@ function Dashboard() {
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {(loading ? Array.from({ length: 4 }, (_, i) => ({ label: "…", value: "—" })) : data?.salesKpis ?? []).map((k, i) => (
-            <StatCard key={`${k.label}-${i}`} label={k.label} value={k.value} delta={"delta" in k ? k.delta : undefined} trend={"trend" in k ? k.trend : undefined} hint={"hint" in k ? k.hint : undefined} />
+            <StatCard
+              key={`${k.label}-${i}`}
+              label={k.label}
+              value={k.value}
+              delta={typeof (k as Record<string, unknown>).delta === "string" ? String((k as Record<string, unknown>).delta) : undefined}
+              trend={
+                (k as Record<string, unknown>).trend === "up" || (k as Record<string, unknown>).trend === "down"
+                  ? ((k as Record<string, unknown>).trend as "up" | "down")
+                  : undefined
+              }
+              hint={typeof (k as Record<string, unknown>).hint === "string" ? String((k as Record<string, unknown>).hint) : undefined}
+            />
           ))}
         </div>
 

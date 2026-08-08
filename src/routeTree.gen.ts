@@ -19,6 +19,7 @@ import { Route as ChannelsRouteImport } from './routes/channels'
 import { Route as CommandCenterRouteImport } from './routes/command-center'
 import { Route as CustomersRouteImport } from './routes/customers'
 import { Route as EmbedRouteImport } from './routes/embed'
+import { Route as FormulasRouteImport } from './routes/formulas'
 import { Route as HumanSupportRouteImport } from './routes/human-support'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as KnowledgeRouteImport } from './routes/knowledge'
@@ -29,7 +30,7 @@ import { Route as ProductsRouteImport } from './routes/products'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ToolsRouteImport } from './routes/tools'
-import { Route as FormulasRouteImport } from './routes/formulas'
+import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as CSkuRouteImport } from './routes/c.$sku'
 import { Route as DDocumentIdRouteImport } from './routes/d.$documentId'
 import { Route as FFileSlugRouteImport } from './routes/f.$fileSlug'
@@ -91,6 +92,11 @@ const EmbedRoute = EmbedRouteImport.update({
   path: '/embed',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FormulasRoute = FormulasRouteImport.update({
+  id: '/formulas',
+  path: '/formulas',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const HumanSupportRoute = HumanSupportRouteImport.update({
   id: '/human-support',
   path: '/human-support',
@@ -141,9 +147,9 @@ const ToolsRoute = ToolsRouteImport.update({
   path: '/tools',
   getParentRoute: () => rootRouteImport,
 } as any)
-const FormulasRoute = FormulasRouteImport.update({
-  id: '/formulas',
-  path: '/formulas',
+const ApiHealthRoute = ApiHealthRouteImport.update({
+  id: '/api/health',
+  path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CSkuRoute = CSkuRouteImport.update({
@@ -208,6 +214,7 @@ export interface FileRoutesByFullPath {
   '/command-center': typeof CommandCenterRoute
   '/customers': typeof CustomersRoute
   '/embed': typeof EmbedRoute
+  '/formulas': typeof FormulasRoute
   '/human-support': typeof HumanSupportRoute
   '/inbox': typeof InboxRoute
   '/knowledge': typeof KnowledgeRoute
@@ -218,7 +225,7 @@ export interface FileRoutesByFullPath {
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
   '/tools': typeof ToolsRoute
-  '/formulas': typeof FormulasRoute
+  '/api/health': typeof ApiHealthRoute
   '/c/$sku': typeof CSkuRoute
   '/d/$documentId': typeof DDocumentIdRoute
   '/f/$fileSlug': typeof FFileSlugRoute
@@ -241,6 +248,7 @@ export interface FileRoutesByTo {
   '/command-center': typeof CommandCenterRoute
   '/customers': typeof CustomersRoute
   '/embed': typeof EmbedRoute
+  '/formulas': typeof FormulasRoute
   '/human-support': typeof HumanSupportRoute
   '/inbox': typeof InboxRoute
   '/knowledge': typeof KnowledgeRoute
@@ -251,7 +259,7 @@ export interface FileRoutesByTo {
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
   '/tools': typeof ToolsRoute
-  '/formulas': typeof FormulasRoute
+  '/api/health': typeof ApiHealthRoute
   '/c/$sku': typeof CSkuRoute
   '/d/$documentId': typeof DDocumentIdRoute
   '/f/$fileSlug': typeof FFileSlugRoute
@@ -275,6 +283,7 @@ export interface FileRoutesById {
   '/command-center': typeof CommandCenterRoute
   '/customers': typeof CustomersRoute
   '/embed': typeof EmbedRoute
+  '/formulas': typeof FormulasRoute
   '/human-support': typeof HumanSupportRoute
   '/inbox': typeof InboxRoute
   '/knowledge': typeof KnowledgeRoute
@@ -285,7 +294,7 @@ export interface FileRoutesById {
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
   '/tools': typeof ToolsRoute
-  '/formulas': typeof FormulasRoute
+  '/api/health': typeof ApiHealthRoute
   '/c/$sku': typeof CSkuRoute
   '/d/$documentId': typeof DDocumentIdRoute
   '/f/$fileSlug': typeof FFileSlugRoute
@@ -310,6 +319,7 @@ export interface FileRouteTypes {
     | '/command-center'
     | '/customers'
     | '/embed'
+    | '/formulas'
     | '/human-support'
     | '/inbox'
     | '/knowledge'
@@ -320,7 +330,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/settings'
     | '/tools'
-    | '/formulas'
+    | '/api/health'
     | '/c/$sku'
     | '/d/$documentId'
     | '/f/$fileSlug'
@@ -343,6 +353,7 @@ export interface FileRouteTypes {
     | '/command-center'
     | '/customers'
     | '/embed'
+    | '/formulas'
     | '/human-support'
     | '/inbox'
     | '/knowledge'
@@ -353,7 +364,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/settings'
     | '/tools'
-    | '/formulas'
+    | '/api/health'
     | '/c/$sku'
     | '/d/$documentId'
     | '/f/$fileSlug'
@@ -376,6 +387,7 @@ export interface FileRouteTypes {
     | '/command-center'
     | '/customers'
     | '/embed'
+    | '/formulas'
     | '/human-support'
     | '/inbox'
     | '/knowledge'
@@ -386,7 +398,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/settings'
     | '/tools'
-    | '/formulas'
+    | '/api/health'
     | '/c/$sku'
     | '/d/$documentId'
     | '/f/$fileSlug'
@@ -410,6 +422,7 @@ export interface RootRouteChildren {
   CommandCenterRoute: typeof CommandCenterRoute
   CustomersRoute: typeof CustomersRoute
   EmbedRoute: typeof EmbedRoute
+  FormulasRoute: typeof FormulasRoute
   HumanSupportRoute: typeof HumanSupportRoute
   InboxRoute: typeof InboxRoute
   KnowledgeRoute: typeof KnowledgeRoute
@@ -420,7 +433,7 @@ export interface RootRouteChildren {
   ReportsRoute: typeof ReportsRoute
   SettingsRoute: typeof SettingsRoute
   ToolsRoute: typeof ToolsRoute
-  FormulasRoute: typeof FormulasRoute
+  ApiHealthRoute: typeof ApiHealthRoute
   CSkuRoute: typeof CSkuRoute
   DDocumentIdRoute: typeof DDocumentIdRoute
   FFileSlugRoute: typeof FFileSlugRoute
@@ -505,6 +518,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EmbedRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/formulas': {
+      id: '/formulas'
+      path: '/formulas'
+      fullPath: '/formulas'
+      preLoaderRoute: typeof FormulasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/human-support': {
       id: '/human-support'
       path: '/human-support'
@@ -575,11 +595,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ToolsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/formulas': {
-      id: '/formulas'
-      path: '/formulas'
-      fullPath: '/formulas'
-      preLoaderRoute: typeof FormulasRouteImport
+    '/api/health': {
+      id: '/api/health'
+      path: '/api/health'
+      fullPath: '/api/health'
+      preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/c/$sku': {
@@ -666,6 +686,7 @@ const rootRouteChildren: RootRouteChildren = {
   CommandCenterRoute: CommandCenterRoute,
   CustomersRoute: CustomersRoute,
   EmbedRoute: EmbedRoute,
+  FormulasRoute: FormulasRoute,
   HumanSupportRoute: HumanSupportRoute,
   InboxRoute: InboxRoute,
   KnowledgeRoute: KnowledgeRoute,
@@ -676,7 +697,7 @@ const rootRouteChildren: RootRouteChildren = {
   ReportsRoute: ReportsRoute,
   SettingsRoute: SettingsRoute,
   ToolsRoute: ToolsRoute,
-  FormulasRoute: FormulasRoute,
+  ApiHealthRoute: ApiHealthRoute,
   CSkuRoute: CSkuRoute,
   DDocumentIdRoute: DDocumentIdRoute,
   FFileSlugRoute: FFileSlugRoute,

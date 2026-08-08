@@ -707,7 +707,7 @@ function Page() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setUploadOpen(false)}>Cancel</Button>
-            <Button disabled={files.length === 0 || uploadMutation.isPending} onClick={() => uploadMutation.mutate()}>
+            <Button disabled={files.length === 0 || uploadMutation.isPending} onClick={() => uploadMutation.mutate(undefined)}>
               {uploadMutation.isPending ? "Uploading…" : "Upload & index"}
             </Button>
           </DialogFooter>

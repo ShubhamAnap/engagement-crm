@@ -16,7 +16,7 @@ services:
     # Regenerates lock on Linux + places Rolldown native next to Vite's nested rolldown
     buildCommand: bash scripts/render-build.sh
     startCommand: npm run start:check
-    healthCheckPath: /login
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_VERSION
         value: "22.14.0"
@@ -71,6 +71,12 @@ services:
       - key: WHATSAPP_BUSINESS_ACCOUNT_ID
         sync: false
       - key: WHATSAPP_DISPLAY_PHONE
+        sync: false
+
+      # Optional observability (Phase 3) — leave empty to keep console-only logs
+      - key: SENTRY_DSN
+        sync: false
+      - key: VITE_SENTRY_DSN
         sync: false
 
   # Due follow-ups + Wait resumes + channel backfill ticks (every 5 min)

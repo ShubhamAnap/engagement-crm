@@ -340,18 +340,45 @@ export async function proposeDailyFollowUpCampaign(options?: {
 export async function executeDailyFollowUpBatch(
   approvalId: string,
   resolvedBy?: string | null,
+  opts?: { alreadyClaimed?: boolean; row?: Record<string, unknown> },
 ): Promise<{ ok: boolean; steps: string[]; error?: string; sent: number; failed: number }> {
   const supabase = createServiceSupabase();
-  const { data: row, error } = await supabase
-    .from("automation_approvals")
-    .select("*")
-    .eq("id", approvalId)
-    .eq("org_id", ORG_ID)
-    .maybeSingle();
+  let row = opts?.row || null;
 
-  if (error) throw new Error(error.message);
-  if (!row) throw new Error("Approval not found");
-  if (row.status !== "pending") throw new Error(`Already ${row.status}`);
+  if (!row) {
+    if (opts?.alreadyClaimed) {
+      throw new Error("Claimed approval row missing");
+    }
+    const { data: claimedRows, error: claimErr } = await supabase.rpc("claim_automation_approval", {
+      p_approval_id: approvalId,
+      p_resolved_by: resolvedBy || null,
+    });
+    if (!claimErr) {
+      row = (Array.isArray(claimedRows) ? claimedRows[0] : claimedRows) as Record<
+        string,
+        unknown
+      > | null;
+      if (!row) throw new Error("Approval not found or already claimed");
+    } else {
+      const { data, error } = await supabase
+        .from("automation_approvals")
+        .select("*")
+        .eq("id", approvalId)
+        .eq("org_id", ORG_ID)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) throw new Error("Approval not found");
+      if (data.status !== "pending") throw new Error(`Already ${data.status}`);
+      row = data as Record<string, unknown>;
+    }
+  }
+
+  if ((row.org_id as string) && row.org_id !== ORG_ID) {
+    throw new Error("Approval not found");
+  }
+  if (row.status !== "pending" && !opts?.alreadyClaimed) {
+    throw new Error(`Already ${row.status}`);
+  }
 
   const ctx = (row.context || {}) as {
     mode?: string;

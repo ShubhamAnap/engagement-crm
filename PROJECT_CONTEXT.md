@@ -9,7 +9,7 @@
 
 Run **EnerTech Engage** as a **working enterprise AI customer engagement platform** for EnerTech UPS Pvt. Ltd., with architecture that can later become multi-tenant SaaS.
 
-**Current state:** Phases 0–9 largely live. **Enterprise hardening Phase 1 in progress** (auth gates, Meta HMAC, broadcast claim, fail-closed inbound secrets). Remaining: Phase 2+ integrity/CI/observability, Settings RBAC/encrypted secrets.
+**Current state:** Phases 0–9 largely live. **Enterprise hardening Phase 1 done; Phase 2 in progress** (unique indexes, cron lease, claim-before-act, profile/channel ACL). Next: Phase 3 CI/observability.
 **Approach:** Prefer stabilize and ship focused improvements; new modules only when requested.
 
 ---
@@ -301,6 +301,13 @@ Record decisions here so we don't re-debate.
 ## Session Log
 
 Brief notes from each working session — append, don't delete.
+
+### Session 2026-08-08 — Enterprise hardening Phase 2 (data integrity)
+- **Unique indexes:** Brainmine / IndiaMART / TradeIndia lead external ids + WA/FB/IG/email message ids (dedupe then index) — `030_phase2_integrity.sql`.
+- **Cron lease:** `cron_leases` + `try_acquire_cron_lease` / `release_cron_lease`; `/api/cron/automations` skips when lease held.
+- **Claim-before-act:** `claim_due_follow_up_leads`, `claim_scheduled_automation_steps`, `claim_automation_approval` wired into automation engine + daily follow-up batch.
+- **RBAC:** trigger blocks client changes to `profiles.role` / `org_id`; channel `config` column revoked from Agents — Admin/Manager use `get_channel_config` / `set_channel_config`.
+- **Ops:** run `030_phase2_integrity.sql` in Supabase before relying on leases/claims/unique indexes in prod.
 
 ### Session 2026-08-08 — Enterprise hardening Phase 1 (stop the bleeding)
 - **Staff auth on server fns:** global `staffAuthMiddleware` (`src/start.ts`) — client sends `Authorization: Bearer`; cookie mirror `enertech_sb_access`; server `requireStaffUser()`. Widget `createServerFn`s stay public (`PUBLIC_SERVER_FN_NAMES`).

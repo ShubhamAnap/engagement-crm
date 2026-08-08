@@ -35,6 +35,7 @@ import { useAuth } from "@/lib/auth";
 import { ENERTECH_ORG_ID } from "@/lib/chat-api";
 import {
   channelStatusTone,
+  getChannelConfig,
   isLiveChannel,
   listChannelsWithStats,
   setChannelEnabled,
@@ -332,12 +333,24 @@ function Page() {
 
   useEffect(() => {
     if (!website || websiteOriginsLoaded) return;
-    const raw = website.config && typeof website.config === "object" ? website.config : {};
-    const list = Array.isArray((raw as { allowed_origins?: unknown }).allowed_origins)
-      ? ((raw as { allowed_origins: unknown[] }).allowed_origins.map(String))
-      : [];
-    setWebsiteOriginsText(formatAllowedOriginsText(list));
-    setWebsiteOriginsLoaded(true);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const raw = await getChannelConfig(website.id);
+        if (cancelled) return;
+        const list = Array.isArray(raw.allowed_origins)
+          ? raw.allowed_origins.map(String)
+          : [];
+        setWebsiteOriginsText(formatAllowedOriginsText(list));
+      } catch {
+        if (!cancelled) setWebsiteOriginsText("");
+      } finally {
+        if (!cancelled) setWebsiteOriginsLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [website, websiteOriginsLoaded]);
 
   const emailChannel = channels.find((c) => c.type === "email");
@@ -607,28 +620,44 @@ function Page() {
     onError: (error) => toast.error(error instanceof Error ? error.message : "Save failed"),
   });
 
-  function openEdit(channel: ChannelWithStats) {
-    setEditing(channel);
+  async function openEdit(channel: ChannelWithStats) {
+    const canManageSecrets =
+      profile?.role === "Admin" || profile?.role === "Manager";
+    let cfg: Record<string, unknown> = {};
+    if (canManageSecrets) {
+      try {
+        cfg = await getChannelConfig(channel.id);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Could not load channel secrets");
+        return;
+      }
+    } else {
+      toast.error("Only Admin or Manager can open channel credentials");
+      return;
+    }
+
+    const withConfig: ChannelWithStats = { ...channel, config: cfg };
+    setEditing(withConfig);
     setFormName(channel.name);
     setFormDetail(channel.detail || "");
     setFormStatus(channel.status);
     setFormHealth(String(channel.health ?? 0));
     if (channel.type === "whatsapp") {
-      const cfg = (channel.config || {}) as {
+      const c = cfg as {
         phone_number_id?: string;
         access_token?: string;
         verify_token?: string;
         business_account_id?: string;
         display_phone?: string;
       };
-      setWaPhoneNumberId(cfg.phone_number_id || "");
+      setWaPhoneNumberId(c.phone_number_id || "");
       setWaAccessToken("");
-      setWaVerifyToken(cfg.verify_token || "");
-      setWaBusinessAccountId(cfg.business_account_id || "");
-      setWaDisplayPhone(cfg.display_phone || channel.detail || "");
+      setWaVerifyToken(c.verify_token || "");
+      setWaBusinessAccountId(c.business_account_id || "");
+      setWaDisplayPhone(c.display_phone || channel.detail || "");
     }
     if (channel.type === "email") {
-      const cfg = (channel.config || {}) as {
+      const c = cfg as {
         from_email?: string;
         from_name?: string;
         smtp_host?: string;
@@ -638,46 +667,46 @@ function Page() {
         smtp_pass?: string;
         inbound_secret?: string;
       };
-      setEmailFrom(cfg.from_email || channel.detail || "");
-      setEmailFromName(cfg.from_name || "EnerTech Engage");
-      setSmtpHost(cfg.smtp_host || "");
-      setSmtpPort(String(cfg.smtp_port || 587));
-      setSmtpSecure(Boolean(cfg.smtp_secure));
-      setSmtpUser(cfg.smtp_user || "");
+      setEmailFrom(c.from_email || channel.detail || "");
+      setEmailFromName(c.from_name || "EnerTech Engage");
+      setSmtpHost(c.smtp_host || "");
+      setSmtpPort(String(c.smtp_port || 587));
+      setSmtpSecure(Boolean(c.smtp_secure));
+      setSmtpUser(c.smtp_user || "");
       setSmtpPass("");
-      setEmailInboundSecret(cfg.inbound_secret || "");
+      setEmailInboundSecret(c.inbound_secret || "");
     }
     if (channel.type === "facebook" || channel.type === "instagram") {
-      const cfg = (channel.config || {}) as {
+      const c = cfg as {
         page_id?: string;
         access_token?: string;
         verify_token?: string;
         page_name?: string;
         ig_account_id?: string;
       };
-      setMetaPageId(cfg.page_id || "");
+      setMetaPageId(c.page_id || "");
       setMetaAccessToken("");
-      setMetaVerifyToken(cfg.verify_token || "");
-      setMetaPageName(cfg.page_name || channel.detail || "");
-      setMetaIgAccountId(cfg.ig_account_id || "");
+      setMetaVerifyToken(c.verify_token || "");
+      setMetaPageName(c.page_name || channel.detail || "");
+      setMetaIgAccountId(c.ig_account_id || "");
     }
     if (channel.type === "indiamart") {
-      const cfg = (channel.config || {}) as { crm_key?: string; push_secret?: string };
+      const c = cfg as { crm_key?: string; push_secret?: string };
       setImCrmKey("");
-      setImPushSecret(cfg.push_secret || "");
+      setImPushSecret(c.push_secret || "");
     }
     if (channel.type === "tradeindia") {
-      const cfg = (channel.config || {}) as {
+      const c = cfg as {
         userid?: string;
         profile_id?: string;
         key?: string;
       };
-      setTiUserid(cfg.userid || tiSetupQuery.data?.userid || "");
-      setTiProfileId(cfg.profile_id || tiSetupQuery.data?.profileId || "");
+      setTiUserid(c.userid || tiSetupQuery.data?.userid || "");
+      setTiProfileId(c.profile_id || tiSetupQuery.data?.profileId || "");
       setTiKey("");
     }
     if (channel.type === "brainmine") {
-      const cfg = (channel.config || {}) as {
+      const c = cfg as {
         api_base_url?: string;
         api_key?: string;
         api_secret?: string;
@@ -685,12 +714,12 @@ function Page() {
         leads_path?: string;
         sync_limit?: number;
       };
-      setBmApiBaseUrl(cfg.api_base_url || bmSetupQuery.data?.apiBaseUrl || "https://brainmineai.in");
+      setBmApiBaseUrl(c.api_base_url || bmSetupQuery.data?.apiBaseUrl || "https://brainmineai.in");
       setBmApiKey("");
       setBmApiSecret("");
-      setBmAuthStyle(cfg.auth_style || (bmSetupQuery.data?.authStyle as BrainmineAuthStyle) || "token");
-      setBmLeadsPath(cfg.leads_path || bmSetupQuery.data?.leadsPath || "/api/resource/Lead");
-      setBmSyncLimit(String(cfg.sync_limit || bmSetupQuery.data?.syncLimit || 30));
+      setBmAuthStyle(c.auth_style || (bmSetupQuery.data?.authStyle as BrainmineAuthStyle) || "token");
+      setBmLeadsPath(c.leads_path || bmSetupQuery.data?.leadsPath || "/api/resource/Lead");
+      setBmSyncLimit(String(c.sync_limit || bmSetupQuery.data?.syncLimit || 30));
     }
   }
 

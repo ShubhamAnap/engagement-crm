@@ -6,21 +6,48 @@ export type ChannelWithStats = DbChannel & {
   openCount: number;
 };
 
+/** Non-secret channel columns (migration 030 hides `config` from PostgREST for Agents). */
+const CHANNEL_SAFE_COLUMNS =
+  "id, org_id, type, name, status, health, detail, is_enabled, created_at, updated_at";
+
+function asChannel(row: Record<string, unknown>, config: Record<string, unknown> = {}): DbChannel {
+  return {
+    ...(row as Omit<DbChannel, "config">),
+    config,
+  };
+}
+
+/** Admin/Manager only — loads plaintext channel credentials via SECURITY DEFINER RPC. */
+export async function getChannelConfig(channelId: string): Promise<Record<string, unknown>> {
+  const supabase = getBrowserSupabase();
+  const { data, error } = await supabase.rpc("get_channel_config", {
+    p_channel_id: channelId,
+  });
+  if (error) throw error;
+  return (data && typeof data === "object" && !Array.isArray(data)
+    ? data
+    : {}) as Record<string, unknown>;
+}
+
 export async function listChannels(orgId: string): Promise<DbChannel[]> {
   const supabase = getBrowserSupabase();
   const { data, error } = await supabase
     .from("channels")
-    .select("*")
+    .select(CHANNEL_SAFE_COLUMNS)
     .eq("org_id", orgId)
     .order("name", { ascending: true });
   if (error) throw error;
-  return (data ?? []) as DbChannel[];
+  return (data ?? []).map((row) => asChannel(row as Record<string, unknown>));
 }
 
 export async function listChannelsWithStats(orgId: string): Promise<ChannelWithStats[]> {
   const supabase = getBrowserSupabase();
   const [channelsRes, convRes] = await Promise.all([
-    supabase.from("channels").select("*").eq("org_id", orgId).order("name", { ascending: true }),
+    supabase
+      .from("channels")
+      .select(CHANNEL_SAFE_COLUMNS)
+      .eq("org_id", orgId)
+      .order("name", { ascending: true }),
     supabase
       .from("conversations")
       .select("id, channel, status")
@@ -30,12 +57,16 @@ export async function listChannelsWithStats(orgId: string): Promise<ChannelWithS
   if (channelsRes.error) throw channelsRes.error;
   if (convRes.error) throw convRes.error;
 
-  const channels = (channelsRes.data ?? []) as DbChannel[];
+  const channels = (channelsRes.data ?? []).map((row) =>
+    asChannel(row as Record<string, unknown>),
+  );
   const conversations = convRes.data ?? [];
 
   return channels.map((ch) => {
     const related = conversations.filter((c) => c.channel === ch.type);
-    const openCount = related.filter((c) => c.status === "ai" || c.status === "human" || c.status === "escalated").length;
+    const openCount = related.filter(
+      (c) => c.status === "ai" || c.status === "human" || c.status === "escalated",
+    ).length;
     return {
       ...ch,
       conversationCount: related.length,
@@ -119,11 +150,11 @@ export async function setChannelEnabled(options: {
                           : null,
     })
     .eq("id", channelId)
-    .select("*")
+    .select(CHANNEL_SAFE_COLUMNS)
     .single();
 
   if (error) throw error;
-  return data as DbChannel;
+  return asChannel(data as Record<string, unknown>);
 }
 
 export async function updateChannel(options: {
@@ -142,16 +173,37 @@ export async function updateChannel(options: {
   if (options.status !== undefined) patch.status = options.status;
   if (options.health !== undefined) patch.health = Math.max(0, Math.min(100, options.health));
   if (options.is_enabled !== undefined) patch.is_enabled = options.is_enabled;
-  if (options.config !== undefined) patch.config = options.config;
+
+  let config: Record<string, unknown> = {};
+  if (options.config !== undefined) {
+    const { data: cfg, error: cfgErr } = await supabase.rpc("set_channel_config", {
+      p_channel_id: options.channelId,
+      p_config: options.config,
+    });
+    if (cfgErr) throw cfgErr;
+    config = (cfg && typeof cfg === "object" && !Array.isArray(cfg)
+      ? cfg
+      : options.config) as Record<string, unknown>;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    const { data: row, error } = await supabase
+      .from("channels")
+      .select(CHANNEL_SAFE_COLUMNS)
+      .eq("id", options.channelId)
+      .single();
+    if (error) throw error;
+    return asChannel(row as Record<string, unknown>, config);
+  }
 
   const { data, error } = await supabase
     .from("channels")
     .update(patch)
     .eq("id", options.channelId)
-    .select("*")
+    .select(CHANNEL_SAFE_COLUMNS)
     .single();
   if (error) throw error;
-  return data as DbChannel;
+  return asChannel(data as Record<string, unknown>, config);
 }
 
 /** Merge allowed_origins into the Website channel config. */
@@ -162,7 +214,7 @@ export async function updateWebsiteAllowedOrigins(options: {
   const supabase = getBrowserSupabase();
   const { data: current, error: curErr } = await supabase
     .from("channels")
-    .select("config, type")
+    .select("type")
     .eq("id", options.channelId)
     .maybeSingle();
   if (curErr) throw curErr;
@@ -170,10 +222,7 @@ export async function updateWebsiteAllowedOrigins(options: {
     throw new Error("Website channel not found");
   }
 
-  const prev =
-    current.config && typeof current.config === "object" && !Array.isArray(current.config)
-      ? ({ ...(current.config as Record<string, unknown>) } as Record<string, unknown>)
-      : {};
+  const prev = await getChannelConfig(options.channelId);
   prev.allowed_origins = options.allowedOrigins;
 
   const detail =

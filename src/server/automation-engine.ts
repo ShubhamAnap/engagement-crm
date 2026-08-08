@@ -757,17 +757,51 @@ export async function approveAutomationApproval(
   resolvedBy?: string | null,
 ): Promise<{ ok: boolean; steps: string[]; error?: string }> {
   const supabase = createServiceSupabase();
-  const { data: row, error } = await supabase
-    .from("automation_approvals")
-    .select("*")
-    .eq("id", approvalId)
-    .eq("org_id", ORG_ID)
-    .maybeSingle();
 
-  if (error) throw new Error(error.message);
-  if (!row) throw new Error("Approval not found");
-  if (row.status !== "pending") throw new Error(`Already ${row.status}`);
+  // Atomic soft-claim (pending + resolved_at IS NULL → stamp resolved_at)
+  const { data: claimedRows, error: claimErr } = await supabase.rpc("claim_automation_approval", {
+    p_approval_id: approvalId,
+    p_resolved_by: resolvedBy || null,
+  });
+  if (claimErr) {
+    // Fallback if migration 030 not applied yet
+    console.warn("claim_automation_approval unavailable:", claimErr.message);
+    const { data: row, error } = await supabase
+      .from("automation_approvals")
+      .select("*")
+      .eq("id", approvalId)
+      .eq("org_id", ORG_ID)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!row) throw new Error("Approval not found");
+    if (row.status !== "pending") throw new Error(`Already ${row.status}`);
+    return finishApproval(supabase, row, resolvedBy);
+  }
 
+  const row = Array.isArray(claimedRows) ? claimedRows[0] : claimedRows;
+  if (!row) throw new Error("Approval not found or already claimed");
+  if ((row as { org_id?: string }).org_id && (row as { org_id: string }).org_id !== ORG_ID) {
+    throw new Error("Approval not found");
+  }
+
+  try {
+    return await finishApproval(supabase, row as Record<string, unknown>, resolvedBy);
+  } catch (err) {
+    // Release soft-claim so a human can retry
+    await supabase
+      .from("automation_approvals")
+      .update({ resolved_at: null, resolved_by: null })
+      .eq("id", approvalId)
+      .eq("status", "pending");
+    throw err;
+  }
+}
+
+async function finishApproval(
+  supabase: ReturnType<typeof createServiceSupabase>,
+  row: Record<string, unknown>,
+  resolvedBy?: string | null,
+): Promise<{ ok: boolean; steps: string[]; error?: string }> {
   const ctx = (row.context || {}) as AutomationContext & {
     mode?: string;
     leadIds?: string[];
@@ -775,7 +809,10 @@ export async function approveAutomationApproval(
 
   if (ctx.mode === "daily_followup_batch" || row.trigger_type === "daily_followup") {
     const { executeDailyFollowUpBatch } = await import("@/server/followup-agent");
-    const batch = await executeDailyFollowUpBatch(approvalId, resolvedBy);
+    const batch = await executeDailyFollowUpBatch(row.id as string, resolvedBy, {
+      alreadyClaimed: true,
+      row,
+    });
     return { ok: batch.ok, steps: batch.steps, error: batch.error };
   }
 
@@ -786,15 +823,12 @@ export async function approveAutomationApproval(
   await supabase
     .from("automation_approvals")
     .update({
-      status: result.ok ? "approved" : "approved",
+      status: "approved",
       resolved_at: new Date().toISOString(),
       resolved_by: resolvedBy || null,
     })
-    .eq("id", approvalId);
+    .eq("id", row.id as string);
 
-  if (!result.ok) {
-    return result;
-  }
   return result;
 }
 
@@ -803,16 +837,35 @@ export async function rejectAutomationApproval(
   resolvedBy?: string | null,
 ): Promise<void> {
   const supabase = createServiceSupabase();
-  const { data: row, error } = await supabase
-    .from("automation_approvals")
-    .select("id, status")
-    .eq("id", approvalId)
-    .eq("org_id", ORG_ID)
-    .maybeSingle();
 
-  if (error) throw new Error(error.message);
-  if (!row) throw new Error("Approval not found");
-  if (row.status !== "pending") throw new Error(`Already ${row.status}`);
+  const { data: claimedRows, error: claimErr } = await supabase.rpc("claim_automation_approval", {
+    p_approval_id: approvalId,
+    p_resolved_by: resolvedBy || null,
+  });
+
+  if (claimErr) {
+    const { data: row, error } = await supabase
+      .from("automation_approvals")
+      .select("id, status")
+      .eq("id", approvalId)
+      .eq("org_id", ORG_ID)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!row) throw new Error("Approval not found");
+    if (row.status !== "pending") throw new Error(`Already ${row.status}`);
+    await supabase
+      .from("automation_approvals")
+      .update({
+        status: "rejected",
+        resolved_at: new Date().toISOString(),
+        resolved_by: resolvedBy || null,
+      })
+      .eq("id", approvalId);
+    return;
+  }
+
+  const row = Array.isArray(claimedRows) ? claimedRows[0] : claimedRows;
+  if (!row) throw new Error("Approval not found or already claimed");
 
   await supabase
     .from("automation_approvals")
@@ -914,46 +967,67 @@ export async function processDueFollowUps(limit = 40): Promise<{
   const supabase = createServiceSupabase();
   const now = new Date().toISOString();
 
-  const { data: leads, error } = await supabase
-    .from("leads")
-    .select("id, name, company, phone, email, source, priority, status")
-    .eq("org_id", ORG_ID)
-    .not("status", "in", "(Won,Lost)")
-    .lte("next_follow_up_at", now)
-    .not("next_follow_up_at", "is", null)
-    .order("next_follow_up_at", { ascending: true })
-    .limit(limit);
+  const { data: claimed, error: claimErr } = await supabase.rpc("claim_due_follow_up_leads", {
+    p_org_id: ORG_ID,
+    p_limit: limit,
+  });
 
-  if (error) {
-    console.error("processDueFollowUps", error.message);
-    return { processed: 0, ran: 0, ok: 0, pending: 0 };
+  let rows: Array<{
+    id: string;
+    name: string | null;
+    company: string | null;
+    phone: string | null;
+    email: string | null;
+    source: string | null;
+    priority: string | null;
+    status: string | null;
+  }> = [];
+
+  if (claimErr) {
+    console.warn("claim_due_follow_up_leads unavailable:", claimErr.message);
+    const { data: leads, error } = await supabase
+      .from("leads")
+      .select("id, name, company, phone, email, source, priority, status")
+      .eq("org_id", ORG_ID)
+      .not("status", "in", "(Won,Lost)")
+      .lte("next_follow_up_at", now)
+      .not("next_follow_up_at", "is", null)
+      .order("next_follow_up_at", { ascending: true })
+      .limit(limit);
+
+    if (error) {
+      console.error("processDueFollowUps", error.message);
+      return { processed: 0, ran: 0, ok: 0, pending: 0 };
+    }
+    rows = (leads || []) as typeof rows;
+
+    for (const lead of rows) {
+      const { data: full } = await supabase
+        .from("leads")
+        .select("metadata")
+        .eq("id", lead.id)
+        .maybeSingle();
+      const meta = (full?.metadata && typeof full.metadata === "object"
+        ? full.metadata
+        : {}) as Record<string, unknown>;
+      await supabase
+        .from("leads")
+        .update({
+          next_follow_up_at: null,
+          last_activity_at: now,
+          metadata: { ...meta, last_follow_up_fired_at: now },
+        })
+        .eq("id", lead.id);
+    }
+  } else {
+    rows = (claimed || []) as typeof rows;
   }
 
   let ran = 0;
   let ok = 0;
   let pending = 0;
-  const rows = leads || [];
 
   for (const lead of rows) {
-    const { data: full } = await supabase
-      .from("leads")
-      .select("metadata")
-      .eq("id", lead.id)
-      .maybeSingle();
-    const meta = (full?.metadata && typeof full.metadata === "object"
-      ? full.metadata
-      : {}) as Record<string, unknown>;
-
-    // Clear due date first so retries don't double-fire
-    await supabase
-      .from("leads")
-      .update({
-        next_follow_up_at: null,
-        last_activity_at: now,
-        metadata: { ...meta, last_follow_up_fired_at: now },
-      })
-      .eq("id", lead.id);
-
     const result = await runAutomations("follow_up_due", {
       leadId: lead.id as string,
       source: lead.source as string,
@@ -984,35 +1058,64 @@ export async function processScheduledAutomationSteps(limit = 40): Promise<{
   const supabase = createServiceSupabase();
   const now = new Date().toISOString();
 
-  const { data: rows, error } = await supabase
-    .from("automation_scheduled_steps")
-    .select(
-      "id, automation_id, automation_name, lead_id, conversation_id, context, remaining_actions",
-    )
-    .eq("org_id", ORG_ID)
-    .eq("status", "pending")
-    .lte("run_at", now)
-    .order("run_at", { ascending: true })
-    .limit(limit);
+  const { data: claimed, error: claimErr } = await supabase.rpc(
+    "claim_scheduled_automation_steps",
+    {
+      p_org_id: ORG_ID,
+      p_limit: limit,
+    },
+  );
 
-  if (error) {
-    if (error.message.includes("automation_scheduled_steps")) {
+  let list: Array<{
+    id: string;
+    automation_id: string;
+    automation_name: string | null;
+    lead_id: string | null;
+    conversation_id: string | null;
+    context: unknown;
+    remaining_actions: unknown;
+  }> = [];
+
+  if (claimErr) {
+    if (claimErr.message.includes("automation_scheduled_steps")) {
       return { processed: 0, ok: 0, failed: 0, paused: 0 };
     }
-    console.error("processScheduledAutomationSteps", error.message);
-    return { processed: 0, ok: 0, failed: 0, paused: 0 };
+    console.warn("claim_scheduled_automation_steps unavailable:", claimErr.message);
+    const { data: rows, error } = await supabase
+      .from("automation_scheduled_steps")
+      .select(
+        "id, automation_id, automation_name, lead_id, conversation_id, context, remaining_actions",
+      )
+      .eq("org_id", ORG_ID)
+      .eq("status", "pending")
+      .lte("run_at", now)
+      .order("run_at", { ascending: true })
+      .limit(limit);
+
+    if (error) {
+      if (error.message.includes("automation_scheduled_steps")) {
+        return { processed: 0, ok: 0, failed: 0, paused: 0 };
+      }
+      console.error("processScheduledAutomationSteps", error.message);
+      return { processed: 0, ok: 0, failed: 0, paused: 0 };
+    }
+    list = (rows || []) as typeof list;
+    for (const row of list) {
+      await supabase
+        .from("automation_scheduled_steps")
+        .update({ status: "running", updated_at: now })
+        .eq("id", row.id)
+        .eq("status", "pending");
+    }
+  } else {
+    list = (claimed || []) as typeof list;
   }
 
   let ok = 0;
   let failed = 0;
   let paused = 0;
-  const list = rows || [];
 
   for (const row of list) {
-    await supabase
-      .from("automation_scheduled_steps")
-      .update({ status: "running", updated_at: now })
-      .eq("id", row.id);
 
     const ctx = await enrichContext(supabase, {
       ...((row.context && typeof row.context === "object" ? row.context : {}) as AutomationContext),

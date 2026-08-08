@@ -81,6 +81,12 @@ const DEFAULT_SYNC_LIMIT = 30;
 const MAX_SYNC_LIMIT = 200;
 /** Quick "Sync leads now" — latest recently-updated only (not historical backfill). */
 const QUICK_SYNC_LIMIT = 20;
+/** Default auto lead sync when Brainmine is configured (matches Render cron ~5 min). */
+export const BRAINMINE_DEFAULT_AUTO_SYNC = {
+  enabled: true,
+  value: 5,
+  unit: "min" as BrainmineIntervalUnit,
+};
 
 function clampSyncLimit(raw: unknown): number {
   const n = typeof raw === "number" ? raw : Number(raw);
@@ -88,15 +94,22 @@ function clampSyncLimit(raw: unknown): number {
   return Math.min(MAX_SYNC_LIMIT, Math.floor(n));
 }
 
-/** Normalize custom interval. Floor 60s (cron is ~1–5 min). Cap 7 days. */
+/** Normalize custom interval. Floor 60s (cron is ~1–5 min). Cap 7 days. Default: every 5 min. */
 export function normalizeBrainmineInterval(
   value?: number | null,
   unit?: string | null,
 ): { value: number; unit: BrainmineIntervalUnit } {
   const u: BrainmineIntervalUnit =
-    unit === "sec" || unit === "min" || unit === "hr" ? unit : "hr";
+    unit === "sec" || unit === "min" || unit === "hr" ? unit : BRAINMINE_DEFAULT_AUTO_SYNC.unit;
   let v = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(v) || v < 1) v = u === "hr" ? 1 : u === "min" ? 30 : 60;
+  if (!Number.isFinite(v) || v < 1) {
+    v =
+      u === "hr"
+        ? 1
+        : u === "min"
+          ? BRAINMINE_DEFAULT_AUTO_SYNC.value
+          : 60;
+  }
   v = Math.floor(v);
   if (u === "sec") {
     v = Math.max(60, Math.min(v, 7 * 24 * 3600));
@@ -234,39 +247,46 @@ export async function loadBrainmineConfig(): Promise<BrainmineChannelConfig> {
       .eq("org_id", ORG_ID)
       .eq("type", "brainmine")
       .maybeSingle();
-    const cfg = ((data?.config as BrainmineChannelConfig) || {}) as BrainmineChannelConfig;
+    const raw = ((data?.config as BrainmineChannelConfig) || {}) as BrainmineChannelConfig;
     // UI/channel config overrides env when both are set.
-    return {
-      api_base_url: cfg.api_base_url || fromEnv.api_base_url,
-      api_key: cfg.api_key || fromEnv.api_key,
-      api_secret: cfg.api_secret || fromEnv.api_secret,
-      auth_style: cfg.auth_style || fromEnv.auth_style || "token",
-      leads_path: cfg.leads_path || fromEnv.leads_path || "/api/resource/Lead",
-      query_key_param: cfg.query_key_param || "api_key",
+    const merged: BrainmineChannelConfig = {
+      api_base_url: raw.api_base_url || fromEnv.api_base_url,
+      api_key: raw.api_key || fromEnv.api_key,
+      api_secret: raw.api_secret || fromEnv.api_secret,
+      auth_style: raw.auth_style || fromEnv.auth_style || "token",
+      leads_path: raw.leads_path || fromEnv.leads_path || "/api/resource/Lead",
+      query_key_param: raw.query_key_param || "api_key",
       field_map: {
         ...DEFAULT_FIELD_MAP,
-        ...(cfg.field_map || {}),
+        ...(raw.field_map || {}),
         // Engage Requirement ← Brainmine query_about (do not fall back to notes)
         requirement: "query_about",
       },
-      last_sync_at: cfg.last_sync_at,
-      list_key: cfg.list_key || "data",
+      last_sync_at: raw.last_sync_at,
+      list_key: raw.list_key || "data",
       sync_limit: clampSyncLimit(
-        cfg.sync_limit ?? fromEnv.sync_limit ?? DEFAULT_SYNC_LIMIT,
+        raw.sync_limit ?? fromEnv.sync_limit ?? DEFAULT_SYNC_LIMIT,
       ),
-      auto_sync_enabled: Boolean(cfg.auto_sync_enabled),
-      auto_sync_interval_value: normalizeBrainmineInterval(
-        cfg.auto_sync_interval_value,
-        cfg.auto_sync_interval_unit,
-      ).value,
-      auto_sync_interval_unit: normalizeBrainmineInterval(
-        cfg.auto_sync_interval_value,
-        cfg.auto_sync_interval_unit,
-      ).unit,
-      last_auto_sync_at: cfg.last_auto_sync_at,
-      last_auto_sync_attempt_at: cfg.last_auto_sync_attempt_at,
-      last_auto_sync_result: cfg.last_auto_sync_result,
-      last_auto_sync_error: cfg.last_auto_sync_error,
+      last_auto_sync_at: raw.last_auto_sync_at,
+      last_auto_sync_attempt_at: raw.last_auto_sync_attempt_at,
+      last_auto_sync_result: raw.last_auto_sync_result,
+      last_auto_sync_error: raw.last_auto_sync_error,
+    };
+    const ready = brainmineConfigReady(merged);
+    const interval = normalizeBrainmineInterval(
+      raw.auto_sync_interval_value,
+      raw.auto_sync_interval_unit,
+    );
+    // Never configured → On + 5 min when credentials exist; explicit false stays off
+    const autoEnabled =
+      raw.auto_sync_enabled === undefined
+        ? ready && BRAINMINE_DEFAULT_AUTO_SYNC.enabled
+        : Boolean(raw.auto_sync_enabled);
+    return {
+      ...merged,
+      auto_sync_enabled: autoEnabled,
+      auto_sync_interval_value: interval.value,
+      auto_sync_interval_unit: interval.unit,
     };
   } catch {
     return {
@@ -277,10 +297,55 @@ export async function loadBrainmineConfig(): Promise<BrainmineChannelConfig> {
       auth_style: fromEnv.auth_style || "token",
       sync_limit: clampSyncLimit(fromEnv.sync_limit ?? DEFAULT_SYNC_LIMIT),
       auto_sync_enabled: false,
-      auto_sync_interval_value: 1,
-      auto_sync_interval_unit: "hr",
+      auto_sync_interval_value: BRAINMINE_DEFAULT_AUTO_SYNC.value,
+      auto_sync_interval_unit: BRAINMINE_DEFAULT_AUTO_SYNC.unit,
     };
   }
+}
+
+/**
+ * Persist default auto sync (On / every 5 min) once credentials exist and schedule was never saved.
+ */
+async function ensureBrainmineAutoSyncDefaults(): Promise<BrainmineChannelConfig> {
+  const supabase = createServiceSupabase();
+  const { data } = await supabase
+    .from("channels")
+    .select("config")
+    .eq("org_id", ORG_ID)
+    .eq("type", "brainmine")
+    .maybeSingle();
+  const raw = ((data?.config as BrainmineChannelConfig) || {}) as BrainmineChannelConfig;
+  const cfg = await loadBrainmineConfig();
+  if (!brainmineConfigReady(cfg)) return cfg;
+
+  const neverSetEnabled = raw.auto_sync_enabled === undefined;
+  const neverSetInterval =
+    raw.auto_sync_interval_value == null || raw.auto_sync_interval_unit == null;
+  if (!neverSetEnabled && !neverSetInterval) return cfg;
+
+  const next: BrainmineChannelConfig = {
+    ...cfg,
+    auto_sync_enabled: neverSetEnabled
+      ? BRAINMINE_DEFAULT_AUTO_SYNC.enabled
+      : Boolean(raw.auto_sync_enabled),
+    auto_sync_interval_value: neverSetInterval
+      ? BRAINMINE_DEFAULT_AUTO_SYNC.value
+      : normalizeBrainmineInterval(raw.auto_sync_interval_value, raw.auto_sync_interval_unit).value,
+    auto_sync_interval_unit: neverSetInterval
+      ? BRAINMINE_DEFAULT_AUTO_SYNC.unit
+      : normalizeBrainmineInterval(raw.auto_sync_interval_value, raw.auto_sync_interval_unit).unit,
+  };
+  if (neverSetEnabled && next.auto_sync_enabled) {
+    next.last_auto_sync_result =
+      next.last_auto_sync_result || "default On — every 5 min (waiting for cron)";
+  }
+  await persistBrainmineConfig(
+    next,
+    next.auto_sync_enabled
+      ? `Brainmine · auto every ${next.auto_sync_interval_value}${next.auto_sync_interval_unit}`
+      : undefined,
+  );
+  return next;
 }
 
 export function brainmineConfigReady(cfg: BrainmineChannelConfig): boolean {
@@ -1275,7 +1340,7 @@ export async function ingestBrainmineLead(
 
 export const getBrainmineSetup = createServerFn({ method: "GET" }).handler(async () => {
   const supabase = createServiceSupabase();
-  const cfg = await loadBrainmineConfig();
+  const cfg = await ensureBrainmineAutoSyncDefaults();
   const { data: channel } = await supabase
     .from("channels")
     .select("id, is_enabled, status, config")
@@ -1373,6 +1438,13 @@ export const saveBrainmineChannelConfig = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const supabase = createServiceSupabase();
+    const { data: channelRow } = await supabase
+      .from("channels")
+      .select("config")
+      .eq("org_id", ORG_ID)
+      .eq("type", "brainmine")
+      .maybeSingle();
+    const rawPrev = ((channelRow?.config as BrainmineChannelConfig) || {}) as BrainmineChannelConfig;
     const prev = await loadBrainmineConfig();
     const nextKey = data.apiKey?.trim() || prev.api_key;
     if (!nextKey) throw new Error("Brainmine API key is required (Channels UI or BRAINMINE_API_KEY).");
@@ -1392,11 +1464,28 @@ export const saveBrainmineChannelConfig = createServerFn({ method: "POST" })
       },
     };
 
+    // Default auto sync On / every 5 min when credentials saved and schedule never set
+    if (brainmineConfigReady(config)) {
+      if (rawPrev.auto_sync_enabled === undefined) {
+        config.auto_sync_enabled = BRAINMINE_DEFAULT_AUTO_SYNC.enabled;
+      }
+      if (rawPrev.auto_sync_interval_value == null || rawPrev.auto_sync_interval_unit == null) {
+        config.auto_sync_interval_value = BRAINMINE_DEFAULT_AUTO_SYNC.value;
+        config.auto_sync_interval_unit = BRAINMINE_DEFAULT_AUTO_SYNC.unit;
+      }
+      if (config.auto_sync_enabled && rawPrev.auto_sync_enabled === undefined) {
+        config.last_auto_sync_result =
+          config.last_auto_sync_result || "default On — every 5 min (waiting for cron)";
+      }
+    }
+
     const { error } = await supabase
       .from("channels")
       .update({
         config,
-        detail: `Brainmine · ${config.api_base_url} · ${config.sync_limit}/sync`,
+        detail: config.auto_sync_enabled
+          ? `Brainmine · auto every ${config.auto_sync_interval_value}${config.auto_sync_interval_unit}`
+          : `Brainmine · ${config.api_base_url} · ${config.sync_limit}/sync`,
         status: "Connected",
         health: 100,
         is_enabled: data.enable ?? true,
@@ -1494,6 +1583,8 @@ export async function tickBrainmineAutoSync(opts?: {
   fetched?: number;
 }> {
   const force = Boolean(opts?.force);
+  // Persist default On / 5 min when credentials exist and schedule never saved
+  await ensureBrainmineAutoSyncDefaults().catch(() => null);
   const cfg = await loadBrainmineConfig();
   const attemptAt = new Date().toISOString();
 

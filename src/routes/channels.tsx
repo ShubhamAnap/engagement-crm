@@ -171,9 +171,9 @@ function Page() {
   const [bmSyncLimit, setBmSyncLimit] = useState("30");
   const [bmRangeFrom, setBmRangeFrom] = useState("");
   const [bmRangeTo, setBmRangeTo] = useState("");
-  const [bmAutoEnabled, setBmAutoEnabled] = useState(false);
-  const [bmIntervalValue, setBmIntervalValue] = useState("1");
-  const [bmIntervalUnit, setBmIntervalUnit] = useState<BrainmineIntervalUnit>("hr");
+  const [bmAutoEnabled, setBmAutoEnabled] = useState(true);
+  const [bmIntervalValue, setBmIntervalValue] = useState("5");
+  const [bmIntervalUnit, setBmIntervalUnit] = useState<BrainmineIntervalUnit>("min");
   const [bmAutoFormReady, setBmAutoFormReady] = useState(false);
   const [bmInspectOpen, setBmInspectOpen] = useState(false);
   const [bmInspectResult, setBmInspectResult] = useState<Awaited<
@@ -318,8 +318,8 @@ function Page() {
   useEffect(() => {
     if (!bmSetupQuery.data || bmAutoFormReady) return;
     setBmAutoEnabled(Boolean(bmSetupQuery.data.autoSyncEnabled));
-    setBmIntervalValue(String(bmSetupQuery.data.autoSyncIntervalValue || 1));
-    setBmIntervalUnit(bmSetupQuery.data.autoSyncIntervalUnit || "hr");
+    setBmIntervalValue(String(bmSetupQuery.data.autoSyncIntervalValue || 5));
+    setBmIntervalUnit(bmSetupQuery.data.autoSyncIntervalUnit || "min");
     setBmAutoFormReady(true);
   }, [bmSetupQuery.data, bmAutoFormReady]);
 
@@ -2208,14 +2208,13 @@ function Page() {
               </Button>
             </div>
             <p className="mt-2 text-[11px] text-muted-foreground">
-              Render Cron hits{" "}
-              <code className="text-[10px]">/api/cron/automations</code> about every{" "}
-              <strong>5 minutes</strong> (not a browser timer). Set schedule to 3 min → effective
-              pull is still ~every cron tick after due. Seconds minimum is 60 after save. If “Last
-              cron check” never updates, fix Cron job env:{" "}
+              Default: <strong>On</strong>, every <strong>5 minutes</strong> when Brainmine is
+              configured (matches Render Cron). Hits{" "}
+              <code className="text-[10px]">/api/cron/automations</code>. If “Last cron check” never
+              updates, fix Cron env:{" "}
               <code className="text-[10px]">CRON_URL</code> = this app’s{" "}
               <code className="text-[10px]">…/api/cron/automations</code> and matching{" "}
-              <code className="text-[10px]">CRON_SECRET</code>.
+              <code className="text-[10px]">CRON_SECRET</code>. Seconds minimum is 60 after save.
             </p>
           </div>
 

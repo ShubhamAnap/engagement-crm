@@ -1,7 +1,7 @@
 # EnerTech Engage — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
-> **Last updated:** 2026-08-07
+> **Last updated:** 2026-08-08
 
 ---
 
@@ -301,6 +301,9 @@ Record decisions here so we don't re-debate.
 ## Session Log
 
 Brief notes from each working session — append, don't delete.
+
+### Session 2026-08-08 — Brainmine auto sync default On / 5 min
+- When Brainmine credentials exist and auto sync was never saved: default **On**, every **5 minutes** (persisted on Channels load, Configure save, and cron tick). Explicit Off still respected. UI defaults match.
 
 ### Session 2026-08-07 — Formulas load totals in kW / kVA
 - Calculator totals: appliances stay in **W**; **Total load** shows **kW · kVA** (`1000 W = 1 kW`, `1 kW = 1.2 kVA`). Auto-fills `total_w` / `total_kw` / `total_kva`. Migration `028_formulas_kw_kva.sql` updates inverter seed to `total_kva * surge_factor`.

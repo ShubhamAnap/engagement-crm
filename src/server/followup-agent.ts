@@ -59,7 +59,7 @@ async function resolveFollowUpTemplate(
 async function ensureDailyFollowUpAutomation(
   supabase: ReturnType<typeof createServiceSupabase>,
   template: { name: string; language: string } | null,
-): Promise<{ id: string; name: string; actions: AutomationAction[] }> {
+): Promise<{ id: string; name: string; actions: AutomationAction[]; status: string }> {
   const actions: AutomationLeafAction[] = [];
   if (template) {
     actions.push({
@@ -95,13 +95,13 @@ async function ensureDailyFollowUpAutomation(
   if (existing?.id) {
     const { data: full } = await supabase
       .from("automations")
-      .select("trigger_config")
+      .select("status, trigger_config")
       .eq("id", existing.id)
       .maybeSingle();
+    // Never force Live — if the user Paused this workflow, cron must not turn it back on.
     await supabase
       .from("automations")
       .update({
-        status: "Live",
         requires_approval: true,
         trigger_type: "follow_up_due",
         description:
@@ -112,9 +112,15 @@ async function ensureDailyFollowUpAutomation(
           : {}) as Record<string, unknown>,
       })
       .eq("id", existing.id);
-    return { id: existing.id as string, name: DAILY_AUTO_NAME, actions };
+    return {
+      id: existing.id as string,
+      name: DAILY_AUTO_NAME,
+      actions,
+      status: String(full?.status || "Paused"),
+    };
   }
 
+  // New row starts Paused — operator must turn On in Automation UI.
   const { data: created, error } = await supabase
     .from("automations")
     .insert({
@@ -122,7 +128,7 @@ async function ensureDailyFollowUpAutomation(
       name: DAILY_AUTO_NAME,
       description:
         "Created by Follow-up Agent. Daily cron proposes an audience; you Approve once, then it runs for each lead.",
-      status: "Live",
+      status: "Paused",
       trigger_type: "follow_up_due",
       trigger_config: {},
       actions,
@@ -130,7 +136,7 @@ async function ensureDailyFollowUpAutomation(
       run_count: 0,
       success_count: 0,
     })
-    .select("id, name, actions")
+    .select("id, name, actions, status")
     .single();
 
   if (error) throw new Error(error.message);
@@ -138,6 +144,7 @@ async function ensureDailyFollowUpAutomation(
     id: created.id as string,
     name: DAILY_AUTO_NAME,
     actions: (created.actions || actions) as AutomationAction[],
+    status: String(created.status || "Paused"),
   };
 }
 
@@ -249,6 +256,11 @@ export async function proposeDailyFollowUpCampaign(options?: {
 
   const template = await resolveFollowUpTemplate(supabase);
   const auto = await ensureDailyFollowUpAutomation(supabase, template);
+
+  // Respect Automation UI toggle — cron must not propose while Paused (manual Suggest can force).
+  if (auto.status !== "Live" && !options?.force) {
+    return { skipped: "automation_paused", leadCount: 0 };
+  }
 
   const { data: autoRow } = await supabase
     .from("automations")

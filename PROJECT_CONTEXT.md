@@ -302,6 +302,9 @@ Record decisions here so we don't re-debate.
 
 Brief notes from each working session — append, don't delete.
 
+### Session 2026-08-08 — Broadcast sales person filter = directory dropdown
+- Broadcasting lead filter **Sales person** is a dropdown from `sales_person_directory` (shows name + email; stores email). Audience match accepts lead `sales_person` as email **or** display name.
+
 ### Session 2026-08-08 — Brainmine auto sync default On / 5 min
 - When Brainmine credentials exist and auto sync was never saved: default **On**, every **5 minutes** (persisted on Channels load, Configure save, and cron tick). Explicit Off still respected. UI defaults match.
 

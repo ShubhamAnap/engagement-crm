@@ -8,6 +8,13 @@ export type BroadcastLeadFilter = {
   value: string;
 };
 
+/** Minimal directory row for sales_person filter matching (email ↔ display name). */
+export type BroadcastSalesPersonDirectoryEntry = {
+  email: string;
+  display_name: string;
+  is_active?: boolean;
+};
+
 export const BROADCAST_LEAD_FILTER_FIELDS: Array<{
   value: BroadcastLeadFilterField;
   label: string;
@@ -38,14 +45,57 @@ function fieldValue(
   return raw == null ? "" : String(raw).trim();
 }
 
+function normalizeKey(s: string): string {
+  return s.trim().toLowerCase();
+}
+
+/**
+ * Match lead.sales_person against filter value using directory.
+ * Leads often store email; UI filter stores email; also match display name either way.
+ */
+export function salesPersonMatchesFilter(
+  leadSalesPerson: string,
+  filterValue: string,
+  directory?: BroadcastSalesPersonDirectoryEntry[] | null,
+): boolean {
+  const lead = normalizeKey(leadSalesPerson);
+  const filter = normalizeKey(filterValue);
+  if (!lead || !filter) return false;
+  if (lead === filter) return true;
+
+  const active = (directory || []).filter((d) => d.is_active !== false);
+  const entry = active.find(
+    (d) =>
+      normalizeKey(d.email) === filter ||
+      normalizeKey(d.display_name) === filter ||
+      normalizeKey(d.email) === lead ||
+      normalizeKey(d.display_name) === lead,
+  );
+  if (!entry) return false;
+
+  const emails = normalizeKey(entry.email);
+  const name = normalizeKey(entry.display_name);
+  return (
+    (lead === emails || lead === name) &&
+    (filter === emails || filter === name)
+  );
+}
+
 /** True if lead matches all filters (AND). Empty filter list = match all. */
 export function leadMatchesBroadcastFilters(
   lead: Record<string, unknown>,
   filters: BroadcastLeadFilter[] | null | undefined,
+  directory?: BroadcastSalesPersonDirectoryEntry[] | null,
 ): boolean {
   const active = normalizeBroadcastLeadFilters(filters);
   if (!active.length) return true;
-  return active.every((f) => fieldValue(lead, f.field).toLowerCase() === f.value.toLowerCase());
+  return active.every((f) => {
+    const lv = fieldValue(lead, f.field);
+    if (f.field === "sales_person") {
+      return salesPersonMatchesFilter(lv, f.value, directory);
+    }
+    return normalizeKey(lv) === normalizeKey(f.value);
+  });
 }
 
 export function audienceSupportsLeadFilters(kind: string): boolean {

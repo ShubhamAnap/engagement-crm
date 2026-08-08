@@ -54,6 +54,7 @@ import {
   type BroadcastLeadFilter,
   type BroadcastLeadFilterField,
 } from "@/lib/broadcast-audience-filters";
+import { listSalesPersonDirectory } from "@/lib/sales-person-directory-api";
 import type { LeadStatus } from "@/lib/db-types";
 import {
   downloadEmailAudienceTemplate,
@@ -154,6 +155,10 @@ function Page() {
   const templatesQuery = useQuery({
     queryKey: ["wa-templates", orgId],
     queryFn: () => listWaTemplates(orgId),
+  });
+  const salesPersonQuery = useQuery({
+    queryKey: ["sales-person-directory", orgId],
+    queryFn: () => listSalesPersonDirectory(orgId),
   });
   const broadcastsQuery = useQuery({
     queryKey: ["broadcasts", orgId],
@@ -1006,7 +1011,8 @@ function Page() {
                   </Button>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  All filters apply together (AND). Example: Sales person = Ritesh and Status = Qualified.
+                  All filters apply together (AND). Sales person picks from the directory (Automation →
+                  Sales person directory). Leads may store email; we match email or name.
                 </p>
                 {bcLeadFilters.map((filter, i) => (
                   <div key={i} className="grid gap-2 rounded-md border border-border/60 p-2 sm:grid-cols-[1fr_1fr_auto]">
@@ -1053,14 +1059,42 @@ function Page() {
                           ))}
                         </SelectContent>
                       </Select>
+                    ) : filter.field === "sales_person" ? (
+                      <Select
+                        value={filter.value || undefined}
+                        onValueChange={(v) =>
+                          setBcLeadFilters((prev) => {
+                            const next = [...prev];
+                            next[i] = { ...next[i], value: v };
+                            return next;
+                          })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select sales person…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(salesPersonQuery.data ?? []).filter((p) => p.is_active).length === 0 ? (
+                            <div className="px-2 py-3 text-xs text-muted-foreground">
+                              No sales people yet. Add them under Automation → Sales person directory.
+                            </div>
+                          ) : (
+                            (salesPersonQuery.data ?? [])
+                              .filter((p) => p.is_active)
+                              .map((p) => (
+                                <SelectItem key={p.id} value={p.email}>
+                                  {p.display_name} ({p.email})
+                                </SelectItem>
+                              ))
+                          )}
+                        </SelectContent>
+                      </Select>
                     ) : (
                       <Input
                         placeholder={
-                          filter.field === "sales_person"
-                            ? "e.g. Ritesh"
-                            : filter.field === "source"
-                              ? "e.g. indiamart"
-                              : "e.g. Pune"
+                          filter.field === "source"
+                            ? "e.g. indiamart"
+                            : "e.g. Pune"
                         }
                         value={filter.value}
                         onChange={(e) =>

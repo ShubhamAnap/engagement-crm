@@ -387,6 +387,16 @@ async function resolveAudiencePhones(
   const out: PhoneAudienceRow[] = [];
   const seen = new Set<string>();
 
+  let salesDirectory: Array<{ email: string; display_name: string; is_active: boolean }> = [];
+  if (leadFilters?.some((f) => f.field === "sales_person" && String(f.value || "").trim())) {
+    const { data: dirRows } = await supabase
+      .from("sales_person_directory")
+      .select("email, display_name, is_active")
+      .eq("org_id", orgId)
+      .eq("is_active", true);
+    salesDirectory = (dirRows || []) as typeof salesDirectory;
+  }
+
   const push = (
     phone: string | null | undefined,
     name: string | null,
@@ -429,7 +439,8 @@ async function resolveAudiencePhones(
   if (error) throw error;
   for (const l of data ?? []) {
     if (kind === "indiamart_leads" && l.source !== "indiamart") continue;
-    if (!leadMatchesBroadcastFilters(l as Record<string, unknown>, leadFilters)) continue;
+    if (!leadMatchesBroadcastFilters(l as Record<string, unknown>, leadFilters, salesDirectory))
+      continue;
     push(l.phone as string, l.name as string, { lead_id: l.id as string }, mergeFieldsFromLeadRow(l));
   }
   return out;

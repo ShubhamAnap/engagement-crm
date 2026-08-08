@@ -5,6 +5,7 @@ import { chunkText, embedQuery, embedTexts, estimateTokens } from "@/server/embe
 import { ensurePdfFileLabel, shortDatasheetUrl, shortKnowledgeDocumentUrl } from "@/lib/short-links";
 import { isAckOnlyMessage, isGreetingOnlyMessage } from "@/lib/enertech-scope";
 import { isServiceIntent } from "@/lib/conversation-guards";
+import { isEducateOnlyAsk } from "@/lib/conversation-intent";
 import { shortenStorageUrl } from "@/server/shorten-urls";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
@@ -1015,6 +1016,9 @@ export function resolveCatalogueChoice(
   const q = query.trim().toLowerCase();
   if (!q) return null;
 
+  // Definition questions must never resolve a pending PDF pick
+  if (isEducateOnlyAsk(q)) return null;
+
   const num = q.match(/^(\d{1,2})\b/);
   if (num) {
     const idx = Number(num[1]) - 1;
@@ -1139,6 +1143,11 @@ export async function resolveCatalogueRequest(
     return { mode: "none", downloads: [], clarifyOptions: [], message: "" };
   }
 
+  // "What is solar hybrid…" must explain — never auto-send catalogue / pending pick
+  if (isEducateOnlyAsk(q)) {
+    return { mode: "none", downloads: [], clarifyOptions: [], message: "" };
+  }
+
   // Follow-up after we listed options
   if (options?.pendingOptions?.length) {
     // Soft family match only when NOT a service ask (already gated) and not vague noise
@@ -1170,12 +1179,12 @@ export async function resolveCatalogueRequest(
 
   // Product name alone after pending clarify already handled; bare "ongrid" without catalogue words
   // still counts when they clearly name a family + send/share intent OR just the product after asking.
+  // Do NOT treat pending+family alone as catalogue — that hijacks "what is hybrid" after an old clarify list.
   const namedFamily = PRODUCT_FAMILIES.find((f) => f.ask.test(q));
   const isCatalogueAsk =
     CATALOGUE_INTENT_RE.test(q) ||
-    Boolean(options?.pendingOptions?.length && namedFamily) ||
     (Boolean(namedFamily) &&
-      /\b(send|share|want|need|give|pdf|catalogue|catalog|datasheet)\b/i.test(q));
+      /\b(send|share|want|need|give|pdf|catalogue|catalog|datasheet|brochure)\b/i.test(q));
 
   if (!isCatalogueAsk && !wantsCatalogue) {
     return { mode: "none", downloads: [], clarifyOptions: [], message: "" };
@@ -1297,12 +1306,15 @@ export const REFERENCE_PHOTOS_REPLY = "Sir, here are some reference photos.";
 export const REFERENCE_PHOTOS_LIMIT = 3;
 
 export function customerAskedForMorePhotos(query: string): boolean {
+  if (isEducateOnlyAsk(query)) return false;
   return /\b(more|all|extra|additional|aur|zyada|sab)\b/i.test(query);
 }
 
 /** Hindi/English cues that the visitor wants installation / application / product photos. */
 export function wantsReferenceImages(query: string): boolean {
   const q = query.toLowerCase();
+  // Definition asks are not photo requests (even if conversation has prior photo context)
+  if (isEducateOnlyAsk(q)) return false;
   return /reference|refrence|install|installation|site\s*photo|gallery|photo|picture|image|\bpic\b|dikhao|dikha|dikhai|hospital|cold\s*storage|petrol|pump|fire\s*(ref|safety|install|system)?|project\s*photo|application|show\s*(me\s*)?(photo|image|pic)|photo\s*bhejo|image\s*bhejo|\bref\b|site\s*ref|install\s*ref|(inverter|ups|bess|hybrid|ongrid|product).{0,40}(photo|image|pic|picture)|(photo|image|pic|picture).{0,40}(inverter|ups|bess|hybrid|product)|bhejo\s*(photo|image|pic)|send\s*(me\s*)?(a\s*)?(photo|image|pic)/.test(
     q,
   );
@@ -1389,6 +1401,7 @@ export async function findReferenceImages(
     preferCollection?: string | null;
   },
 ): Promise<ReferenceImage[]> {
+  if (isEducateOnlyAsk(query)) return [];
   const askingMore = customerAskedForMorePhotos(query);
   const prefer = String(options?.preferCollection || "").trim();
   const hasPrefer = prefer.length > 0;

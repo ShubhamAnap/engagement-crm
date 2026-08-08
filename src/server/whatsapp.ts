@@ -27,7 +27,7 @@ import {
 } from "@/lib/session-language";
 import { ensureWhatsAppLeadCustomer } from "@/server/whatsapp-crm";
 import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, wantsReferenceImages, customerAskedForMorePhotos, formatKnowledgeContext, downloadLinksFromChunks, knowledgeIsUseful } from "@/server/knowledge";
-import { resolveProductPackRequest, buildProductPackMedia, buildProductsContextForAi, isProductIntent } from "@/server/product-pack";
+import { resolveProductPackRequest, buildProductPackMedia, buildProductsContextForAi, isProductIntent, isEducateOnlyAsk } from "@/server/product-pack";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
@@ -646,10 +646,23 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             ? (prevMeta.pending_product_options as Array<{ id: string; name: string }>)
             : [];
 
-          const productPack = await resolveProductPackRequest(text, {
-            pendingProducts,
-            presentation: "whatsapp",
-          });
+          const educateOnly = isEducateOnlyAsk(text);
+
+          // Stale "which catalogue?" state must not hijack definition questions
+          if (educateOnly && (pendingCatalogue.length || pendingProducts.length)) {
+            const cleaned = { ...prevMeta };
+            delete cleaned.pending_catalogue_options;
+            delete cleaned.pending_product_options;
+            await supabase.from("conversations").update({ metadata: cleaned }).eq("id", convo.id);
+            Object.assign(prevMeta, cleaned);
+          }
+
+          const productPack = educateOnly
+            ? { mode: "none" as const }
+            : await resolveProductPackRequest(text, {
+                pendingProducts,
+                presentation: "whatsapp",
+              });
           if (productPack.mode === "clarify" || productPack.mode === "match") {
             const nextMeta: Record<string, unknown> = { ...prevMeta };
             if (productPack.mode === "clarify") {
@@ -835,9 +848,11 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             continue;
           }
 
-          const catalogue = await resolveCatalogueRequest(text, {
-            pendingOptions: pendingCatalogue,
-          });
+          const catalogue = educateOnly
+            ? { mode: "none" as const, downloads: [] as [], clarifyOptions: [] as [], message: "" }
+            : await resolveCatalogueRequest(text, {
+                pendingOptions: pendingCatalogue,
+              });
 
           // Short catalogue path — skip long AI essays; send 0–1 PDF only
           if (catalogue.mode === "clarify" || catalogue.mode === "match") {
@@ -1010,6 +1025,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
 
           // Photo ask: short line + up to 3 real images (more = next batch same collection)
           if (
+            !educateOnly &&
             referenceImages.length > 0 &&
             (wantsReferenceImages(text) || (askingMore && lastCollection))
           ) {

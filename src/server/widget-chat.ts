@@ -34,6 +34,7 @@ import {
   buildProductsContextForAi,
   toCarouselCards,
   loadActiveProductById,
+  isEducateOnlyAsk,
 } from "@/server/product-pack";
 import { formatProductPackBody, cleanProductDisplayName } from "@/lib/product-card";
 import { normalizeWhatsAppDigits } from "@/lib/whatsapp-window";
@@ -1091,11 +1092,22 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       ? (prevMeta.pending_product_options as Array<{ id: string; name: string }>)
       : [];
 
+    const educateOnly = isEducateOnlyAsk(text);
+    if (educateOnly && (pendingCatalogue.length || pendingProducts.length)) {
+      const cleaned = { ...prevMeta };
+      delete cleaned.pending_catalogue_options;
+      delete cleaned.pending_product_options;
+      await supabase.from("conversations").update({ metadata: cleaned }).eq("id", data.conversationId);
+      Object.assign(prevMeta, cleaned);
+    }
+
     // Products: website → swipe carousel first; detail only after "I need this"
-    const productPack = await resolveProductPackRequest(text, {
-      pendingProducts,
-      presentation: "carousel",
-    });
+    const productPack = educateOnly
+      ? { mode: "none" as const }
+      : await resolveProductPackRequest(text, {
+          pendingProducts,
+          presentation: "carousel",
+        });
     if (productPack.mode === "carousel") {
       const nextMeta: Record<string, unknown> = {
         ...prevMeta,
@@ -1233,7 +1245,9 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       };
     }
 
-    const catalogue = await resolveCatalogueRequest(text, { pendingOptions: pendingCatalogue });
+    const catalogue = educateOnly
+      ? { mode: "none" as const, downloads: [], clarifyOptions: [], message: "" }
+      : await resolveCatalogueRequest(text, { pendingOptions: pendingCatalogue });
 
     // Catalogue intent: short reply + at most one PDF (or numbered choices)
     if (catalogue.mode === "clarify" || catalogue.mode === "match") {
@@ -1375,6 +1389,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
     ]);
 
     if (
+      !educateOnly &&
       referenceImages.length > 0 &&
       (wantsReferenceImages(text) || (askingMore && lastCollection))
     ) {
@@ -1442,7 +1457,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
     }
 
     // Photos/assets asked but not in Knowledge Base yet — soft wait, flag for team
-    if (wantsReferenceImages(text) && referenceImages.length === 0) {
+    if (!educateOnly && wantsReferenceImages(text) && referenceImages.length === 0) {
       const reply = kbPendingSendReplyForLang(sessionLang);
       const tags = Array.isArray(convo.tags) ? [...convo.tags] : [];
       if (!tags.includes("Needs asset")) tags.push("Needs asset");

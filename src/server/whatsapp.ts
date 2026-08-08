@@ -26,7 +26,7 @@ import {
   humanWaitReplyForLang,
 } from "@/lib/session-language";
 import { ensureWhatsAppLeadCustomer } from "@/server/whatsapp-crm";
-import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, wantsReferenceImages, customerAskedForMorePhotos } from "@/server/knowledge";
+import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, wantsReferenceImages, customerAskedForMorePhotos, formatKnowledgeContext, downloadLinksFromChunks, knowledgeIsUseful } from "@/server/knowledge";
 import { resolveProductPackRequest, buildProductPackMedia, buildProductsContextForAi, isProductIntent } from "@/server/product-pack";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
@@ -770,14 +770,11 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               retrieveKnowledgeContext(text, 8),
               buildProductsContextForAi(text, 10),
             ]);
-            const knowledgeContext = chunks
-              .map((c) => c.content)
-              .join("\n\n")
-              .replace(/https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi, "[file]");
+            const knowledgeContext = formatKnowledgeContext(chunks);
             const stack = await resolveAgentStack({ channel: "whatsapp", message: text });
             const agentCfg = agentReplyConfig(stack);
             const { sanitizeAssistantFileLinks } = await import("@/server/shorten-urls");
-            const downloadLinks: Array<{ title: string; url: string; fileName?: string }> = [];
+            const downloadLinks = downloadLinksFromChunks(chunks);
             const generated = await generateOpenAiReply({
               visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
               latestUserMessage: text,
@@ -816,8 +813,9 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               specialistKey: agentCfg.specialistKey,
               channel: "whatsapp",
               visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
-              downloadCount: 0,
+              downloadCount: downloadLinks.length,
               memoryEnabled: agentCfg.memoryEnabled,
+              productsUseful: knowledgeIsUseful(chunks) || Boolean(productsContext?.trim()),
             });
             (inspector.metadata as Record<string, unknown>).product_kb_fallback = true;
             await supabase.from("messages").insert({
@@ -1182,10 +1180,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             continue;
           }
 
-          const knowledgeContext = chunks
-            .map((c) => c.content)
-            .join("\n\n")
-            .replace(/https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi, "[file]");
+          const knowledgeContext = formatKnowledgeContext(chunks);
           const productsContext = await buildProductsContextForAi(text);
           const stack = await resolveAgentStack({
             channel: "whatsapp",
@@ -1193,7 +1188,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           });
           const agentCfg = agentReplyConfig(stack);
           const { sanitizeAssistantFileLinks } = await import("@/server/shorten-urls");
-          const downloadLinks: Array<{ title: string; url: string; fileName?: string }> = [];
+          const downloadLinks = downloadLinksFromChunks(chunks);
           const generated = await generateOpenAiReply({
             visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
             latestUserMessage: text,
@@ -1222,8 +1217,9 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             specialistKey: agentCfg.specialistKey,
             channel: "whatsapp",
             visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
-            downloadCount: 0,
+            downloadCount: downloadLinks.length,
             memoryEnabled: agentCfg.memoryEnabled,
+            productsUseful: knowledgeIsUseful(chunks) || Boolean(productsContext?.trim()),
           });
           if (agentCfg.agentId) {
             await supabase

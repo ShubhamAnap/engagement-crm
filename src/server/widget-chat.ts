@@ -27,7 +27,7 @@ import {
   sessionLangFromHistory,
   humanWaitReplyForLang,
 } from "@/lib/session-language";
-import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, wantsReferenceImages, customerAskedForMorePhotos } from "@/server/knowledge";
+import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, wantsReferenceImages, customerAskedForMorePhotos, formatKnowledgeContext, downloadLinksFromChunks, knowledgeIsUseful } from "@/server/knowledge";
 import {
   resolveProductPackRequest,
   buildProductPackMedia,
@@ -1561,15 +1561,11 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       };
     }
 
-    const knowledgeContext = chunks
-      .map((c, i) => `[${i + 1}] (${c.document_title}, relevance ${c.similarity.toFixed(2)})\n${c.content}`)
-      .join("\n\n")
-      .replace(/https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi, "[file]");
-
+    const knowledgeContext = formatKnowledgeContext(chunks);
     const productsContext = await buildProductsContextForAi(text);
 
     const { sanitizeAssistantFileLinks } = await import("@/server/shorten-urls");
-    const downloadLinks: Array<{ title: string; url: string; fileName?: string }> = [];
+    const downloadLinks = downloadLinksFromChunks(chunks);
 
     const stack = await resolveAgentStack({
       channel: (convo.channel as string) || "website",
@@ -1608,6 +1604,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       visitorName: convo.visitor_name || "Website visitor",
       downloadCount: downloadLinks.length,
       memoryEnabled: agentCfg.memoryEnabled,
+      productsUseful: knowledgeIsUseful(chunks) || Boolean(productsContext?.trim()),
     });
 
     const { error: aiErr } = await supabase.from("messages").insert({

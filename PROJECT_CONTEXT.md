@@ -9,7 +9,7 @@
 
 Run **EnerTech Engage** as a **working enterprise AI customer engagement platform** for EnerTech UPS Pvt. Ltd., with architecture that can later become multi-tenant SaaS.
 
-**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped (auth/HMAC/claim → integrity → CI/health/observability). Soft Meta signature (advisory) until App Secret is verified. Next: Phase 4 AI/ops reliability.
+**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped (hybrid retrieval, PDF text extract, channel grounding, OpenAI retries). Soft Meta signature (advisory) until App Secret is verified. Next: Phase 5 scale (optional) / ops (run migrations 029–030 if not done; re-index PDFs).
 **Approach:** Prefer stabilize and ship focused improvements; new modules only when requested.
 
 ---
@@ -692,3 +692,23 @@ Website carousel expands seed matches to **all active products in that category*
 **Key files:** `src/lib/session-language.ts`, `src/lib/conversation-guards.ts`, `src/server/whatsapp.ts`, `src/server/widget-chat.ts`, `src/routes/inbox.tsx`
 
 **Last commits (main):** Return to AI header-only (`e32aafa`), session language (`9793dc9`), handoff UX batch.
+
+---
+
+### Session 2026-08-08 — Phase 4 RAG quality
+
+**Goal:** Better answers + agent utilization via retrieval/grounding (not a rewrite).
+
+| Item | Status |
+|------|--------|
+| Hybrid retrieve (wider pool, threshold 0.48, keyword boost) | DONE (`knowledge.ts`) |
+| Shared `formatKnowledgeContext` + `downloadLinksFromChunks` on WA/widget/email/Meta | DONE |
+| PDF text via `unpdf` (stub fallback) | DONE — **re-index existing PDFs in Knowledge UI** |
+| KB-first prompts / ENGAGEMENT_LOCK | DONE (`agents.ts`, `agent-prompts.ts`) |
+| Empty RAG → low confidence / high risk | DONE (`answer-inspector.ts`) |
+| OpenAI chat + embeddings retries / timeouts | DONE |
+| Prompt delimiters `<<<KNOWLEDGE_BASE_UNTRUSTED>>>` | DONE (`openai.ts`) |
+
+**Ops:** Re-upload or re-index PDFs so chunks contain real text. Migrations `029`/`030` still needed in Supabase if not applied. Meta HMAC stays advisory.
+
+**Next:** Phase 5 scale when requested; verify WhatsApp replies after deploy.

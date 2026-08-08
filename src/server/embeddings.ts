@@ -1,5 +1,9 @@
 /** OpenAI embeddings for Knowledge Base RAG (pgvector / 1536 dims). */
 
+async function sleep(ms: number) {
+  await new Promise((r) => setTimeout(r, ms));
+}
+
 export async function embedTexts(texts: string[]): Promise<number[][]> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -8,29 +12,60 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
 
   const model = process.env.OPENAI_EMBEDDING_MODEL || "text-embedding-3-small";
-  const response = await fetch("https://api.openai.com/v1/embeddings", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      input: texts.map((t) => t.slice(0, 8000)),
-    }),
-  });
+  const maxAttempts = 3;
+  let lastError: Error | null = null;
 
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`OpenAI embeddings error ${response.status}: ${body}`);
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 25_000);
+    try {
+      const response = await fetch("https://api.openai.com/v1/embeddings", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          input: texts.map((t) => t.slice(0, 8000)),
+        }),
+        signal: controller.signal,
+      });
+
+      if (response.status === 429 || response.status >= 500) {
+        const body = await response.text();
+        lastError = new Error(`OpenAI embeddings error ${response.status}: ${body}`);
+        if (attempt < maxAttempts) {
+          await sleep(400 * attempt * attempt);
+          continue;
+        }
+        throw lastError;
+      }
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`OpenAI embeddings error ${response.status}: ${body}`);
+      }
+
+      const json = (await response.json()) as {
+        data?: Array<{ embedding: number[]; index: number }>;
+      };
+      const rows = json.data ?? [];
+      rows.sort((a, b) => a.index - b.index);
+      return rows.map((r) => r.embedding);
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < maxAttempts && (lastError.name === "AbortError" || /429|5\d\d/.test(lastError.message))) {
+        await sleep(400 * attempt * attempt);
+        continue;
+      }
+      throw lastError;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
-  const json = (await response.json()) as {
-    data?: Array<{ embedding: number[]; index: number }>;
-  };
-  const rows = json.data ?? [];
-  rows.sort((a, b) => a.index - b.index);
-  return rows.map((r) => r.embedding);
+  throw lastError || new Error("OpenAI embeddings failed");
 }
 
 export async function embedQuery(text: string): Promise<number[]> {

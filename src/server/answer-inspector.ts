@@ -39,17 +39,24 @@ function uniqueSources(chunks: RetrievedChunk[]): InspectorSource[] {
   return out.slice(0, 6);
 }
 
-function confidenceFrom(chunks: RetrievedChunk[], replySource: "openai" | "fallback"): number {
-  if (replySource === "fallback") return 0.55;
-  if (!chunks.length) return 0.72;
+function confidenceFrom(
+  chunks: RetrievedChunk[],
+  replySource: "openai" | "fallback",
+  productsUseful?: boolean,
+): number {
+  if (replySource === "fallback") return 0.5;
+  if (!chunks.length) {
+    // Ungrounded OpenAI answers must not look highly confident
+    return productsUseful ? 0.58 : 0.42;
+  }
   const top = Math.max(...chunks.map((c) => c.similarity));
-  // Map similarity ~0.55–0.95 → confidence ~0.7–0.95
-  const mapped = 0.55 + top * 0.42;
-  return Math.round(Math.min(0.97, Math.max(0.62, mapped)) * 100) / 100;
+  // Map similarity ~0.50–0.95 → confidence ~0.62–0.95
+  const mapped = 0.5 + top * 0.45;
+  return Math.round(Math.min(0.97, Math.max(0.58, mapped)) * 100) / 100;
 }
 
 function riskFrom(confidence: number, grounded: boolean): "Low" | "Medium" | "High" {
-  if (!grounded && confidence < 0.75) return "High";
+  if (!grounded) return "High";
   if (confidence < 0.65) return "High";
   if (confidence < 0.8) return "Medium";
   return "Low";
@@ -65,18 +72,21 @@ export function buildAnswerInspector(input: {
   visitorName?: string;
   downloadCount?: number;
   memoryEnabled?: boolean;
+  productsUseful?: boolean;
 }): AnswerInspectorPayload {
   const sources = uniqueSources(input.chunks);
-  const grounded = sources.length > 0;
-  const confidence = confidenceFrom(input.chunks, input.replySource);
+  const grounded = sources.length > 0 || Boolean(input.productsUseful);
+  const confidence = confidenceFrom(input.chunks, input.replySource, input.productsUseful);
   const reasoning: string[] = [
     `Classified channel as ${input.channel || "website"}.`,
     input.specialistKey
       ? `Applied specialist “${input.specialistKey}” under master Support.`
       : `Used master Support agent (${input.agentName}).`,
-    grounded
+    sources.length > 0
       ? `Retrieved ${input.chunks.length} knowledge chunk(s); top relevance ${sources[0]?.score ?? "—"}.`
-      : "No strong Knowledge Base match — answering from general product guidance.",
+      : input.productsUseful
+        ? "No Knowledge Base chunks; Products catalogue provided grounding."
+        : "No strong Knowledge Base match — low grounding; prefer wait/check reply over inventing specs.",
     input.replySource === "openai"
       ? `Generated reply with ${input.model}.`
       : "OpenAI unavailable — used fallback reply rules.",

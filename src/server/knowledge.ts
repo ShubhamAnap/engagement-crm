@@ -106,16 +106,59 @@ function extractTextFromBuffer(
       `If the visitor asks about ${collection}, photos, images, gallery, installation pictures, or site photos, share this image link.`,
     ].join(" ");
   }
+  // PDF handled async in extractDocumentText
   if (mime.includes("pdf") || lower.endsWith(".pdf")) {
-    return [
-      `EnerTech knowledge PDF: ${title}.`,
-      `Collection: ${collection}.`,
-      `File name: ${fileName}.`,
-      "This document is available for customer download.",
-      "If the visitor asks for a catalogue, datasheet, brochure, or PDF, share the download link for this file.",
-    ].join(" ");
+    return "";
   }
   return buffer.toString("utf8");
+}
+
+/** Prefer real PDF text; fall back to catalogue stub so indexing never fails hard. */
+async function extractDocumentText(
+  buffer: Buffer,
+  mimeType: string | null,
+  fileName: string,
+  options?: { title?: string; collectionName?: string },
+): Promise<{ text: string; extractedFromPdf: boolean }> {
+  const lower = fileName.toLowerCase();
+  const mime = (mimeType || "").toLowerCase();
+  const title = options?.title || fileName;
+  const collection = options?.collectionName || "Knowledge Base";
+
+  if (mime.includes("pdf") || lower.endsWith(".pdf")) {
+    try {
+      const { extractText } = await import("unpdf");
+      const result = await extractText(new Uint8Array(buffer));
+      const pages = Array.isArray(result.text) ? result.text : [String(result.text || "")];
+      const pdfText = pages.join("\n").replace(/\s+/g, " ").trim();
+      if (pdfText.length >= 80) {
+        return {
+          text: [
+            `EnerTech PDF: ${title}. Collection: ${collection}. File: ${fileName}.`,
+            pdfText.slice(0, 120_000),
+          ].join("\n\n"),
+          extractedFromPdf: true,
+        };
+      }
+    } catch (err) {
+      console.warn("PDF text extraction failed; using stub metadata", fileName, err);
+    }
+    return {
+      text: [
+        `EnerTech knowledge PDF: ${title}.`,
+        `Collection: ${collection}.`,
+        `File name: ${fileName}.`,
+        "This document is available for customer download.",
+        "If the visitor asks for a catalogue, datasheet, brochure, or PDF, share the download link for this file.",
+      ].join(" "),
+      extractedFromPdf: false,
+    };
+  }
+
+  return {
+    text: extractTextFromBuffer(buffer, mimeType, fileName, options),
+    extractedFromPdf: false,
+  };
 }
 
 async function ensureKnowledgeBucket() {
@@ -200,10 +243,17 @@ async function indexBuffer(options: {
     })
     .eq("id", documentId);
 
-  const text = extractTextFromBuffer(buffer, mimeType, fileName, { title, collectionName });
+  const { text, extractedFromPdf } = await extractDocumentText(buffer, mimeType, fileName, {
+    title,
+    collectionName,
+  });
   const chunks = chunkText(text);
   if (chunks.length === 0) {
     throw new Error("No extractable text found in file");
+  }
+
+  if (extractedFromPdf) {
+    nextMeta.pdf_text_extracted = true;
   }
 
   let embeddings: number[][];
@@ -235,7 +285,7 @@ async function indexBuffer(options: {
 
   await supabase
     .from("knowledge_documents")
-    .update({ status: "ready", chunk_count: rows.length })
+    .update({ status: "ready", chunk_count: rows.length, metadata: nextMeta })
     .eq("id", documentId);
 
   await refreshCollectionCounts(supabase, collectionId);
@@ -590,15 +640,83 @@ export type RetrievedChunk = {
   download_url: string | null;
 };
 
+const STORAGE_URL_RE =
+  /https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi;
+
+function queryKeywords(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/[^a-z0-9.+]+/i)
+    .map((w) => w.trim())
+    .filter((w) => w.length >= 3 && !/^(the|and|for|with|from|that|this|have|what|which|about|please|need|want)$/i.test(w))
+    .slice(0, 12);
+}
+
+function keywordBoost(content: string, title: string, keywords: string[]): number {
+  if (!keywords.length) return 0;
+  const hay = `${title}\n${content}`.toLowerCase();
+  let hits = 0;
+  for (const kw of keywords) {
+    if (hay.includes(kw)) hits += 1;
+  }
+  return Math.min(0.18, hits * 0.035);
+}
+
+/** Shared prompt formatting for all channels — title + score + content. */
+export function formatKnowledgeContext(chunks: RetrievedChunk[]): string {
+  if (!chunks.length) return "";
+  return chunks
+    .map(
+      (c, i) =>
+        `[${i + 1}] (${c.document_title}, relevance ${c.similarity.toFixed(2)})\n${c.content}`,
+    )
+    .join("\n\n")
+    .replace(STORAGE_URL_RE, "[file]");
+}
+
+/** Verified download links from retrieved chunks (for OpenAI + sanitize). */
+export function downloadLinksFromChunks(
+  chunks: RetrievedChunk[],
+  max = 4,
+): Array<{ title: string; url: string; fileName?: string }> {
+  const seen = new Set<string>();
+  const out: Array<{ title: string; url: string; fileName?: string }> = [];
+  for (const c of chunks) {
+    const url = (c.download_url || "").trim();
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    const title = c.document_title || "document.pdf";
+    out.push({
+      title: title.toLowerCase().endsWith(".pdf") ? title : `${title}.pdf`,
+      url,
+      fileName: title,
+    });
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+export function knowledgeIsUseful(chunks: RetrievedChunk[]): boolean {
+  if (!chunks.length) return false;
+  const top = Math.max(...chunks.map((c) => c.similarity));
+  return top >= 0.58 || chunks.some((c) => c.content.length > 120 && c.similarity >= 0.52);
+}
+
+/**
+ * Hybrid retrieval: vector search (wider pool) + keyword boost re-rank → top-k.
+ * On failure returns [] (callers should treat as ungrounded).
+ */
 export async function retrieveKnowledgeContext(query: string, limit = 6): Promise<RetrievedChunk[]> {
   const supabase = createServiceSupabase();
+  const keywords = queryKeywords(query);
+  const fetchCount = Math.min(24, Math.max(limit * 3, limit + 4));
   try {
     const embedding = await embedQuery(query);
     const { data, error } = await supabase.rpc("match_knowledge_chunks", {
       query_embedding: toVectorLiteral(embedding),
       match_org_id: ORG_ID,
-      match_count: limit,
-      match_threshold: 0.55,
+      match_count: fetchCount,
+      match_threshold: 0.48,
     });
     if (error) throw new Error(error.message);
     const mapped: RetrievedChunk[] = [];
@@ -609,16 +727,24 @@ export async function retrieveKnowledgeContext(query: string, limit = 6): Promis
       const docId = row.document_id ? String(row.document_id) : "";
       const docTitle = String(row.document_title ?? "Document");
       const shortFromDoc = docId ? shortDatasheetUrl(docId, docTitle, null) : null;
+      const content = String(row.content ?? "");
+      const baseSim = Number(row.similarity ?? 0);
+      const boosted = Math.min(0.99, baseSim + keywordBoost(content, docTitle, keywords));
       mapped.push({
-        content: String(row.content ?? ""),
-        similarity: Number(row.similarity ?? 0),
+        content,
+        similarity: boosted,
         document_title: docTitle,
         source_url: (row.source_url as string) || null,
         storage_path: (row.storage_path as string) || null,
         download_url: shortFromDoc || (longUrl ? await shortenStorageUrl(longUrl) : null),
       });
     }
-    return mapped;
+    mapped.sort((a, b) => b.similarity - a.similarity);
+    const top = mapped.slice(0, limit);
+    if (!top.length) {
+      console.warn("Knowledge retrieval: zero chunks above threshold", { query: query.slice(0, 80) });
+    }
+    return top;
   } catch (err) {
     console.error("Knowledge retrieval failed", err);
     return [];

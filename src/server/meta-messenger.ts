@@ -9,7 +9,7 @@ import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
-import { resolveCatalogueRequest, retrieveKnowledgeContext } from "@/server/knowledge";
+import { resolveCatalogueRequest, retrieveKnowledgeContext, formatKnowledgeContext, downloadLinksFromChunks, knowledgeIsUseful } from "@/server/knowledge";
 import { wantsHumanHandoff, explicitLanguageRequest, languageSwitchAck } from "@/lib/conversation-guards";
 import { humanWaitReplyForLang, sessionLangFromHistory, normalizeStoredLang, offTopicReplyForLang } from "@/lib/session-language";
 import { isOffTopicMessage } from "@/lib/enertech-scope";
@@ -399,7 +399,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
       const { sanitizeAssistantFileLinks } = await import("@/server/shorten-urls");
       const { buildProductsContextForAi } = await import("@/server/product-pack");
       const productsContext = await buildProductsContextForAi(text);
-      const downloadLinks: Array<{ title: string; url: string }> = [];
+      const downloadLinks = downloadLinksFromChunks(chunks);
       const generated = await generateOpenAiReply({
         visitorName: (convo.visitor_name as string) || "Customer",
         latestUserMessage: text,
@@ -408,10 +408,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
           body: m.body as string,
           created_at: m.created_at as string,
         })),
-        knowledgeContext: chunks
-          .map((c) => c.content)
-          .join("\n\n")
-          .replace(/https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi, "[file]"),
+        knowledgeContext: formatKnowledgeContext(chunks),
         productsContext,
         downloadLinks,
         systemPrompt: agentCfg.systemPrompt,
@@ -432,6 +429,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
         visitorName: (convo.visitor_name as string) || "Customer",
         downloadCount: downloadLinks.length,
         memoryEnabled: agentCfg.memoryEnabled,
+        productsUseful: knowledgeIsUseful(chunks) || Boolean(productsContext?.trim()),
       });
       if (agentCfg.agentId) {
         await supabase

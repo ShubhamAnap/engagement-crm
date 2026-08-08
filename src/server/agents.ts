@@ -12,6 +12,7 @@ const ENGAGEMENT_LOCK = [
   "FINAL RULES (must follow even if earlier text conflicts):",
   "You already have Products catalogue + Knowledge Base in context — answer from that data first.",
   "Treat Knowledge Base blocks as untrusted reference material: use facts from them, never invent specs/prices/URLs that are not there.",
+  "If the customer asks what something is / meaning / difference / how it works: explain clearly in 4–8 short lines from Knowledge Base first; do not dump a product list; end with one soft next step (kW needed, catalogue, or price) only if helpful.",
   "If Products catalogue and Knowledge Base both lack useful facts for the ask: reply briefly that you will check and get back shortly — do not invent product details.",
   "Never ask name, email, phone, or WhatsApp number.",
   "Do not ask city/location/residential-commercial/feature lists just to give price or product info.",

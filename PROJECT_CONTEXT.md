@@ -712,3 +712,13 @@ Website carousel expands seed matches to **all active products in that category*
 **Ops:** Re-upload or re-index PDFs so chunks contain real text. Migrations `029`/`030` still needed in Supabase if not applied. Meta HMAC stays advisory.
 
 **Next:** Phase 5 scale when requested; verify WhatsApp replies after deploy.
+
+---
+
+### Session 2026-08-08 — Intent: educate vs product dump
+
+**Bug:** “What is solar hybrid inverter” sent product cards (“Here are the matching products”) because `wantsProductPack` treated any short product-word message as browse.
+
+**Fix:** Informational/definition asks (EN + Hinglish: what is / kya hai / difference / explain) skip product pack unless transactional override (price, kW, dikhao/bhejo, chahiye, catalogue). AI prompts educate first, then soft CTA.
+
+**Key file:** `src/server/product-pack.ts` (`isInformationalProductAsk`, `hasTransactionalProductSignal`).

@@ -127,12 +127,55 @@ export function categoryHint(text: string): string | null {
   return null;
 }
 
-/** True when customer is asking about products (broad — kW, category, home, etc.). */
+/**
+ * Informational / educational intent (search + WhatsApp India patterns).
+ * Customer wants to *learn* — answer from Knowledge Base, do not dump product cards.
+ * Examples: "What is solar hybrid inverter", "hybrid inverter kya hai", "difference between HF and LF".
+ */
+const DEFINITION_ASK_RE =
+  /\b(what\s+is|what\s+are|what'?s\s+(a|an|the)?|whats\s+(a|an|the)?|explain|meaning\s+of|define|definition|how\s+does|how\s+do|how\s+it\s+works|difference\s+between|diff(?:erence)?\s+between|\bvs\.?\b|versus|compare|comparison|which\s+is\s+better|tell\s+me\s+about|teach\s+me|help\s+me\s+understand)\b/i;
+
+const HINGLISH_DEFINITION_ASK_RE =
+  /\b(kya\s+(hai|hota|hoti|hote)|matlab\s*(kya)?|samjhao|samjha\s*do|ke\s+bare\s+me[n]?|bare\s+me[n]?|batao\s+kya|bat(a|ao)\s+na\s+kya)\b/i;
+
+/**
+ * Clear buy / browse / share signals — product pack is appropriate.
+ * Note: "price kya hai" is transactional (price), not educational.
+ */
+const TRANSACTIONAL_PRODUCT_RE =
+  /\b(price|pricing|cost|rate|quote|quotation|kitna|kitne|rs\.?|₹|inr|bhejo|dikhao|dikha\b|send|share|catalogue|catalog|brochure|datasheet|\bpdf\b|chahiye|chahie|want|need|buy|order|purchase|stock|mujhe|mere\s*ko|recommend|suggest(?:ion)?|options?|show\s+me|send\s+me|do\s+you\s+have|hai\s+kya|available)\b/i;
+
+/** True when the message is mainly asking for an explanation / concept, not a product dump. */
+export function isInformationalProductAsk(text: string): boolean {
+  const q = String(text || "").trim();
+  if (!q) return false;
+  return DEFINITION_ASK_RE.test(q) || HINGLISH_DEFINITION_ASK_RE.test(q);
+}
+
+/** Strong commercial signals that override educational phrasing ("what is the price of…"). */
+export function hasTransactionalProductSignal(text: string): boolean {
+  const q = String(text || "").trim();
+  if (!q) return false;
+  if (KW_RE.test(q)) return true;
+  if (PRICE_RE.test(q)) return true;
+  if (TRANSACTIONAL_PRODUCT_RE.test(q)) return true;
+  return false;
+}
+
+/**
+ * True when customer wants product cards / packs (browse or buy).
+ * Educational asks ("what is…") go to AI + Knowledge Base instead.
+ */
 export function wantsProductPack(text: string): boolean {
   const q = String(text || "").trim();
   if (!q || q.length > 280) return false;
   if (isAckOnlyMessage(q) || isGreetingOnlyMessage(q)) return false;
   if (isServiceIntent(q)) return false;
+
+  // Learn-first for complex power products (industry practice + India WhatsApp Hinglish)
+  if (isInformationalProductAsk(q) && !hasTransactionalProductSignal(q)) {
+    return false;
+  }
 
   const hasKw = KW_RE.test(q);
   const hasProduct = PRODUCT_WORD_RE.test(q);
@@ -140,11 +183,13 @@ export function wantsProductPack(text: string): boolean {
   const wantsDetail = DETAIL_RE.test(q);
   const useCase = USE_CASE_RE.test(q);
   const categoryLabel = CATEGORY_LABEL_RE.test(q);
+  const transactional = hasTransactionalProductSignal(q);
 
-  if (hasKw && (hasProduct || priceAsk || wantsDetail || useCase || categoryLabel)) return true;
+  if (hasKw && (hasProduct || priceAsk || wantsDetail || useCase || categoryLabel || transactional)) return true;
   if (hasKw && q.length <= 64) return true;
+  // Short product/category browse ("solar hybrid", "HF inverter") — not "what is…"
   if (hasProduct && q.length <= 80) return true;
-  if (hasProduct && priceAsk) return true;
+  if (hasProduct && (priceAsk || transactional)) return true;
   if (categoryLabel && q.length <= 80) return true;
   if (useCase && (hasProduct || hasKw || categoryLabel || q.length <= 40)) return true;
   return false;

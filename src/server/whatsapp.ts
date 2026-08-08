@@ -1204,7 +1204,8 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           });
           const agentCfg = agentReplyConfig(stack);
           const { sanitizeAssistantFileLinks } = await import("@/server/shorten-urls");
-          const downloadLinks = downloadLinksFromChunks(chunks);
+          // Definition asks: use KB text only — do not attach PDF download prompts
+          const downloadLinks = educateOnly ? [] : downloadLinksFromChunks(chunks);
           const generated = await generateOpenAiReply({
             visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
             latestUserMessage: text,
@@ -1217,7 +1218,12 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             productsContext,
             downloadLinks,
             referenceImages: [],
-            systemPrompt: agentCfg.systemPrompt,
+            systemPrompt: educateOnly
+              ? [
+                  agentCfg.systemPrompt,
+                  "Customer asked what something is / meaning / difference. Explain clearly in plain language from Knowledge Base. Do not send catalogue PDFs or product dumps. End with one soft next step only if helpful (kW, price, or catalogue).",
+                ].join("\n")
+              : agentCfg.systemPrompt,
             model: agentCfg.model,
             agentName: agentCfg.agentName,
             memoryEnabled: agentCfg.memoryEnabled,

@@ -201,10 +201,11 @@ export async function sanitizeAssistantFileLinks(
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  // WhatsApp: keep it tiny — PDF is sent as a native document message.
+  // WhatsApp: never wipe a real AI answer. Catalogue PDFs are sent by dedicated handlers
+  // ("Here is the catalogue." + sendWhatsAppDocument). Replacing every reply that merely
+  // retrieved a KB PDF chunk caused "what is …" questions to become catalogue stubs.
   if (options?.channel === "whatsapp") {
-    if (links.length === 0) return out;
-    return "Here is the catalogue.";
+    return out;
   }
 
   const block = links.map((l) => `📄 [${l.title}](${l.url})`).join("\n");

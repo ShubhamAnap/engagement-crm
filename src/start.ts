@@ -1,6 +1,7 @@
 import { createStart, createCsrfMiddleware, createMiddleware } from "@tanstack/react-start";
 
 import { renderErrorPage } from "./lib/error-page";
+import { staffAuthMiddleware } from "./server/staff-auth-middleware";
 
 const errorMiddleware = createMiddleware().server(async ({ next }) => {
   try {
@@ -26,4 +27,6 @@ const csrfMiddleware = createCsrfMiddleware({
 
 export const startInstance = createStart(() => ({
   requestMiddleware: [errorMiddleware, csrfMiddleware],
+  // Privileged createServerFn → staff JWT; widget fns stay public (see PUBLIC_SERVER_FN_NAMES).
+  functionMiddleware: [staffAuthMiddleware],
 }));

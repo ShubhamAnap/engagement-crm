@@ -9,7 +9,7 @@
 
 Run **EnerTech Engage** as a **working enterprise AI customer engagement platform** for EnerTech UPS Pvt. Ltd., with architecture that can later become multi-tenant SaaS.
 
-**Current state:** Phases 0–9 are largely live (Supabase + OpenAI + Render). Remaining work is Settings polish (RBAC, encrypted secrets, audit), ops/migrations, and UX hardening — not mock-data migration.
+**Current state:** Phases 0–9 largely live. **Enterprise hardening Phase 1 in progress** (auth gates, Meta HMAC, broadcast claim, fail-closed inbound secrets). Remaining: Phase 2+ integrity/CI/observability, Settings RBAC/encrypted secrets.
 **Approach:** Prefer stabilize and ship focused improvements; new modules only when requested.
 
 ---
@@ -301,6 +301,13 @@ Record decisions here so we don't re-debate.
 ## Session Log
 
 Brief notes from each working session — append, don't delete.
+
+### Session 2026-08-08 — Enterprise hardening Phase 1 (stop the bleeding)
+- **Staff auth on server fns:** global `staffAuthMiddleware` (`src/start.ts`) — client sends `Authorization: Bearer`; cookie mirror `enertech_sb_access`; server `requireStaffUser()`. Widget `createServerFn`s stay public (`PUBLIC_SERVER_FN_NAMES`).
+- **Meta HMAC:** WA/FB/IG POST verify `X-Hub-Signature-256` via `META_APP_SECRET` (`src/server/meta-webhook-verify.ts`). Prod rejects if secret unset.
+- **Broadcast anti-double-send:** migration `029_broadcast_claim.sql` — `claim_broadcast_recipients()` (SKIP LOCKED + `sending` + stale reclaim), unique phone/email per campaign. Wired in WhatsApp + Gmail broadcast paths.
+- **Fail-closed inbound:** email + IndiaMART webhooks require secrets in production.
+- **Ops before deploy works fully:** run `029_broadcast_claim.sql` in Supabase (clean duplicate recipients first if unique index fails); set `META_APP_SECRET` on Render; ensure `EMAIL_INBOUND_SECRET` / IndiaMART push secret if those webhooks are used.
 
 ### Session 2026-08-08 — Broadcast sales person filter = directory dropdown
 - Broadcasting lead filter **Sales person** is a dropdown from `sales_person_directory` (shows name + email; stores email). Audience match accepts lead `sales_person` as email **or** display name.

@@ -10,6 +10,7 @@ import type { Session, User } from "@supabase/supabase-js";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getBrowserSupabase } from "@/lib/supabase";
 import { AuthContext, type AuthState } from "@/lib/auth-context";
+import { syncStaffAccessCookie } from "@/lib/staff-access-cookie";
 import { initialsFromName, type Profile, type SessionUser } from "@/lib/types";
 
 function contrastingForeground(hex: string): string {
@@ -89,6 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
+      syncStaffAccessCookie(data.session?.access_token);
       setBootstrapping(false);
     });
 
@@ -96,6 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, next) => {
       setSession(next);
+      syncStaffAccessCookie(next?.access_token);
       setBootstrapping(false);
       void queryClient.invalidateQueries({ queryKey: ["auth", "profile"] });
     });
@@ -144,6 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     const supabase = getBrowserSupabase();
     await supabase.auth.signOut();
+    syncStaffAccessCookie(null);
     queryClient.removeQueries({ queryKey: ["auth"] });
   }, [queryClient]);
 

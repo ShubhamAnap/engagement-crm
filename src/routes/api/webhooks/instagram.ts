@@ -1,10 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { readAndVerifyMetaWebhookBody } from "@/server/meta-webhook-verify";
 import { handleMetaInboundPayload, loadMetaConfig } from "@/server/meta-messenger";
 
 /**
  * Meta Instagram Messaging webhook.
  * Callback URL: {VITE_APP_URL}/api/webhooks/instagram
  * Connect IG professional account to a Facebook Page; subscribe to Instagram messages.
+ * Set META_APP_SECRET for X-Hub-Signature-256 verification on POST.
  */
 export const Route = createFileRoute("/api/webhooks/instagram")({
   server: {
@@ -26,8 +28,10 @@ export const Route = createFileRoute("/api/webhooks/instagram")({
       },
       POST: async ({ request }) => {
         try {
-          const payload = await request.json();
-          await handleMetaInboundPayload("instagram", payload);
+          const verified = await readAndVerifyMetaWebhookBody(request);
+          if (!verified.ok) return verified.response;
+
+          await handleMetaInboundPayload("instagram", verified.payload);
           return Response.json({ ok: true });
         } catch (err) {
           console.error("Instagram webhook error", err);

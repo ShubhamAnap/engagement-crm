@@ -603,13 +603,20 @@ export const runWhatsAppBroadcast = createServerFn({ method: "POST" })
       })
       .eq("id", data.broadcastId);
 
-    const { data: recipients, error: rErr } = await supabase
-      .from("broadcast_recipients")
-      .select("*")
-      .eq("broadcast_id", data.broadcastId)
-      .eq("status", "pending")
-      .limit(500);
+    // Atomic claim (pending → sending) so overlapping cron/UI cannot double-send.
+    const { data: claimedRows, error: rErr } = await supabase.rpc("claim_broadcast_recipients", {
+      p_broadcast_id: data.broadcastId,
+      p_limit: 500,
+    });
     if (rErr) throw new Error(rErr.message);
+    const recipients = (claimedRows || []) as Array<{
+      id: string;
+      phone: string;
+      name: string | null;
+      lead_id: string | null;
+      customer_id: string | null;
+      merge_fields: unknown;
+    }>;
 
     const vars = Array.isArray(broadcast.variable_values)
       ? (broadcast.variable_values as string[])
@@ -774,6 +781,7 @@ export const runWhatsAppBroadcast = createServerFn({ method: "POST" })
             wa_message_id: waId,
             sent_at: new Date().toISOString(),
             error: null,
+            claimed_at: null,
           })
           .eq("id", recipient.id);
         sent += 1;
@@ -784,6 +792,7 @@ export const runWhatsAppBroadcast = createServerFn({ method: "POST" })
           .update({
             status: "failed",
             error: err instanceof Error ? err.message : "Send failed",
+            claimed_at: null,
           })
           .eq("id", recipient.id);
       }

@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { readAndVerifyMetaWebhookBody } from "@/server/meta-webhook-verify";
 import { handleWhatsAppInboundPayload, loadWhatsAppConfig } from "@/server/whatsapp";
 
 /**
@@ -6,6 +7,7 @@ import { handleWhatsAppInboundPayload, loadWhatsAppConfig } from "@/server/whats
  * Configure Callback URL in Meta Developer Console to:
  *   {VITE_APP_URL}/api/webhooks/whatsapp
  * Use the same Verify Token saved in Channels → WhatsApp configure (or WHATSAPP_VERIFY_TOKEN).
+ * Set META_APP_SECRET for X-Hub-Signature-256 verification on POST.
  */
 export const Route = createFileRoute("/api/webhooks/whatsapp")({
   server: {
@@ -28,9 +30,11 @@ export const Route = createFileRoute("/api/webhooks/whatsapp")({
       },
       POST: async ({ request }) => {
         try {
-          const payload = await request.json();
+          const verified = await readAndVerifyMetaWebhookBody(request);
+          if (!verified.ok) return verified.response;
+
           // Always acknowledge quickly; process inbound messages.
-          await handleWhatsAppInboundPayload(payload);
+          await handleWhatsAppInboundPayload(verified.payload);
           return Response.json({ ok: true });
         } catch (err) {
           console.error("WhatsApp webhook error", err);

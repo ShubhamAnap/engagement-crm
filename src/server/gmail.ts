@@ -474,13 +474,20 @@ export async function runEmailBroadcast(
     })
     .eq("id", broadcastId);
 
-  const { data: recipients, error: rErr } = await supabase
-    .from("broadcast_recipients")
-    .select("*")
-    .eq("broadcast_id", broadcastId)
-    .eq("status", "pending")
-    .order("created_at", { ascending: true });
+  // Atomic claim (pending → sending) so overlapping cron/UI cannot double-send.
+  const { data: claimedRows, error: rErr } = await supabase.rpc("claim_broadcast_recipients", {
+    p_broadcast_id: broadcastId,
+    p_limit: 2000,
+  });
   if (rErr) throw new Error(rErr.message);
+  const recipients = (claimedRows || []) as Array<{
+    id: string;
+    email: string | null;
+    name: string | null;
+    lead_id: string | null;
+    customer_id: string | null;
+    merge_fields: unknown;
+  }>;
 
   const aud = (broadcast.audience || {}) as Record<string, unknown>;
   let delayMinSec = Math.round(Number(aud.delay_min_sec ?? 4));
@@ -533,11 +540,20 @@ export async function runEmailBroadcast(
   }
 
   let stoppedEarly = false;
+  let nextIndex = 0;
 
-  // Fail fast if Gmail isn't usable — leave recipients pending for a later retry.
+  // Fail fast if Gmail isn't usable — release claim so another tick can retry.
   try {
     await getValidGmailAccessToken();
   } catch (err) {
+    const claimedIds = list.map((r) => r.id as string).filter(Boolean);
+    if (claimedIds.length) {
+      await supabase
+        .from("broadcast_recipients")
+        .update({ status: "pending", claimed_at: null })
+        .in("id", claimedIds)
+        .eq("status", "sending");
+    }
     await supabase
       .from("broadcasts")
       .update({
@@ -550,18 +566,18 @@ export async function runEmailBroadcast(
       : new Error("Gmail is not connected. Connect Gmail under Channels → Email.");
   }
 
-  for (let i = 0; i < list.length; i++) {
+  for (; nextIndex < list.length; nextIndex++) {
     if (Date.now() - startedAt > maxMs) {
       stoppedEarly = true;
       break;
     }
 
-    const r = list[i];
+    const r = list[nextIndex];
     const email = String(r.email || "").trim().toLowerCase();
     if (!email) {
       await supabase
         .from("broadcast_recipients")
-        .update({ status: "failed", error: "Missing email" })
+        .update({ status: "failed", error: "Missing email", claimed_at: null })
         .eq("id", r.id);
     } else {
       try {
@@ -610,6 +626,7 @@ export async function runEmailBroadcast(
             sent_at: new Date().toISOString(),
             wa_message_id: result.id,
             error: null,
+            claimed_at: null,
           })
           .eq("id", r.id);
       } catch (err) {
@@ -618,13 +635,14 @@ export async function runEmailBroadcast(
           .update({
             status: "failed",
             error: err instanceof Error ? err.message : "send failed",
+            claimed_at: null,
           })
           .eq("id", r.id);
       }
     }
 
     // Random pause between emails (not after the last one) — Gmail pacing
-    if (i < list.length - 1 && !stoppedEarly && delayMaxSec > 0) {
+    if (nextIndex < list.length - 1 && !stoppedEarly && delayMaxSec > 0) {
       if (Date.now() - startedAt > maxMs) {
         stoppedEarly = true;
         break;
@@ -641,6 +659,19 @@ export async function runEmailBroadcast(
     }
   }
 
+  // Release unsent claims so the next cron/UI tick can continue.
+  const unsentIds = list
+    .slice(nextIndex)
+    .map((r) => r.id as string)
+    .filter(Boolean);
+  if (unsentIds.length) {
+    await supabase
+      .from("broadcast_recipients")
+      .update({ status: "pending", claimed_at: null })
+      .in("id", unsentIds)
+      .eq("status", "sending");
+  }
+
   // Recount from DB so cron resumes don't overwrite totals.
   const { data: allRecipients } = await supabase
     .from("broadcast_recipients")
@@ -649,7 +680,7 @@ export async function runEmailBroadcast(
   const statuses = (allRecipients || []).map((row) => String(row.status || ""));
   const sent = statuses.filter((s) => s === "sent").length;
   const failed = statuses.filter((s) => s === "failed").length;
-  const pending = statuses.filter((s) => s === "pending").length;
+  const pending = statuses.filter((s) => s === "pending" || s === "sending").length;
   const total = statuses.length;
   const done = pending === 0;
   const status = done
@@ -711,9 +742,9 @@ export async function tickPendingEmailBroadcasts(limit = 3): Promise<{
       .from("broadcast_recipients")
       .select("id", { count: "exact", head: true })
       .eq("broadcast_id", id)
-      .eq("status", "pending");
+      .in("status", ["pending", "sending"]);
     if (!count) {
-      // No pending — finalize status from counts
+      // No pending/in-flight — finalize status from counts
       await runEmailBroadcast(id, { maxMs: 5_000 }).catch(() => null);
       continue;
     }

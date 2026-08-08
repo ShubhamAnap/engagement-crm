@@ -4,13 +4,14 @@ import {
   loadIndiaMartConfig,
   type IndiaMartEnquiry,
 } from "@/server/indiamart";
+import { isProductionRuntime } from "@/server/meta-webhook-verify";
 
 /**
  * IndiaMART Push API webhook (real-time leads).
  * Point IndiaMART CRM Push "Other" webhook to:
  *   {VITE_APP_URL}/api/webhooks/indiamart
  *
- * Optional header: x-enertech-indiamart-secret (must match configured push_secret)
+ * Header: x-enertech-indiamart-secret (required in production; must match push_secret)
  *
  * Body may be the enquiry fields directly, or wrapped as { RESPONSE: {...} } / { body: { RESPONSE } }.
  */
@@ -27,10 +28,13 @@ export const Route = createFileRoute("/api/webhooks/indiamart")({
         try {
           const cfg = await loadIndiaMartConfig();
           const secretHeader = request.headers.get("x-enertech-indiamart-secret");
-          if (cfg.push_secret) {
-            if (!secretHeader || secretHeader !== cfg.push_secret) {
-              return new Response("Forbidden", { status: 403 });
+          if (!cfg.push_secret) {
+            if (isProductionRuntime()) {
+              console.error("IndiaMART webhook rejected: push_secret not configured");
+              return new Response("Push secret not configured", { status: 503 });
             }
+          } else if (!secretHeader || secretHeader !== cfg.push_secret) {
+            return new Response("Forbidden", { status: 403 });
           }
 
           const payload = (await request.json()) as Record<string, unknown>;

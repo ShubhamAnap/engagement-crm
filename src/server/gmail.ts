@@ -479,8 +479,7 @@ export async function runEmailBroadcast(
     p_broadcast_id: broadcastId,
     p_limit: 2000,
   });
-  if (rErr) throw new Error(rErr.message);
-  const recipients = (claimedRows || []) as Array<{
+  let recipients: Array<{
     id: string;
     email: string | null;
     name: string | null;
@@ -488,6 +487,19 @@ export async function runEmailBroadcast(
     customer_id: string | null;
     merge_fields: unknown;
   }>;
+  if (rErr) {
+    console.warn("claim_broadcast_recipients unavailable; falling back:", rErr.message);
+    const { data: pendingRows, error: pendingErr } = await supabase
+      .from("broadcast_recipients")
+      .select("*")
+      .eq("broadcast_id", broadcastId)
+      .eq("status", "pending")
+      .order("created_at", { ascending: true });
+    if (pendingErr) throw new Error(pendingErr.message);
+    recipients = (pendingRows || []) as typeof recipients;
+  } else {
+    recipients = (claimedRows || []) as typeof recipients;
+  }
 
   const aud = (broadcast.audience || {}) as Record<string, unknown>;
   let delayMinSec = Math.round(Number(aud.delay_min_sec ?? 4));

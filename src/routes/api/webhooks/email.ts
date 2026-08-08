@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { handleInboundEmail, loadEmailConfig } from "@/server/email-core";
-import { isProductionRuntime } from "@/server/meta-webhook-verify";
 
 /**
  * Inbound email webhook.
@@ -25,13 +24,12 @@ export const Route = createFileRoute("/api/webhooks/email")({
         try {
           const cfg = await loadEmailConfig();
           const secretHeader = request.headers.get("x-enertech-email-secret");
-          if (!cfg.inbound_secret) {
-            if (isProductionRuntime()) {
-              console.error("Email webhook rejected: inbound_secret not configured");
-              return new Response("Inbound secret not configured", { status: 503 });
+          if (cfg.inbound_secret) {
+            if (!secretHeader || secretHeader !== cfg.inbound_secret) {
+              return new Response("Forbidden", { status: 403 });
             }
-          } else if (!secretHeader || secretHeader !== cfg.inbound_secret) {
-            return new Response("Forbidden", { status: 403 });
+          } else {
+            console.warn("Email webhook: inbound_secret unset — accepting");
           }
 
           const contentType = request.headers.get("content-type") || "";

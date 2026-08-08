@@ -608,8 +608,7 @@ export const runWhatsAppBroadcast = createServerFn({ method: "POST" })
       p_broadcast_id: data.broadcastId,
       p_limit: 500,
     });
-    if (rErr) throw new Error(rErr.message);
-    const recipients = (claimedRows || []) as Array<{
+    let recipients: Array<{
       id: string;
       phone: string;
       name: string | null;
@@ -617,6 +616,19 @@ export const runWhatsAppBroadcast = createServerFn({ method: "POST" })
       customer_id: string | null;
       merge_fields: unknown;
     }>;
+    if (rErr) {
+      console.warn("claim_broadcast_recipients unavailable; falling back:", rErr.message);
+      const { data: pendingRows, error: pendingErr } = await supabase
+        .from("broadcast_recipients")
+        .select("*")
+        .eq("broadcast_id", data.broadcastId)
+        .eq("status", "pending")
+        .limit(500);
+      if (pendingErr) throw new Error(pendingErr.message);
+      recipients = (pendingRows || []) as typeof recipients;
+    } else {
+      recipients = (claimedRows || []) as typeof recipients;
+    }
 
     const vars = Array.isArray(broadcast.variable_values)
       ? (broadcast.variable_values as string[])

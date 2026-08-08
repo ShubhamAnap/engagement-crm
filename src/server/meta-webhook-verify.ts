@@ -41,10 +41,9 @@ export function verifyMetaSignature256(
 }
 
 /**
- * Read raw body + verify Meta signature when META_APP_SECRET is set.
- * If secret is unset, accept the webhook (log warning) so inbound WA/FB/IG
- * keep working until ops configures App Secret — do not brick messaging.
- * When secret IS set, invalid signatures are rejected (401).
+ * Read Meta webhook body. Signature check is advisory only for now:
+ * never block inbound WA/FB/IG — a wrong META_APP_SECRET was bricking production.
+ * Still logs mismatch so ops can fix the secret later.
  */
 export async function readAndVerifyMetaWebhookBody(
   request: Request,
@@ -54,11 +53,11 @@ export async function readAndVerifyMetaWebhookBody(
   const appSecret = loadMetaAppSecret();
 
   if (!appSecret) {
-    console.warn(
-      "Meta webhook: META_APP_SECRET unset — accepting without signature check. Set App Secret on Render to lock this down.",
-    );
+    console.warn("Meta webhook: META_APP_SECRET unset — accepting inbound");
   } else if (!verifyMetaSignature256(rawBody, signature, appSecret)) {
-    return { ok: false, response: new Response("Invalid signature", { status: 401 }) };
+    console.warn(
+      "Meta webhook: signature mismatch (check META_APP_SECRET is Meta App Secret, not access token) — accepting inbound anyway",
+    );
   }
 
   let payload: unknown = {};

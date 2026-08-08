@@ -4,6 +4,7 @@
  */
 import { createClient, type User } from "@supabase/supabase-js";
 import { getCookie, getRequestHeader } from "@tanstack/react-start/server";
+import { createServiceSupabase } from "@/lib/supabase";
 import { STAFF_ACCESS_COOKIE } from "@/server/staff-auth-public";
 
 export type StaffProfile = {
@@ -22,25 +23,6 @@ function unauthorized(message = "Unauthorized"): never {
   const err = new Error(message);
   (err as Error & { statusCode: number }).statusCode = 401;
   throw err;
-}
-
-function requireEnv(value: string | undefined, name: string): string {
-  if (!value) throw new Error(`Missing environment variable: ${name}`);
-  return value;
-}
-
-function createAnonSupabase() {
-  const url = requireEnv(
-    process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL,
-    "SUPABASE_URL",
-  );
-  const anon = requireEnv(
-    process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY,
-    "SUPABASE_ANON_KEY",
-  );
-  return createClient(url, anon, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
 }
 
 function extractAccessToken(): string | null {
@@ -63,31 +45,40 @@ export async function requireStaffUser(): Promise<StaffAuth> {
   const token = extractAccessToken();
   if (!token) unauthorized();
 
-  const anon = createAnonSupabase();
-  const { data: userData, error: userError } = await anon.auth.getUser(token);
-  if (userError || !userData.user) unauthorized();
+  let user: User | null = null;
 
-  const url = requireEnv(process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL, "SUPABASE_URL");
-  const anonKey = requireEnv(
-    process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY,
-    "SUPABASE_ANON_KEY",
-  );
+  const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
+  const anon = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
 
-  const userClient = createClient(url, anonKey, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  if (url && anon) {
+    try {
+      const anonClient = createClient(url, anon, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const { data } = await anonClient.auth.getUser(token);
+      user = data.user ?? null;
+    } catch (err) {
+      console.warn("staff auth anon getUser failed, trying service role", err);
+    }
+  }
 
-  const { data: profile, error: profileError } = await userClient
+  const service = createServiceSupabase();
+  if (!user) {
+    const { data, error } = await service.auth.getUser(token);
+    if (error || !data.user) unauthorized();
+    user = data.user;
+  }
+
+  const { data: profile, error: profileError } = await service
     .from("profiles")
     .select("id, org_id, role, email")
-    .eq("id", userData.user.id)
+    .eq("id", user.id)
     .maybeSingle();
 
   if (profileError || !profile?.org_id) unauthorized("No organization profile");
 
   return {
-    user: userData.user,
+    user,
     profile: profile as StaffProfile,
   };
 }

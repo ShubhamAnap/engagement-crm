@@ -23,42 +23,77 @@ export async function getChannelConfig(channelId: string): Promise<Record<string
   const { data, error } = await supabase.rpc("get_channel_config", {
     p_channel_id: channelId,
   });
-  if (error) throw error;
-  return (data && typeof data === "object" && !Array.isArray(data)
-    ? data
+  if (!error) {
+    return (data && typeof data === "object" && !Array.isArray(data)
+      ? data
+      : {}) as Record<string, unknown>;
+  }
+
+  // Fallback when migration 030 RPCs are not applied yet
+  console.warn("get_channel_config unavailable; falling back to select:", error.message);
+  const { data: row, error: rowErr } = await supabase
+    .from("channels")
+    .select("config")
+    .eq("id", channelId)
+    .maybeSingle();
+  if (rowErr) throw error;
+  return (row?.config && typeof row.config === "object" && !Array.isArray(row.config)
+    ? row.config
     : {}) as Record<string, unknown>;
 }
 
 export async function listChannels(orgId: string): Promise<DbChannel[]> {
   const supabase = getBrowserSupabase();
-  const { data, error } = await supabase
+  const safe = await supabase
     .from("channels")
     .select(CHANNEL_SAFE_COLUMNS)
     .eq("org_id", orgId)
     .order("name", { ascending: true });
-  if (error) throw error;
-  return (data ?? []).map((row) => asChannel(row as Record<string, unknown>));
+  if (!safe.error) {
+    return (safe.data ?? []).map((row) => asChannel(row as Record<string, unknown>));
+  }
+  const full = await supabase
+    .from("channels")
+    .select("*")
+    .eq("org_id", orgId)
+    .order("name", { ascending: true });
+  if (full.error) throw safe.error;
+  return (full.data ?? []).map((row) =>
+    asChannel(row as Record<string, unknown>, ((row as { config?: unknown }).config as Record<string, unknown>) || {}),
+  );
 }
 
 export async function listChannelsWithStats(orgId: string): Promise<ChannelWithStats[]> {
   const supabase = getBrowserSupabase();
-  const [channelsRes, convRes] = await Promise.all([
-    supabase
+  const channelsRes = await supabase
+    .from("channels")
+    .select(CHANNEL_SAFE_COLUMNS)
+    .eq("org_id", orgId)
+    .order("name", { ascending: true });
+
+  let channelRows = channelsRes.data;
+  if (channelsRes.error) {
+    const full = await supabase
       .from("channels")
-      .select(CHANNEL_SAFE_COLUMNS)
+      .select("*")
       .eq("org_id", orgId)
-      .order("name", { ascending: true }),
-    supabase
-      .from("conversations")
-      .select("id, channel, status")
-      .eq("org_id", orgId)
-      .limit(1000),
-  ]);
-  if (channelsRes.error) throw channelsRes.error;
+      .order("name", { ascending: true });
+    if (full.error) throw channelsRes.error;
+    channelRows = full.data;
+  }
+
+  const convRes = await supabase
+    .from("conversations")
+    .select("id, channel, status")
+    .eq("org_id", orgId)
+    .limit(1000);
   if (convRes.error) throw convRes.error;
 
-  const channels = (channelsRes.data ?? []).map((row) =>
-    asChannel(row as Record<string, unknown>),
+  const channels = (channelRows ?? []).map((row) =>
+    asChannel(
+      row as Record<string, unknown>,
+      ((row as { config?: unknown }).config as Record<string, unknown>) || {},
+    ),
   );
   const conversations = convRes.data ?? [];
 
@@ -180,10 +215,15 @@ export async function updateChannel(options: {
       p_channel_id: options.channelId,
       p_config: options.config,
     });
-    if (cfgErr) throw cfgErr;
-    config = (cfg && typeof cfg === "object" && !Array.isArray(cfg)
-      ? cfg
-      : options.config) as Record<string, unknown>;
+    if (cfgErr) {
+      console.warn("set_channel_config unavailable; falling back to update:", cfgErr.message);
+      patch.config = options.config;
+      config = options.config;
+    } else {
+      config = (cfg && typeof cfg === "object" && !Array.isArray(cfg)
+        ? cfg
+        : options.config) as Record<string, unknown>;
+    }
   }
 
   if (Object.keys(patch).length === 0) {

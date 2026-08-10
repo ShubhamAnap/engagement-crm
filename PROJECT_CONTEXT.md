@@ -9,7 +9,7 @@
 
 Run **EnerTech Engage** as a **working enterprise AI customer engagement platform** for EnerTech UPS Pvt. Ltd., with architecture that can later become multi-tenant SaaS.
 
-**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Section polish:** Dashboard + Inbox (WhatsApp-like send/receive A+B+C: inbound media download/preview, silent delivery/read ticks, day separators, realtime, multiline drafts) + AI Chat Support (2026-08-10). Next: next module user picks; ops (migrations 029–030 if not done). Ensure Supabase Realtime is enabled on `messages`/`conversations` for live Inbox.
+**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Section polish:** Dashboard + Inbox (WhatsApp-like) + AI Chat Support + **Human Support A+B+C** (true handoff queue, live badge, transfer/SLA/tabs/realtime) (2026-08-10). Next: next module user picks; ops (migrations 029–030 if not done). Ensure Supabase Realtime on `messages`/`conversations`.
 **Approach:** Prefer stabilize and ship focused improvements; new modules only when requested.
 
 ---
@@ -301,6 +301,12 @@ Record decisions here so we don't re-debate.
 ## Session Log
 
 Brief notes from each working session — append, don't delete.
+
+### Session 2026-08-10 — Human Support A+B+C
+- Queue excludes marketplace `status=human` spam; escalations stamp `handoff`/`handoff_reason`/`escalated_at`.
+- Live sidebar waiting badge; notifications deep-link `/inbox?c=`; Working → Needs reply; wait clock from escalate.
+- Desk UX: channel/preview/SLA, tabs Active/Unassigned/Mine/Team/Resolved, longest-wait default, transfer/reassign, realtime, no fake pagination.
+- Files: `human-support.tsx`, `chat-api.ts`, `conversation-guards.ts`, `AppSidebar.tsx`, `notifications-api.ts`, escalate paths in WA/widget/email/meta.
 
 ### Session 2026-08-10 — Inbox WhatsApp-like A+B+C
 - **A:** Inbound WA media downloaded from Meta → Supabase `knowledge` bucket; Inbox preview for image/PDF/audio/video; media sets `wa_last_customer_at` (24h window); list previews `📷/📄/🎤/🎬`.

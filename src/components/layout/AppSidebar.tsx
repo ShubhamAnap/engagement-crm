@@ -1,4 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   BarChart3,
@@ -25,18 +26,19 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/lib/auth";
+import { countWaitingHandoffs, ENERTECH_ORG_ID } from "@/lib/chat-api";
 
 type Item = { to: string; label: string; icon: typeof Inbox; badge?: string };
 
-const groups: { label: string; items: Item[] }[] = [
+const groupsBase: { label: string; items: Item[] }[] = [
   {
     label: "Operate",
     items: [
       { to: "/", label: "Dashboard", icon: LayoutDashboard },
-      { to: "/command-center", label: "AI Command Center", icon: Activity, badge: "5" },
-      { to: "/inbox", label: "Inbox", icon: Inbox, badge: "12" },
+      { to: "/command-center", label: "AI Command Center", icon: Activity },
+      { to: "/inbox", label: "Inbox", icon: Inbox },
       { to: "/ai-chat", label: "AI Chat Support", icon: MessagesSquare },
-      { to: "/human-support", label: "Human Support", icon: Headphones, badge: "2" },
+      { to: "/human-support", label: "Human Support", icon: Headphones },
     ],
   },
   {
@@ -86,6 +88,27 @@ export function AppSidebar({
   const orgShort = profile?.org.short ?? "EnerTech";
   const orgPlan = profile?.org.plan ?? "Enterprise";
   const logoUrl = profile?.org.logoUrl;
+  const orgId = profile?.org.id ?? ENERTECH_ORG_ID;
+
+  const waitingQuery = useQuery({
+    queryKey: ["waiting-handoffs", orgId],
+    queryFn: () => countWaitingHandoffs(orgId),
+    refetchInterval: 15_000,
+    enabled: Boolean(profile),
+  });
+  const waitingCount = waitingQuery.data ?? 0;
+
+  const groups = groupsBase.map((group) => {
+    if (group.label !== "Operate") return group;
+    return {
+      ...group,
+      items: group.items.map((item) =>
+        item.to === "/human-support"
+          ? { ...item, badge: waitingCount > 0 ? String(waitingCount) : undefined }
+          : item,
+      ),
+    };
+  });
 
   return (
     <aside

@@ -272,36 +272,60 @@ export async function markConversationRead(conversationId: string) {
   if (error) throw error;
 }
 
-export type HandoffState = "Waiting" | "Assigned" | "Working" | "Resolved";
+export type HandoffState = "Waiting" | "Assigned" | "Needs reply" | "Resolved";
+
+export type HandoffSla = "ok" | "warn" | "critical";
 
 export type HandoffItem = InboxConversation & {
   handoffState: HandoffState;
   waitingLabel: string;
+  waitingMinutes: number;
+  escalatedAt: string | null;
   reason: string;
   priority: PriorityLevel;
+  sla: HandoffSla;
 };
+
+function handoffMeta(c: InboxConversation): Record<string, unknown> {
+  return ((c.metadata || {}) as Record<string, unknown>) || {};
+}
+
+function escalatedAtIso(c: InboxConversation): string | null {
+  const meta = handoffMeta(c);
+  if (typeof meta.escalated_at === "string" && meta.escalated_at) return meta.escalated_at;
+  if (c.status === "escalated" || c.status === "human") {
+    return c.updated_at || c.last_message_at || c.created_at || null;
+  }
+  return null;
+}
+
+function minutesSince(iso: string | null | undefined): number {
+  if (!iso) return 0;
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return 0;
+  return Math.max(0, Math.floor((Date.now() - then) / 60_000));
+}
 
 function deriveHandoffState(c: InboxConversation): HandoffState {
   if (c.status === "resolved" || c.status === "closed") return "Resolved";
   if (c.status === "escalated" && !c.assignee_id) return "Waiting";
-  if (c.status === "human" && c.assignee_id) {
-    return c.unread_count > 0 ? "Working" : "Assigned";
+  if ((c.status === "human" || c.status === "escalated") && c.assignee_id) {
+    return c.unread_count > 0 ? "Needs reply" : "Assigned";
   }
   if (c.status === "human") return "Waiting";
-  if (c.status === "escalated") return "Assigned";
   return "Waiting";
 }
 
 function deriveReason(c: InboxConversation): string {
-  const meta = (c.metadata || {}) as Record<string, unknown>;
+  const meta = handoffMeta(c);
   if (typeof meta.handoff_reason === "string" && meta.handoff_reason.trim()) {
-    return meta.handoff_reason;
+    return meta.handoff_reason.trim();
   }
   if (c.status === "escalated") return "Customer requested human";
   if (c.confidence != null && Number(c.confidence) < 0.5) {
     return `Low AI confidence (${Number(c.confidence).toFixed(2)})`;
   }
-  if (c.status === "human") return "Human takeover";
+  if (c.assignee_id) return "Claimed by agent";
   return "Support handoff";
 }
 
@@ -312,8 +336,16 @@ function derivePriority(c: InboxConversation): PriorityLevel {
   return "Medium";
 }
 
-/** Escalated / human queue + conversations resolved today. */
+function deriveSla(waitingMinutes: number, state: HandoffState): HandoffSla {
+  if (state === "Resolved") return "ok";
+  if (waitingMinutes >= 60) return "critical";
+  if (waitingMinutes >= 15) return "warn";
+  return "ok";
+}
+
+/** Escalated / true human handoffs + conversations resolved today. */
 export async function listHandoffQueue(orgId: string = ENERTECH_ORG_ID): Promise<HandoffItem[]> {
+  const { isTrueHandoffConversation } = await import("@/lib/conversation-guards");
   const supabase = getBrowserSupabase();
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
@@ -324,26 +356,41 @@ export async function listHandoffQueue(orgId: string = ENERTECH_ORG_ID): Promise
     .eq("org_id", orgId)
     .in("status", ["escalated", "human", "resolved"])
     .order("updated_at", { ascending: false })
-    .limit(150);
+    .limit(200);
   if (error) throw error;
 
   const rows = (data ?? []) as InboxConversation[];
   return rows
     .filter((c) => {
-      if (c.status === "escalated" || c.status === "human") return true;
+      if (c.status === "escalated") return true;
+      if (c.status === "human") return isTrueHandoffConversation(c);
       if (c.status === "resolved") {
         const ts = c.updated_at || c.last_message_at || c.created_at;
         return Boolean(ts && new Date(ts) >= todayStart);
       }
       return false;
     })
-    .map((c) => ({
-      ...c,
-      handoffState: deriveHandoffState(c),
-      waitingLabel: formatRelativeTime(c.updated_at || c.last_message_at || c.created_at),
-      reason: deriveReason(c),
-      priority: derivePriority(c),
-    }));
+    .map((c) => {
+      const escalatedAt = escalatedAtIso(c);
+      const waitMins = minutesSince(escalatedAt);
+      const handoffState = deriveHandoffState(c);
+      return {
+        ...c,
+        handoffState,
+        escalatedAt,
+        waitingMinutes: waitMins,
+        waitingLabel: formatRelativeTime(escalatedAt),
+        reason: deriveReason(c),
+        priority: derivePriority(c),
+        sla: deriveSla(waitMins, handoffState),
+      };
+    });
+}
+
+/** Live sidebar badge: unassigned waiting escalations / handoffs. */
+export async function countWaitingHandoffs(orgId: string = ENERTECH_ORG_ID): Promise<number> {
+  const items = await listHandoffQueue(orgId);
+  return items.filter((i) => i.handoffState === "Waiting").length;
 }
 
 export async function claimConversation(options: {
@@ -352,12 +399,57 @@ export async function claimConversation(options: {
   assigneeLabel: string;
 }): Promise<void> {
   const supabase = getBrowserSupabase();
+  const { data: row } = await supabase
+    .from("conversations")
+    .select("metadata")
+    .eq("id", options.conversationId)
+    .maybeSingle();
+  const meta = ((row?.metadata || {}) as Record<string, unknown>) || {};
   const { error } = await supabase
     .from("conversations")
     .update({
       status: "human",
       assignee_id: options.profileId,
       assignee_label: options.assigneeLabel,
+      metadata: {
+        ...meta,
+        handoff: true,
+        claimed_at: new Date().toISOString(),
+        handoff_reason:
+          (typeof meta.handoff_reason === "string" && meta.handoff_reason) || "Claimed from Human Support",
+        escalated_at:
+          (typeof meta.escalated_at === "string" && meta.escalated_at) || new Date().toISOString(),
+      },
+    })
+    .eq("id", options.conversationId);
+  if (error) throw error;
+}
+
+export async function transferConversation(options: {
+  conversationId: string;
+  profileId: string;
+  assigneeLabel: string;
+}): Promise<void> {
+  const supabase = getBrowserSupabase();
+  const { data: row } = await supabase
+    .from("conversations")
+    .select("metadata")
+    .eq("id", options.conversationId)
+    .maybeSingle();
+  const meta = ((row?.metadata || {}) as Record<string, unknown>) || {};
+  const { error } = await supabase
+    .from("conversations")
+    .update({
+      status: "human",
+      assignee_id: options.profileId,
+      assignee_label: options.assigneeLabel,
+      metadata: {
+        ...meta,
+        handoff: true,
+        transferred_at: new Date().toISOString(),
+        handoff_reason:
+          (typeof meta.handoff_reason === "string" && meta.handoff_reason) || "Transferred in Human Support",
+      },
     })
     .eq("id", options.conversationId);
   if (error) throw error;
@@ -377,12 +469,22 @@ export async function resolveConversation(conversationId: string): Promise<void>
 
 export async function returnConversationToAi(conversationId: string): Promise<void> {
   const supabase = getBrowserSupabase();
+  const { data: row } = await supabase
+    .from("conversations")
+    .select("metadata")
+    .eq("id", conversationId)
+    .maybeSingle();
+  const meta = { ...(((row?.metadata || {}) as Record<string, unknown>) || {}) };
+  delete meta.handoff;
+  delete meta.ai_paused_from;
+  meta.returned_to_ai_at = new Date().toISOString();
   const { error } = await supabase
     .from("conversations")
     .update({
       status: "ai",
       assignee_id: null,
       assignee_label: "AI · Support Agent",
+      metadata: meta,
     })
     .eq("id", conversationId);
   if (error) throw error;

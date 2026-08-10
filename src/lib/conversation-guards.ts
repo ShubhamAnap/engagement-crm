@@ -41,6 +41,46 @@ export function wantsHumanHandoff(text: string): boolean {
   );
 }
 
+/** Stamp conversation metadata when escalating to the human queue. */
+export function withHandoffMetadata(
+  prev: Record<string, unknown> | null | undefined,
+  reason: string,
+): Record<string, unknown> {
+  const base = { ...(prev || {}) };
+  const existingAt = typeof base.escalated_at === "string" ? base.escalated_at : null;
+  return {
+    ...base,
+    handoff: true,
+    handoff_reason: reason,
+    escalated_at: existingAt || new Date().toISOString(),
+  };
+}
+
+export function isMarketplaceLeadChannelType(channel: string | null | undefined): boolean {
+  const ch = String(channel || "").toLowerCase();
+  return ch === "indiamart" || ch === "tradeindia" || ch === "brainmine";
+}
+
+/** True handoff for Human Support desk (excludes marketplace follow-up spam). */
+export function isTrueHandoffConversation(c: {
+  status?: string | null;
+  channel?: string | null;
+  assignee_id?: string | null;
+  assignee_label?: string | null;
+  metadata?: Record<string, unknown> | null;
+}): boolean {
+  const status = String(c.status || "");
+  if (status === "escalated") return true;
+  if (status !== "human") return false;
+  const meta = (c.metadata || {}) as Record<string, unknown>;
+  if (meta.handoff === true || meta.escalated_at || meta.handoff_reason) return true;
+  if (c.assignee_id) return true;
+  if (String(c.assignee_label || "") === "Human queue") return true;
+  // Marketplace follow-ups created as status=human without handoff stamps
+  if (isMarketplaceLeadChannelType(c.channel)) return false;
+  return true;
+}
+
 /** @deprecated use resolveSessionLang / explicitLanguageRequest */
 export function wantsEnglishReply(text: string): boolean {
   return explicitLanguageRequest(text) === "en";

@@ -28,6 +28,7 @@ import {
   nextServiceTicketPrompt,
   explicitLanguageRequest,
   languageSwitchAck,
+  withHandoffMetadata,
   type ServiceTicket,
 } from "@/lib/conversation-guards";
 import {
@@ -1020,7 +1021,10 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
           status: "escalated",
           assignee_label: "Human queue",
           preview: wait.slice(0, 160),
-          metadata: { ...prevMetaEarly, preferred_lang: sessionLang },
+          metadata: withHandoffMetadata(
+            { ...prevMetaEarly, preferred_lang: sessionLang },
+            "Customer requested human",
+          ),
         })
         .eq("id", data.conversationId);
       await supabase.from("messages").insert({
@@ -1489,7 +1493,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       };
       if (ticket.status === "ready") {
         nextMeta.service_ticket = { ...ticket, status: "handed_off" };
-        patch.metadata = nextMeta;
+        patch.metadata = withHandoffMetadata(nextMeta, "Service ticket ready");
         patch.status = "escalated";
         patch.assignee_label = "Human queue";
       }

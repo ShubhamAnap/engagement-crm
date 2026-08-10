@@ -118,7 +118,7 @@ export async function listNotifications(
     supabase
       .from("conversations")
       .select(
-        "id, external_ref, channel, status, preview, visitor_name, visitor_company, assignee_label, last_message_at, updated_at, created_at",
+        "id, external_ref, channel, status, preview, visitor_name, visitor_company, assignee_label, metadata, last_message_at, updated_at, created_at",
       )
       .eq("org_id", orgId)
       .eq("status", "human")
@@ -231,6 +231,13 @@ export async function listNotifications(
   }
 
   for (const row of humanRes.data ?? []) {
+    const meta = ((row.metadata || {}) as Record<string, unknown>) || {};
+    const chRaw = String(row.channel || "");
+    const marketplace =
+      chRaw === "indiamart" || chRaw === "tradeindia" || chRaw === "brainmine";
+    if (marketplace && !meta.handoff && !meta.escalated_at && !meta.handoff_reason) {
+      continue;
+    }
     const when = (row.updated_at || row.last_message_at || row.created_at) as string;
     const ch = CHANNEL_LABELS[row.channel as string] ?? String(row.channel ?? "Chat");
     items.push({
@@ -239,7 +246,8 @@ export async function listNotifications(
       body: `${visitorLabel(row)} · ${ch}${row.preview ? ` — ${row.preview}` : ""}`,
       time: formatRelativeTime(when),
       createdAt: when,
-      to: "/human-support",
+      to: "/inbox",
+      search: { c: row.id as string },
     });
   }
 

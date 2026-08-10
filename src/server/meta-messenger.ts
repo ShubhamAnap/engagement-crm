@@ -10,7 +10,7 @@ import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
 import { resolveCatalogueRequest, retrieveKnowledgeContext, formatKnowledgeContext, downloadLinksFromChunks, knowledgeIsUseful } from "@/server/knowledge";
-import { wantsHumanHandoff, explicitLanguageRequest, languageSwitchAck } from "@/lib/conversation-guards";
+import { wantsHumanHandoff, explicitLanguageRequest, languageSwitchAck, withHandoffMetadata } from "@/lib/conversation-guards";
 import { humanWaitReplyForLang, sessionLangFromHistory, normalizeStoredLang, offTopicReplyForLang } from "@/lib/session-language";
 import { isOffTopicMessage } from "@/lib/enertech-scope";
 
@@ -257,7 +257,10 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
           status: "escalated",
           assignee_label: "Human queue",
           preview: wait.slice(0, 160),
-          metadata: { ...prevMetaLang, preferred_lang: sessionLang },
+          metadata: withHandoffMetadata(
+            { ...prevMetaLang, preferred_lang: sessionLang },
+            "Customer requested human",
+          ),
         })
         .eq("id", convo.id);
       await supabase.from("messages").insert({

@@ -29,6 +29,7 @@ import {
   nextServiceTicketPrompt,
   explicitLanguageRequest,
   languageSwitchAck,
+  withHandoffMetadata,
   type ServiceTicket,
 } from "@/lib/conversation-guards";
 import {
@@ -968,7 +969,10 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             .update({
               status: "escalated",
               assignee_label: "Human queue",
-              metadata: { ...prevMetaEsc, preferred_lang: sessionLang },
+              metadata: withHandoffMetadata(
+                { ...prevMetaEsc, preferred_lang: sessionLang },
+                "Customer requested human",
+              ),
               preview: wait.slice(0, 160),
             })
             .eq("id", convo.id);
@@ -1590,7 +1594,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               await supabase
                 .from("conversations")
                 .update({
-                  metadata: nextMeta,
+                  metadata: withHandoffMetadata(nextMeta, "Service ticket ready"),
                   tags,
                   status: "escalated",
                   assignee_label: "Human queue",

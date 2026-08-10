@@ -9,7 +9,7 @@
 
 Run **EnerTech Engage** as a **working enterprise AI customer engagement platform** for EnerTech UPS Pvt. Ltd., with architecture that can later become multi-tenant SaaS.
 
-**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Section polish:** Dashboard + Inbox (WhatsApp-like) + AI Chat Support + **Human Support A+B+C** (true handoff queue, live badge, transfer/SLA/tabs/realtime) (2026-08-10). Next: next module user picks; ops (migrations 029–030 if not done). Ensure Supabase Realtime on `messages`/`conversations`.
+**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Section polish:** Dashboard + Inbox + AI Chat Support + Human Support (2026-08-10). **Ops:** run Supabase SQL `029` → `030` → `031_realtime_inbox.sql` if not applied; confirm Realtime on `messages`/`conversations`.
 **Approach:** Prefer stabilize and ship focused improvements; new modules only when requested.
 
 ---

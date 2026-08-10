@@ -72,21 +72,26 @@ export function buildAnswerInspector(input: {
   visitorName?: string;
   downloadCount?: number;
   memoryEnabled?: boolean;
+  /** True only when Products catalogue meaningfully grounded the answer (not a generic dump). */
   productsUseful?: boolean;
 }): AnswerInspectorPayload {
   const sources = uniqueSources(input.chunks);
-  const grounded = sources.length > 0 || Boolean(input.productsUseful);
-  const confidence = confidenceFrom(input.chunks, input.replySource, input.productsUseful);
+  const kbUseful = sources.length > 0;
+  const productsUseful = Boolean(input.productsUseful);
+  const grounded = kbUseful || productsUseful;
+  const confidence = confidenceFrom(input.chunks, input.replySource, productsUseful);
   const reasoning: string[] = [
     `Classified channel as ${input.channel || "website"}.`,
     input.specialistKey
       ? `Applied specialist “${input.specialistKey}” under master Support.`
       : `Used master Support agent (${input.agentName}).`,
-    sources.length > 0
-      ? `Retrieved ${input.chunks.length} knowledge chunk(s); top relevance ${sources[0]?.score ?? "—"}.`
-      : input.productsUseful
-        ? "No Knowledge Base chunks; Products catalogue provided grounding."
-        : "No strong Knowledge Base match — low grounding; prefer wait/check reply over inventing specs.",
+    kbUseful && productsUseful
+      ? `Grounded on Knowledge Base (${input.chunks.length} chunk(s); top ${sources[0]?.score ?? "—"}) plus Products catalogue.`
+      : kbUseful
+        ? `Retrieved ${input.chunks.length} knowledge chunk(s); top relevance ${sources[0]?.score ?? "—"}.`
+        : productsUseful
+          ? "No Knowledge Base chunks; Products catalogue provided grounding."
+          : "No strong Knowledge Base or Products match — low grounding; prefer wait/check reply over inventing specs.",
     input.replySource === "openai"
       ? `Generated reply with ${input.model}.`
       : "OpenAI unavailable — used fallback reply rules.",
@@ -112,7 +117,7 @@ export function buildAnswerInspector(input: {
       model: input.model,
       reply_source: input.replySource,
       grounded,
-      download_count: input.downloadCount ?? 0,
+      download_count: input.downloadCount || 0,
     },
   };
 }

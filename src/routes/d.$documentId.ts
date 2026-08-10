@@ -8,6 +8,32 @@ import { proxyStorageObject } from "@/server/storage-proxy";
  */
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
+function extensionFromMime(mime: string | null | undefined): string {
+  const m = String(mime || "").toLowerCase();
+  if (m.includes("png")) return ".png";
+  if (m.includes("webp")) return ".webp";
+  if (m.includes("gif")) return ".gif";
+  if (m.includes("jpeg") || m.includes("jpg")) return ".jpg";
+  if (m.includes("pdf")) return ".pdf";
+  if (m.includes("wordprocessingml") || m.includes("msword")) return ".docx";
+  return "";
+}
+
+function downloadNameForDoc(options: {
+  title: string;
+  mimeType: string | null;
+  fileName: string;
+}): string {
+  const metaName = options.fileName.trim();
+  if (metaName && /\.[a-z0-9]{2,5}$/i.test(metaName)) return metaName.replace(/[\\/]+/g, "-");
+
+  const title = String(options.title || "document").trim() || "document";
+  if (/\.[a-z0-9]{2,5}$/i.test(title)) return title.replace(/[\\/]+/g, "-");
+
+  const ext = extensionFromMime(options.mimeType) || ".bin";
+  return `${title.replace(/[\\/]+/g, "-")}${ext}`;
+}
+
 export const Route = createFileRoute("/d/$documentId")({
   server: {
     handlers: {
@@ -31,10 +57,11 @@ export const Route = createFileRoute("/d/$documentId")({
           }
 
           const metaName = String((doc.metadata as { fileName?: string } | null)?.fileName || "");
-          const downloadName =
-            metaName ||
-            (String(doc.title || "document").trim() +
-              (/\.pdf$/i.test(String(doc.title || "")) ? "" : ".pdf"));
+          const downloadName = downloadNameForDoc({
+            title: String(doc.title || "document"),
+            mimeType: (doc.mime_type as string | null) || null,
+            fileName: metaName,
+          });
 
           return proxyStorageObject({
             storagePath: doc.storage_path as string,

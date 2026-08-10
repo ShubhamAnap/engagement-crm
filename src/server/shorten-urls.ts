@@ -84,28 +84,21 @@ export async function shortenStorageUrl(url: string): Promise<string> {
     return short;
   }
 
-  // Fuzzy: match by filename tail (AI often invents wrong folders)
+  // Fuzzy: match by filename only (do not invent from partial title stems)
   const filePart = storagePath.split("/").pop() || "";
-  const stem = filePart.replace(/\.pdf$/i, "").replace(/[_\-]+/g, " ").trim();
-  if (stem.length >= 3) {
+  if (filePart.length >= 3) {
     const { data: candidates } = await supabase
       .from("knowledge_documents")
       .select("id, title, metadata, storage_path")
       .eq("org_id", ORG_ID)
       .eq("status", "ready")
-      .ilike("title", `%${stem.split(/\s+/)[0]}%`)
-      .limit(20);
+      .limit(40);
     const lowerFile = filePart.toLowerCase();
     const hit =
       (candidates || []).find((c) => {
         const fn = String((c.metadata as { fileName?: string } | null)?.fileName || "").toLowerCase();
-        const title = String(c.title || "").toLowerCase();
         const path = String(c.storage_path || "").toLowerCase();
-        return (
-          fn === lowerFile ||
-          path.endsWith(`/${lowerFile}`) ||
-          title.includes(stem.toLowerCase().slice(0, 12))
-        );
+        return fn === lowerFile || path.endsWith(`/${lowerFile}`) || path.endsWith(lowerFile);
       }) || null;
     if (hit?.id) {
       const fileName = String((hit.metadata as { fileName?: string } | null)?.fileName || "");

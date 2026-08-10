@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, type DragEvent } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileUp, ImageIcon, Plus, Tag, Trash2, Upload, X } from "lucide-react";
+import { FileUp, ImageIcon, Plus, RefreshCw, Tag, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +16,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   EmptyState,
   ListSkeleton,
   PageHeader,
@@ -28,10 +35,13 @@ import {
   deleteKnowledgeDocument,
   ensureKnowledgeStorage,
   indexKnowledgeDocument,
+  isPdfStubDocument,
   listKnowledgeCollections,
   listKnowledgeDocuments,
   normalizeKnowledgeTags,
   prepareKnowledgeUpload,
+  reindexKnowledgeCollection,
+  updateKnowledgeCollection,
   updateKnowledgeDocumentTags,
   uploadPreparedKnowledgeDocument,
 } from "@/server/knowledge";
@@ -59,7 +69,23 @@ type KnowledgeDoc = {
   mime_type?: string | null;
   download_url?: string | null;
   updated_at: string;
-  metadata?: { fileName?: string; kind?: string; tags?: string[] } | null;
+  metadata?: {
+    fileName?: string;
+    kind?: string;
+    tags?: string[];
+    pdf_text_extracted?: boolean;
+    index_stub?: boolean;
+  } | null;
+};
+
+type CollectionPurpose = "datasheets" | "site_photos" | "policies" | "faqs" | "other";
+
+const PURPOSE_LABELS: Record<CollectionPurpose, string> = {
+  datasheets: "Datasheets / catalogues",
+  site_photos: "Site / reference photos",
+  policies: "Policies",
+  faqs: "FAQs",
+  other: "Other",
 };
 
 const STATE_TAG_SUGGESTIONS = [
@@ -156,6 +182,7 @@ function Page() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [collectionName, setCollectionName] = useState("");
   const [collectionDescription, setCollectionDescription] = useState("");
+  const [collectionPurpose, setCollectionPurpose] = useState<CollectionPurpose | "">("site_photos");
   const [docTitle, setDocTitle] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [search, setSearch] = useState("");
@@ -194,7 +221,11 @@ function Page() {
   const createMutation = useMutation({
     mutationFn: async () =>
       createKnowledgeCollection({
-        data: { name: collectionName, description: collectionDescription || undefined },
+        data: {
+          name: collectionName,
+          description: collectionDescription || undefined,
+          purpose: collectionPurpose || undefined,
+        },
       }),
     onSuccess: async (created) => {
       await queryClient.invalidateQueries({ queryKey: ["knowledge-collections"] });
@@ -202,9 +233,53 @@ function Page() {
       setCreateOpen(false);
       setCollectionName("");
       setCollectionDescription("");
+      setCollectionPurpose("site_photos");
       toast.success("Collection created");
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not create collection"),
+  });
+
+  const reindexMutation = useMutation({
+    mutationFn: async (documentId: string) => indexKnowledgeDocument({ data: { documentId } }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["knowledge-documents"] }),
+        queryClient.invalidateQueries({ queryKey: ["knowledge-collections"] }),
+      ]);
+      toast.success("Re-indexed");
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Re-index failed"),
+  });
+
+  const reindexAllMutation = useMutation({
+    mutationFn: async () => {
+      if (!activeCollectionId) throw new Error("Select a collection first");
+      return reindexKnowledgeCollection({ data: { collectionId: activeCollectionId } });
+    },
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["knowledge-documents"] }),
+        queryClient.invalidateQueries({ queryKey: ["knowledge-collections"] }),
+      ]);
+      if (result.failed > 0) {
+        toast.error(`Re-indexed ${result.ok}/${result.total}. ${result.errors[0] || "Some failed."}`);
+      } else {
+        toast.success(`Re-indexed ${result.ok} file${result.ok === 1 ? "" : "s"}`);
+      }
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Re-index failed"),
+  });
+
+  const purposeMutation = useMutation({
+    mutationFn: async (purpose: CollectionPurpose) => {
+      if (!activeCollectionId) throw new Error("Select a collection first");
+      return updateKnowledgeCollection({ data: { collectionId: activeCollectionId, purpose } });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["knowledge-collections"] });
+      toast.success("Purpose saved");
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not save purpose"),
   });
 
   const uploadMutation = useMutation({
@@ -314,7 +389,7 @@ function Page() {
     <>
       <PageHeader
         title="Knowledge Base"
-        description="Create collections (Cold Storage, Petrol Pump, …) and add PDFs, text, or images. EnerBot retrieves them in chat."
+        description="Organize Datasheets vs site-photo collections. Re-index PDFs so EnerBot answers from real text — never invented links."
         actions={
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setCreateOpen(true)}>
@@ -352,6 +427,7 @@ function Page() {
                   doc_count: number;
                   chunk_count: number;
                   status: string;
+                  purpose?: string | null;
                 }) => (
                   <li key={c.id}>
                     <button
@@ -370,6 +446,9 @@ function Page() {
                       </div>
                       <p className="num mt-1 text-xs text-muted-foreground">
                         {c.doc_count} items · {c.chunk_count} chunks
+                        {c.purpose
+                          ? ` · ${PURPOSE_LABELS[c.purpose as CollectionPurpose] || c.purpose}`
+                          : ""}
                       </p>
                     </button>
                   </li>
@@ -388,7 +467,36 @@ function Page() {
               }
               action={
                 activeCollectionId ? (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Select
+                      value={String((activeCollection as { purpose?: string | null } | null)?.purpose || "other")}
+                      onValueChange={(v) => purposeMutation.mutate(v as CollectionPurpose)}
+                    >
+                      <SelectTrigger className="h-8 w-[180px] text-xs">
+                        <SelectValue placeholder="Purpose…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(Object.keys(PURPOSE_LABELS) as CollectionPurpose[]).map((key) => (
+                          <SelectItem key={key} value={key}>
+                            {PURPOSE_LABELS[key]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      disabled={reindexAllMutation.isPending || fileDocs.length === 0}
+                      onClick={() => {
+                        if (confirm(`Re-index all ${fileDocs.length + imageDocs.length} files in this collection?`)) {
+                          reindexAllMutation.mutate();
+                        }
+                      }}
+                    >
+                      <RefreshCw className={`size-3.5 ${reindexAllMutation.isPending ? "animate-spin" : ""}`} />
+                      {reindexAllMutation.isPending ? "Re-indexing…" : "Re-index all"}
+                    </Button>
                     <Button
                       size="sm"
                       className="gap-1.5"
@@ -586,6 +694,11 @@ function Page() {
                                 {d.chunk_count} chunks · {d.mime_type || "file"} · {new Date(d.updated_at).toLocaleString()}
                               </p>
                             </div>
+                            {isPdfStubDocument(d) ? (
+                              <Pill tone="warning" dot>
+                                stub text
+                              </Pill>
+                            ) : null}
                             <Pill
                               tone={d.status === "ready" ? "success" : d.status === "processing" ? "info" : d.status === "failed" ? "danger" : "warning"}
                               dot
@@ -597,6 +710,17 @@ function Page() {
                                 <a href={d.download_url} target="_blank" rel="noreferrer">Open</a>
                               </Button>
                             ) : null}
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="size-8"
+                              aria-label="Re-index document"
+                              title="Re-index (extract PDF text + embeddings)"
+                              disabled={reindexMutation.isPending}
+                              onClick={() => reindexMutation.mutate(d.id)}
+                            >
+                              <RefreshCw className={`size-4 ${reindexMutation.isPending ? "animate-spin" : ""}`} />
+                            </Button>
                             <Button
                               size="icon"
                               variant="ghost"
@@ -621,14 +745,28 @@ function Page() {
 
             <Panel title="How to use collections">
               <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                <li>Create a collection per site or product line (e.g. <span className="font-medium text-foreground">Cold Storage</span>, <span className="font-medium text-foreground">Petrol Pump</span>).</li>
-                <li>Upload many images and docs into that collection — they stay grouped together.</li>
                 <li>
-                  Tag images with <span className="font-medium text-foreground">state / place</span> (e.g. Maharashtra).
-                  When a visitor asks for references by state, EnerBot prefers matching tags from any collection.
+                  Set purpose to <span className="font-medium text-foreground">Datasheets / catalogues</span> for PDF
+                  catalogues (EnerBot smart-match), or <span className="font-medium text-foreground">Site / reference photos</span> for
+                  application galleries (Cold Storage, Petrol Pump, Hospital…).
                 </li>
-                <li>Files are stored in Supabase Storage; text stubs are embedded for EnerBot search.</li>
-                <li>If a visitor asks for Cold Storage photos or a Petrol Pump catalogue, EnerBot can share the matching links.</li>
+                <li>
+                  Products module holds SKU photo + catalogue PDF for price packs; Knowledge Base Datasheets are for
+                  shared brochure / datasheet asks.
+                </li>
+                <li>
+                  After uploading PDFs, use <span className="font-medium text-foreground">Re-index</span> if you see a{" "}
+                  <span className="font-medium text-foreground">stub text</span> badge — that means filename-only
+                  embeddings (EnerBot cannot quote real specs until re-indexed).
+                </li>
+                <li>
+                  Tag site photos with state / place (e.g. Maharashtra). Visitors who ask for references by place get
+                  matching tagged photos.
+                </li>
+                <li>
+                  Photos need a public <span className="font-medium text-foreground">APP_URL / VITE_APP_URL</span> (HTTPS
+                  on Render) so WhatsApp / Meta can open <span className="font-medium text-foreground">/d/…</span> links.
+                </li>
               </ul>
             </Panel>
           </div>
@@ -640,7 +778,7 @@ function Page() {
           <DialogHeader>
             <DialogTitle>New collection</DialogTitle>
             <DialogDescription>
-              Example: Cold Storage, Petrol Pump, Hospital UPS — then upload images and docs under it.
+              Example: Cold Storage (site photos) or Datasheets (PDF catalogues) — then upload under it.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -652,6 +790,24 @@ function Page() {
                 onChange={(e) => setCollectionName(e.target.value)}
                 placeholder="Cold Storage"
               />
+            </div>
+            <div className="space-y-2">
+              <Label>Purpose</Label>
+              <Select
+                value={collectionPurpose || "other"}
+                onValueChange={(v) => setCollectionPurpose(v as CollectionPurpose)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(PURPOSE_LABELS) as CollectionPurpose[]).map((key) => (
+                    <SelectItem key={key} value={key}>
+                      {PURPOSE_LABELS[key]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="collection-desc">Description</Label>
@@ -677,7 +833,7 @@ function Page() {
           <DialogHeader>
             <DialogTitle>Upload to {activeCollection?.name || "collection"}</DialogTitle>
             <DialogDescription>
-              PDF, TXT, Markdown, or images (PNG/JPG/WEBP/GIF). Select multiple images at once. Max ~12 MB each.
+              PDF, DOCX, TXT, Markdown, or images (PNG/JPG/WEBP/GIF). Select multiple images at once. Max ~12 MB each.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -697,7 +853,7 @@ function Page() {
                 ref={fileRef}
                 type="file"
                 multiple
-                accept=".pdf,.txt,.md,.markdown,.png,.jpg,.jpeg,.webp,.gif,application/pdf,text/plain,text/markdown,image/*"
+                accept=".pdf,.docx,.txt,.md,.markdown,.png,.jpg,.jpeg,.webp,.gif,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,image/*"
                 onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
               />
               {files.length > 0 ? (

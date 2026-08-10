@@ -42,7 +42,7 @@ import {
   humanWaitReplyForLang,
 } from "@/lib/session-language";
 import { ensureWhatsAppLeadCustomer } from "@/server/whatsapp-crm";
-import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, wantsReferenceImages, customerAskedForMorePhotos, formatKnowledgeContext, downloadLinksFromChunks, knowledgeIsUseful } from "@/server/knowledge";
+import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, wantsReferenceImages, customerAskedForMorePhotos, formatKnowledgeContext, downloadLinksFromChunks } from "@/server/knowledge";
 import { resolveProductPackRequest, buildProductPackMedia, buildProductsContextForAi, isProductIntent } from "@/server/product-pack";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
@@ -1451,7 +1451,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
               downloadCount: downloadLinks.length,
               memoryEnabled: agentCfg.memoryEnabled,
-              productsUseful: knowledgeIsUseful(chunks) || Boolean(productsContext?.trim()),
+            productsUseful: isProductIntent(text) && Boolean(productsContext?.trim()),
             });
             (inspector.metadata as Record<string, unknown>).product_kb_fallback = true;
             await supabase.from("messages").insert({
@@ -1647,10 +1647,12 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           ]);
 
           // Photo ask: short line + up to 3 real images (more = next batch same collection)
+          // Do not steal product Q&A turns — product intent already handled above.
           if (
             !educateOnly &&
             referenceImages.length > 0 &&
-            (wantsReferenceImages(text) || (askingMore && lastCollection))
+            (wantsReferenceImages(text) || (askingMore && lastCollection)) &&
+            !isProductIntent(text)
           ) {
             const photos = referenceImages.slice(0, 3);
             reply = askingMore
@@ -1868,7 +1870,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
             downloadCount: downloadLinks.length,
             memoryEnabled: agentCfg.memoryEnabled,
-            productsUseful: knowledgeIsUseful(chunks) || Boolean(productsContext?.trim()),
+            productsUseful: isProductIntent(text) && Boolean(productsContext?.trim()),
           });
           if (agentCfg.agentId) {
             await supabase

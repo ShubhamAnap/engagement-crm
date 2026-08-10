@@ -9,10 +9,12 @@ import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
-import { resolveCatalogueRequest, retrieveKnowledgeContext, formatKnowledgeContext, downloadLinksFromChunks, knowledgeIsUseful } from "@/server/knowledge";
+import { resolveCatalogueRequest, retrieveKnowledgeContext, formatKnowledgeContext, downloadLinksFromChunks, findReferenceImages, wantsReferenceImages, customerAskedForMorePhotos, formatReferencePhotoLinksReply } from "@/server/knowledge";
 import { wantsHumanHandoff, explicitLanguageRequest, languageSwitchAck, withHandoffMetadata } from "@/lib/conversation-guards";
-import { humanWaitReplyForLang, sessionLangFromHistory, normalizeStoredLang, offTopicReplyForLang } from "@/lib/session-language";
+import { humanWaitReplyForLang, sessionLangFromHistory, normalizeStoredLang, offTopicReplyForLang, kbPendingSendReplyForLang } from "@/lib/session-language";
 import { isOffTopicMessage } from "@/lib/enertech-scope";
+import { isProductIntent } from "@/server/product-pack";
+import { isEducateOnlyAsk } from "@/lib/conversation-intent";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
@@ -97,6 +99,49 @@ export async function sendMetaText(
     const err =
       (json.error as { message?: string } | undefined)?.message ||
       `Meta ${type} API error (${res.status})`;
+    throw new Error(err);
+  }
+  return json;
+}
+
+/** Send an image by public HTTPS URL (Messenger / Instagram). */
+export async function sendMetaImage(
+  type: MetaMessengerType,
+  recipientId: string,
+  imageUrl: string,
+  cfg?: MetaMessengerConfig,
+) {
+  const config = cfg || (await loadMetaConfig(type));
+  if (!config.page_id || !config.access_token) {
+    throw new Error(`${type} is not configured (missing page_id or access_token)`);
+  }
+  const to = recipientId.trim();
+  const url = imageUrl.trim();
+  if (!to || !/^https:\/\//i.test(url)) throw new Error("Invalid Meta image recipient or URL");
+
+  const res = await fetch(`${GRAPH_BASE}/${config.page_id}/messages`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.access_token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      recipient: { id: to },
+      messaging_type: "RESPONSE",
+      message: {
+        attachment: {
+          type: "image",
+          payload: { url, is_reusable: true },
+        },
+      },
+    }),
+  });
+
+  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    const err =
+      (json.error as { message?: string } | undefined)?.message ||
+      `Meta ${type} image API error (${res.status})`;
     throw new Error(err);
   }
   return json;
@@ -344,7 +389,107 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
           }>)
         : [];
       const catalogue = await resolveCatalogueRequest(text, { pendingOptions: pendingCatalogue });
-      if (catalogue.mode === "clarify") {
+      const sentPhotoIds = Array.isArray(prevMeta.sent_reference_ids)
+        ? (prevMeta.sent_reference_ids as string[])
+        : [];
+      const lastCollection =
+        typeof prevMeta.last_reference_collection === "string"
+          ? prevMeta.last_reference_collection
+          : null;
+      const askingMore = customerAskedForMorePhotos(text);
+      const educateOnly = isEducateOnlyAsk(text);
+      const referenceImages =
+        educateOnly || isProductIntent(text)
+          ? []
+          : await findReferenceImages(text, 3, {
+              excludeDocumentIds: sentPhotoIds,
+              preferCollection: askingMore ? lastCollection : null,
+            });
+
+      if (
+        !educateOnly &&
+        !isProductIntent(text) &&
+        referenceImages.length > 0 &&
+        (wantsReferenceImages(text) || (askingMore && lastCollection))
+      ) {
+        const photos = referenceImages.slice(0, 3);
+        reply = formatReferencePhotoLinksReply(photos, askingMore);
+        inspector = buildAnswerInspector({
+          chunks: [],
+          replySource: "openai",
+          model: "gpt-4o-mini",
+          agentName: "EnerBot",
+          channel: type,
+          downloadCount: 0,
+        });
+        (inspector.metadata as Record<string, unknown>).reference_images = photos.map((r) => ({
+          url: r.imageUrl,
+          title: r.title,
+          collection: r.collection,
+          file_name: r.fileName,
+          mime_type: r.mimeType,
+          document_id: r.documentId,
+        }));
+        await supabase
+          .from("conversations")
+          .update({
+            metadata: {
+              ...prevMeta,
+              sent_reference_ids: [...sentPhotoIds, ...photos.map((p) => p.documentId)].slice(-30),
+              last_reference_collection: photos[0]?.collection || lastCollection,
+            },
+          })
+          .eq("id", convo.id);
+        try {
+          await sendMetaText(type, from, "Sir, here are some reference photos.", cfg);
+          for (const img of photos) {
+            try {
+              await sendMetaImage(type, from, img.imageUrl, cfg);
+            } catch (err) {
+              console.error("Meta reference image send failed", err);
+            }
+          }
+        } catch (err) {
+          console.error("Meta photo reply send failed", err);
+        }
+        await supabase.from("messages").insert({
+          org_id: ORG_ID,
+          conversation_id: convo.id,
+          sender: "ai",
+          body: reply,
+          confidence: inspector.confidence,
+          sources: inspector.sources,
+          metadata: inspector.metadata,
+        });
+        continue;
+      }
+
+      if (!educateOnly && !isProductIntent(text) && wantsReferenceImages(text) && referenceImages.length === 0) {
+        reply = kbPendingSendReplyForLang(sessionLang);
+        const tags = Array.isArray((convo as { tags?: string[] }).tags)
+          ? [...((convo as { tags?: string[] }).tags || [])]
+          : [];
+        if (!tags.includes("Needs asset")) tags.push("Needs asset");
+        await supabase
+          .from("conversations")
+          .update({
+            tags,
+            metadata: {
+              ...prevMeta,
+              preferred_lang: sessionLang,
+              pending_kb_request: { kind: "reference_photos", query: text.slice(0, 200) },
+            },
+          })
+          .eq("id", convo.id);
+        inspector = buildAnswerInspector({
+          chunks: [],
+          replySource: "fallback",
+          model: "gpt-4o-mini",
+          agentName: "EnerBot",
+          channel: type,
+          downloadCount: 0,
+        });
+      } else if (catalogue.mode === "clarify") {
         reply = catalogue.message;
         const nextMeta = {
           ...prevMeta,
@@ -432,7 +577,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
         visitorName: (convo.visitor_name as string) || "Customer",
         downloadCount: downloadLinks.length,
         memoryEnabled: agentCfg.memoryEnabled,
-        productsUseful: knowledgeIsUseful(chunks) || Boolean(productsContext?.trim()),
+        productsUseful: isProductIntent(text) && Boolean(productsContext?.trim()),
       });
       if (agentCfg.agentId) {
         await supabase

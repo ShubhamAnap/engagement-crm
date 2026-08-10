@@ -40,13 +40,14 @@ import {
   sessionLangFromHistory,
   humanWaitReplyForLang,
 } from "@/lib/session-language";
-import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, wantsReferenceImages, customerAskedForMorePhotos, formatKnowledgeContext, downloadLinksFromChunks, knowledgeIsUseful } from "@/server/knowledge";
+import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, wantsReferenceImages, customerAskedForMorePhotos, formatKnowledgeContext, downloadLinksFromChunks } from "@/server/knowledge";
 import {
   resolveProductPackRequest,
   buildProductPackMedia,
   buildProductsContextForAi,
   toCarouselCards,
   loadActiveProductById,
+  isProductIntent,
 } from "@/server/product-pack";
 import { formatProductPackBody, cleanProductDisplayName } from "@/lib/product-card";
 import { normalizeWhatsAppDigits } from "@/lib/whatsapp-window";
@@ -1542,7 +1543,8 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
     if (
       !educateOnly &&
       referenceImages.length > 0 &&
-      (wantsReferenceImages(text) || (askingMore && lastCollection))
+      (wantsReferenceImages(text) || (askingMore && lastCollection)) &&
+      !isProductIntent(text)
     ) {
       const photos = referenceImages.slice(0, 3);
       const reply = askingMore
@@ -1780,7 +1782,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       visitorName: convo.visitor_name || "Website visitor",
       downloadCount: downloadLinks.length,
       memoryEnabled: agentCfg.memoryEnabled,
-      productsUseful: knowledgeIsUseful(chunks) || Boolean(productsContext?.trim()),
+      productsUseful: isProductIntent(text) && Boolean(productsContext?.trim()),
     });
 
     const { error: aiErr } = await supabase.from("messages").insert({

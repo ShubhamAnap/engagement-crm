@@ -61,6 +61,7 @@
     "embla-carousel-react": "^8.6.0",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.575.0",
+    "mammoth": "^1.12.1",
     "nitro": "3.0.260603-beta",
     "nodemailer": "^9.0.3",
     "react": "^19.2.0",

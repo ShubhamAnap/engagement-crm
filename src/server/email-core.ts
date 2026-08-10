@@ -8,10 +8,12 @@ import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
-import { resolveCatalogueRequest, retrieveKnowledgeContext, formatKnowledgeContext, downloadLinksFromChunks, knowledgeIsUseful } from "@/server/knowledge";
+import { resolveCatalogueRequest, retrieveKnowledgeContext, formatKnowledgeContext, downloadLinksFromChunks, findReferenceImages, wantsReferenceImages, customerAskedForMorePhotos, formatReferencePhotoLinksReply } from "@/server/knowledge";
 import { wantsHumanHandoff, withHandoffMetadata } from "@/lib/conversation-guards";
-import { humanWaitReplyForLang, sessionLangFromHistory, normalizeStoredLang, offTopicReplyForLang } from "@/lib/session-language";
+import { humanWaitReplyForLang, sessionLangFromHistory, normalizeStoredLang, offTopicReplyForLang, kbPendingSendReplyForLang } from "@/lib/session-language";
 import { isOffTopicMessage } from "@/lib/enertech-scope";
+import { isProductIntent } from "@/server/product-pack";
+import { isEducateOnlyAsk } from "@/lib/conversation-intent";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -360,7 +362,86 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
     });
     const agentCfg = agentReplyConfig(stack);
     const { sanitizeAssistantFileLinks, shortenDownloadLinks } = await import("@/server/shorten-urls");
-    if (catalogue.mode === "clarify") {
+
+    const sentPhotoIds = Array.isArray(prevMetaLang.sent_reference_ids)
+      ? (prevMetaLang.sent_reference_ids as string[])
+      : [];
+    const lastCollection =
+      typeof prevMetaLang.last_reference_collection === "string"
+        ? prevMetaLang.last_reference_collection
+        : null;
+    const askingMore = customerAskedForMorePhotos(text);
+    const educateOnly = isEducateOnlyAsk(text);
+    const referenceImages =
+      educateOnly || isProductIntent(text)
+        ? []
+        : await findReferenceImages(text, 3, {
+            excludeDocumentIds: sentPhotoIds,
+            preferCollection: askingMore ? lastCollection : null,
+          });
+
+    if (
+      !educateOnly &&
+      !isProductIntent(text) &&
+      referenceImages.length > 0 &&
+      (wantsReferenceImages(text) || (askingMore && lastCollection))
+    ) {
+      const photos = referenceImages.slice(0, 3);
+      reply = formatReferencePhotoLinksReply(photos, askingMore);
+      inspector = buildAnswerInspector({
+        chunks: [],
+        replySource: "openai",
+        model: "gpt-4o-mini",
+        agentName: agentCfg.agentName,
+        channel: "email",
+        visitorName: (convo.visitor_name as string) || fromName || fromEmail,
+        downloadCount: 0,
+      });
+      (inspector.metadata as Record<string, unknown>).reference_images = photos.map((r) => ({
+        url: r.imageUrl,
+        title: r.title,
+        collection: r.collection,
+        file_name: r.fileName,
+        mime_type: r.mimeType,
+        document_id: r.documentId,
+      }));
+      await supabase
+        .from("conversations")
+        .update({
+          metadata: {
+            ...prevMetaLang,
+            preferred_lang: sessionLang,
+            sent_reference_ids: [...sentPhotoIds, ...photos.map((p) => p.documentId)].slice(-30),
+            last_reference_collection: photos[0]?.collection || lastCollection,
+          },
+        })
+        .eq("id", convo.id);
+    } else if (!educateOnly && !isProductIntent(text) && wantsReferenceImages(text) && referenceImages.length === 0) {
+      reply = kbPendingSendReplyForLang(sessionLang);
+      const tags = Array.isArray((convo as { tags?: string[] }).tags)
+        ? [...((convo as { tags?: string[] }).tags || [])]
+        : [];
+      if (!tags.includes("Needs asset")) tags.push("Needs asset");
+      await supabase
+        .from("conversations")
+        .update({
+          tags,
+          metadata: {
+            ...prevMetaLang,
+            preferred_lang: sessionLang,
+            pending_kb_request: { kind: "reference_photos", query: text.slice(0, 200) },
+          },
+        })
+        .eq("id", convo.id);
+      inspector = buildAnswerInspector({
+        chunks: [],
+        replySource: "fallback",
+        model: "gpt-4o-mini",
+        agentName: agentCfg.agentName,
+        channel: "email",
+        downloadCount: 0,
+      });
+    } else if (catalogue.mode === "clarify") {
       reply = catalogue.message;
       inspector = buildAnswerInspector({
         chunks: [],
@@ -428,7 +509,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
         visitorName: (convo.visitor_name as string) || fromName || fromEmail,
         downloadCount: downloadLinks.length,
         memoryEnabled: agentCfg.memoryEnabled,
-        productsUseful: knowledgeIsUseful(chunks) || Boolean(productsContext?.trim()),
+        productsUseful: isProductIntent(text) && Boolean(productsContext?.trim()),
       });
     }
     if (agentCfg.agentId) {

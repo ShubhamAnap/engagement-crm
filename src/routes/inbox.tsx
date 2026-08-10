@@ -824,7 +824,7 @@ function Page() {
 
   const conversationList = (
     <CardPanel
-      title="Conversations"
+      title="Chats"
       className="flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-none border-0 shadow-none"
       bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden p-0"
     >
@@ -896,42 +896,66 @@ function Page() {
                     type="button"
                     onClick={() => openConversation(c.id)}
                     className={cn(
-                      "w-full px-3 py-3.5 text-left touch-manipulation active:bg-secondary/80 lg:py-3",
-                      active ? "bg-secondary/70" : "hover:bg-secondary/40",
+                      "w-full px-3 py-3.5 text-left touch-manipulation lg:py-3",
+                      active ? "inbox-wa-list-item-active" : "hover:bg-black/5 dark:hover:bg-white/5",
                     )}
                   >
-                  <div className="flex items-center gap-2">
-                      <ChannelIcon
-                        channel={(c.channel as ChannelType) || "website"}
-                        className="shrink-0 text-muted-foreground"
-                      />
-                      <p className="min-w-0 flex-1 truncate text-sm font-medium">{name}</p>
-                      <span className="num shrink-0 text-[11px] text-muted-foreground">
-                        {formatRelativeTime(c.last_message_at || c.created_at)}
+                  <div className="flex items-center gap-2.5">
+                      <span className="inbox-wa-avatar size-10 text-sm" aria-hidden>
+                        {(name.trim()[0] || "?").toUpperCase()}
                       </span>
-                  </div>
-                    <p className="mt-1 truncate text-xs text-muted-foreground">
-                      {cleanInboxPreview(c.preview)}
-                    </p>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                      <Pill>{c.status}</Pill>
-                      {isMarketplaceLeadChannel(c.channel) && listPhone ? (
-                        <Pill tone="success">via WhatsApp</Pill>
-                      ) : null}
-                      {listWa ? (
-                        <Pill tone={waTone(listWa.tone)} className="gap-1">
-                          <Clock className="size-3" />
-                          {listWa.open ? listWa.label : "WA closed"}
-                        </Pill>
-                      ) : null}
-                      {(c.tags ?? []).slice(0, 2).map((t) => (
-                        <Pill key={t}>{t}</Pill>
-                      ))}
-                      {c.unread_count > 0 && (
-                        <Pill tone="primary" className="ml-auto">
-                          {c.unread_count}
-                        </Pill>
-                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <p
+                            className={cn(
+                              "min-w-0 flex-1 truncate text-sm",
+                              c.unread_count > 0 ? "font-semibold text-foreground" : "font-medium",
+                            )}
+                          >
+                            {name}
+                          </p>
+                          <span
+                            className={cn(
+                              "num shrink-0 text-[11px]",
+                              c.unread_count > 0 ? "font-semibold text-[#00a884]" : "text-muted-foreground",
+                            )}
+                          >
+                            {formatRelativeTime(c.last_message_at || c.created_at)}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-2">
+                          <p
+                            className={cn(
+                              "min-w-0 flex-1 truncate text-xs",
+                              c.unread_count > 0 ? "font-medium text-foreground/80" : "text-muted-foreground",
+                            )}
+                          >
+                            {cleanInboxPreview(c.preview)}
+                          </p>
+                          {c.unread_count > 0 ? (
+                            <span className="inbox-wa-unread shrink-0">{c.unread_count}</span>
+                          ) : null}
+                        </div>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                          <ChannelIcon
+                            channel={(c.channel as ChannelType) || "website"}
+                            className="size-3.5 shrink-0 text-muted-foreground"
+                          />
+                          <Pill>{c.status}</Pill>
+                          {isMarketplaceLeadChannel(c.channel) && listPhone ? (
+                            <Pill tone="success">via WhatsApp</Pill>
+                          ) : null}
+                          {listWa ? (
+                            <Pill tone={waTone(listWa.tone)} className="gap-1">
+                              <Clock className="size-3" />
+                              {listWa.open ? listWa.label : "WA closed"}
+                            </Pill>
+                          ) : null}
+                          {(c.tags ?? []).slice(0, 2).map((t) => (
+                            <Pill key={t}>{t}</Pill>
+                          ))}
+                        </div>
+                      </div>
                   </div>
                   </button>
                 </li>
@@ -943,34 +967,42 @@ function Page() {
     </CardPanel>
   );
 
+  const threadTitle = selected
+    ? `${selected.customer?.name || selected.visitor_name || "Visitor"}${
+        selected.customer?.company || selected.visitor_company
+          ? ` · ${selected.customer?.company || selected.visitor_company}`
+          : ""
+      }`
+    : "Conversation";
+  const threadInitial = (
+    (selected?.customer?.name || selected?.visitor_name || "V").trim()[0] || "V"
+  ).toUpperCase();
+
   const conversationThread = (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card">
-      <header className="shrink-0 border-b border-border px-3 py-2.5 sm:px-4 sm:py-3">
-        <div className="flex items-start gap-2">
+    <div className="inbox-wa-thread flex min-h-0 flex-1 flex-col overflow-hidden">
+      <header className="inbox-wa-header shrink-0 border-b px-3 py-2.5 sm:px-4 sm:py-3">
+        <div className="flex items-center gap-2.5">
           <Button
             type="button"
             size="icon"
             variant="ghost"
-            className="mt-0.5 size-9 shrink-0 touch-manipulation lg:hidden"
+            className="size-9 shrink-0 touch-manipulation lg:hidden"
             onClick={backToMobileList}
             aria-label="Back to conversations"
           >
             <ArrowLeft className="size-4" />
           </Button>
+          {selected ? (
+            <span className="inbox-wa-avatar" aria-hidden>
+              {threadInitial}
+            </span>
+          ) : null}
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-sm font-semibold text-foreground">
-              {selected
-                ? `${selected.customer?.name || selected.visitor_name || "Visitor"}${
-                    selected.customer?.company || selected.visitor_company
-                      ? ` · ${selected.customer?.company || selected.visitor_company}`
-                      : ""
-                  }`
-                : "Conversation"}
-            </h2>
-            <p className="truncate text-xs text-muted-foreground">
+            <h2 className="truncate text-sm font-semibold">{threadTitle}</h2>
+            <p className="truncate text-xs opacity-70">
               {selected
                 ? `${selected.channel}${
-                    marketplaceLead && waPhone ? " · contact via WhatsApp" : ""
+                    marketplaceLead && waPhone ? " · via WhatsApp" : ""
                   } · ${selected.external_ref || selected.id.slice(0, 8)} · ${selected.assignee_label || selected.status}`
                 : "Select a conversation"}
             </p>
@@ -979,7 +1011,7 @@ function Page() {
             <Button
               type="button"
               size="icon"
-              variant="outline"
+              variant="ghost"
               className="size-9 touch-manipulation lg:hidden"
               onClick={() => setProfileSheetOpen(true)}
               disabled={!selected}
@@ -1002,7 +1034,7 @@ function Page() {
               <Button
                 type="button"
                 size="icon"
-                variant="outline"
+                variant="ghost"
                 className="size-9 touch-manipulation"
                 disabled={returningToAi || sending}
                 onClick={() => void onReturnToAi()}
@@ -1079,8 +1111,8 @@ function Page() {
                         .trim()
                     : m.body.replace(/!\[[^\]]*\]\([^)]+\)/g, "").trim();
                   const dayChip = showDay ? (
-                    <div key={`day-${m.id}`} className="flex justify-center px-2 py-1">
-                      <span className="rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    <div key={`day-${m.id}`} className="flex justify-center px-2 py-1.5">
+                      <span className="inbox-wa-day rounded-lg px-3 py-1 text-[11px] font-medium uppercase tracking-wide">
                         {dayDividerLabel(m.created_at)}
                       </span>
                     </div>
@@ -1090,7 +1122,7 @@ function Page() {
                       <div key={m.id}>
                         {dayChip}
                         <div className="flex justify-center px-2">
-                          <p className="max-w-[90%] rounded-lg bg-muted/60 px-3 py-1.5 text-center text-xs text-muted-foreground">
+                          <p className="inbox-wa-bubble-system max-w-[90%] rounded-lg px-3 py-1.5 text-center text-xs">
                             {caption || m.body}
                             <span className="num mt-0.5 block text-[10px] opacity-80">
                               {formatClock(m.created_at)}
@@ -1106,13 +1138,14 @@ function Page() {
                       <div className={isCustomer ? "flex justify-start" : "flex justify-end"}>
                       <div className="max-w-[min(88%,28rem)] sm:max-w-[min(78%,28rem)]">
                         <div
-                          className={
+                          className={cn(
+                            "px-2.5 py-1.5 text-[15px] leading-snug sm:text-sm",
                             isCustomer
-                              ? "rounded-xl bg-secondary px-3 py-2 text-sm"
+                              ? "inbox-wa-bubble-in"
                               : isAi
-                                ? "rounded-xl border border-border bg-secondary/80 px-3 py-2 text-sm text-foreground"
-                                : "rounded-xl bg-primary px-3 py-2 text-sm text-primary-foreground"
-                          }
+                                ? "inbox-wa-bubble-ai"
+                                : "inbox-wa-bubble-out",
+                          )}
                         >
                           {attach?.isImage ? (
                             <a href={attach.url} target="_blank" rel="noreferrer" className="block">
@@ -1145,11 +1178,7 @@ function Page() {
                                 href={attach.url}
                                 target="_blank"
                                 rel="noreferrer"
-                                className={
-                                  isCustomer || isAi
-                                    ? "underline"
-                                    : "underline text-primary-foreground"
-                                }
+                                className="underline opacity-90"
                               >
                                 {attach.fileName}
                               </a>
@@ -1177,32 +1206,32 @@ function Page() {
                               ))}
                             </div>
                           ) : null}
-                        </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                          <span className="num">{formatClock(m.created_at)}</span>
-                          <span className="capitalize">
-                            {isAi ? "AI" : m.sender === "agent" ? "Agent" : m.sender}
-                          </span>
-                          {!isCustomer && waStatus === "failed" ? (
-                            <span className="text-destructive">Failed</span>
-                          ) : !isCustomer && (waStatus === "read" || waStatus === "delivered" || waStatus === "sent") ? (
-                            <span
-                              className={cn(
-                                "inline-flex items-center",
-                                waStatus === "read" ? "text-sky-500" : "text-muted-foreground",
-                              )}
-                              title={waStatus}
-                            >
-                              {waStatus === "sent" ? (
-                                <Check className="size-3.5" />
-                              ) : (
-                                <CheckCheck className="size-3.5" />
-                              )}
-                            </span>
-                          ) : null}
-                          {m.confidence != null ? (
-                            <Pill tone="success">conf {Number(m.confidence).toFixed(2)}</Pill>
-                          ) : null}
+                          <div className="inbox-wa-meta mt-1 flex items-center justify-end gap-1 text-[10px] leading-none">
+                            <span className="num opacity-90">{formatClock(m.created_at)}</span>
+                            {!isCustomer ? (
+                              <span className="capitalize opacity-80">
+                                {isAi ? "AI" : "You"}
+                              </span>
+                            ) : null}
+                            {!isCustomer && waStatus === "failed" ? (
+                              <span className="text-destructive">Failed</span>
+                            ) : !isCustomer &&
+                              (waStatus === "read" || waStatus === "delivered" || waStatus === "sent") ? (
+                              <span
+                                className={cn(
+                                  "inline-flex items-center",
+                                  waStatus === "read" ? "inbox-wa-tick-read" : "inbox-wa-tick",
+                                )}
+                                title={waStatus}
+                              >
+                                {waStatus === "sent" ? (
+                                  <Check className="size-3.5" />
+                                ) : (
+                                  <CheckCheck className="size-3.5" />
+                                )}
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1215,7 +1244,7 @@ function Page() {
             </div>
           </div>
 
-          <div className="z-10 shrink-0 border-t border-border bg-card p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
+          <div className="inbox-wa-composer z-10 shrink-0 border-t p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-3">
             {marketplaceLead && !waPhone ? (
               <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
                 <p className="font-medium text-destructive">No mobile number on this lead</p>
@@ -1315,14 +1344,14 @@ function Page() {
                 </Button>
               ) : null}
               <Textarea
-                className="min-h-10 max-h-32 min-w-0 flex-1 resize-none py-2.5 text-base sm:text-sm"
+                className="inbox-wa-composer-input min-h-10 max-h-32 min-w-0 flex-1 resize-none border-0 py-2.5 text-base shadow-none focus-visible:ring-0 sm:text-sm"
                 rows={1}
                 placeholder={
                   needsTemplate
                     ? "Free-form blocked — click Template…"
                     : uploading
                       ? "Uploading…"
-                      : "Write a reply…"
+                      : "Type a message"
                 }
                 aria-label="Reply"
                 value={draft}
@@ -1337,7 +1366,7 @@ function Page() {
               />
               <Button
                 size="icon"
-                className="size-10 shrink-0 touch-manipulation sm:size-9"
+                className="inbox-wa-send size-10 shrink-0 touch-manipulation sm:size-9"
                 aria-label="Send"
                 onClick={() => void onSendReply()}
                 disabled={sending || uploading || sendingTemplate || sendingProduct || !draft.trim() || !waCanFreeForm}
@@ -1413,11 +1442,11 @@ function Page() {
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="inbox-wa flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <div className={cn("shrink-0", mobileThreadOpen && "hidden lg:block")}>
         <PageHeader
           title="Omnichannel Inbox"
-          description="Newest customer replies rise to the top — like WhatsApp."
+          description="Chats rise to the top when there is a new reply — WhatsApp-style."
           actions={
             <Button
               size="sm"

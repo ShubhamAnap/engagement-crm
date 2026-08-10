@@ -97,7 +97,7 @@ function inboxEmptyDescription(filter: string): string {
     case "Unread":
       return "No unread conversations right now.";
     case "Assigned":
-      return "No assigned conversations yet.";
+      return "No human-assigned conversations yet. Claim or reply from Inbox to assign yourself.";
     case "Website":
       return "No submitted website contacts yet. When a visitor saves name and phone in the chatbot, they appear here.";
     case "WhatsApp":
@@ -117,6 +117,12 @@ function inboxEmptyDescription(filter: string): string {
     default:
       return "When customers message any connected channel, threads appear here — newest reply on top.";
   }
+}
+
+function cleanInboxPreview(preview: string | null | undefined): string {
+  const raw = String(preview || "").trim();
+  if (!raw) return "No messages yet";
+  return raw.replace(/^\[Template:\s*[^\]]+\]\s*/i, "").trim() || raw;
 }
 const leadStatuses: LeadStatus[] = ["New", "Contacted", "Qualified", "Proposal", "Negotiation", "Won", "Lost"];
 const leadPriorities: PriorityLevel[] = ["High", "Medium", "Low"];
@@ -282,6 +288,11 @@ function Page() {
     }
   }, [deepLinkId]);
 
+  // Don't carry a half-written reply into another thread
+  useEffect(() => {
+    setDraft("");
+  }, [selectedId]);
+
   const deepLinkQuery = useQuery({
     queryKey: ["conversation", orgId, selectedId],
     enabled: Boolean(selectedId) && !(conversationsQuery.data ?? []).some((c) => c.id === selectedId),
@@ -364,7 +375,9 @@ function Page() {
   }, [selected, messagesQuery.data]);
 
   const waOutbound = Boolean(selected && conversationRepliesViaWhatsApp(selected));
-  const waPhone = selected ? normalizeWhatsAppDigits(selected.visitor_phone) : null;
+  const waPhone = selected
+    ? normalizeWhatsAppDigits(selected.visitor_phone || selected.customer?.phone)
+    : null;
   const marketplaceLead = Boolean(selected && isMarketplaceLeadChannel(selected.channel));
 
   const waWindow = useMemo(() => {
@@ -402,7 +415,15 @@ function Page() {
   useEffect(() => {
     if (!selectedId) return;
     void markConversationRead(selectedId)
-      .then(() => queryClient.invalidateQueries({ queryKey: ["conversations", orgId] }))
+      .then(() => {
+        queryClient.setQueriesData({ queryKey: ["conversations", orgId] }, (old: unknown) => {
+          if (!Array.isArray(old)) return old;
+          return (old as InboxConversation[]).map((c) =>
+            c.id === selectedId ? { ...c, unread_count: 0 } : c,
+          );
+        });
+        void queryClient.invalidateQueries({ queryKey: ["conversations", orgId] });
+      })
       .catch(() => undefined);
   }, [selectedId, orgId, queryClient]);
 
@@ -663,6 +684,22 @@ function Page() {
           <div className="p-3">
             <ListSkeleton rows={6} />
           </div>
+        ) : conversationsQuery.isError ? (
+          <div className="p-4">
+            <EmptyState
+              title="Could not load conversations"
+              description={
+                conversationsQuery.error instanceof Error
+                  ? conversationsQuery.error.message
+                  : "Check your connection and try again."
+              }
+              action={
+                <Button size="sm" onClick={() => void conversationsQuery.refetch()}>
+                  Retry
+                </Button>
+              }
+            />
+          </div>
         ) : conversations.length === 0 ? (
           <div className="p-4">
             <EmptyState
@@ -679,6 +716,7 @@ function Page() {
               const listWa = viaWa
                 ? getWhatsAppWindow(c.wa_last_customer_at || null, nowTick)
                 : null;
+              const listPhone = normalizeWhatsAppDigits(c.visitor_phone || c.customer?.phone);
               return (
                 <li key={c.id}>
                   <button
@@ -700,12 +738,11 @@ function Page() {
                       </span>
                     </div>
                     <p className="mt-1 truncate text-xs text-muted-foreground">
-                      {c.preview || "No messages yet"}
+                      {cleanInboxPreview(c.preview)}
                     </p>
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                       <Pill>{c.status}</Pill>
-                      {isMarketplaceLeadChannel(c.channel) &&
-                      normalizeWhatsAppDigits(c.visitor_phone) ? (
+                      {isMarketplaceLeadChannel(c.channel) && listPhone ? (
                         <Pill tone="success">via WhatsApp</Pill>
                       ) : null}
                       {listWa ? (
@@ -828,11 +865,27 @@ function Page() {
             <div className="space-y-3">
               {messagesQuery.isLoading ? (
                 <ListSkeleton rows={4} />
+              ) : messagesQuery.isError ? (
+                <EmptyState
+                  title="Could not load messages"
+                  description={
+                    messagesQuery.error instanceof Error
+                      ? messagesQuery.error.message
+                      : "Try refresh."
+                  }
+                  action={
+                    <Button size="sm" onClick={() => void messagesQuery.refetch()}>
+                      Retry
+                    </Button>
+                  }
+                />
               ) : (messagesQuery.data ?? []).length === 0 ? (
                 <p className="text-sm text-muted-foreground">No messages in this thread yet.</p>
               ) : (
                 (messagesQuery.data ?? []).map((m) => {
                   const isCustomer = m.sender === "customer";
+                  const isSystem = m.sender === "system";
+                  const isAi = m.sender === "ai";
                   const attach = messageAttachment(m);
                   const refImages = messageReferenceImages(m);
                   const caption = attach
@@ -842,6 +895,18 @@ function Page() {
                         .replace(/^Reference photo:\s*.*$/i, "")
                         .trim()
                     : m.body.replace(/!\[[^\]]*\]\([^)]+\)/g, "").trim();
+                  if (isSystem) {
+                    return (
+                      <div key={m.id} className="flex justify-center px-2">
+                        <p className="max-w-[90%] rounded-lg bg-muted/60 px-3 py-1.5 text-center text-xs text-muted-foreground">
+                          {caption || m.body}
+                          <span className="num mt-0.5 block text-[10px] opacity-80">
+                            {formatClock(m.created_at)}
+                          </span>
+                        </p>
+                      </div>
+                    );
+                  }
                   return (
                     <div
                       key={m.id}
@@ -852,7 +917,9 @@ function Page() {
                           className={
                             isCustomer
                               ? "rounded-xl bg-secondary px-3 py-2 text-sm"
-                              : "rounded-xl bg-primary px-3 py-2 text-sm text-primary-foreground"
+                              : isAi
+                                ? "rounded-xl border border-border bg-secondary/80 px-3 py-2 text-sm text-foreground"
+                                : "rounded-xl bg-primary px-3 py-2 text-sm text-primary-foreground"
                           }
                         >
                           {attach?.isImage ? (
@@ -862,7 +929,7 @@ function Page() {
                                 alt="Reference photo"
                                 className="mb-1 max-h-48 max-w-full rounded-lg object-contain"
                               />
-                              {caption ? <p>{caption}</p> : null}
+                              {caption ? <p className="whitespace-pre-wrap">{caption}</p> : null}
                             </a>
                           ) : attach ? (
                             <p>
@@ -872,14 +939,16 @@ function Page() {
                                 target="_blank"
                                 rel="noreferrer"
                                 className={
-                                  isCustomer ? "underline" : "underline text-primary-foreground"
+                                  isCustomer || isAi
+                                    ? "underline"
+                                    : "underline text-primary-foreground"
                                 }
                               >
                                 {attach.fileName}
                               </a>
                             </p>
                           ) : (
-                            caption || m.body
+                            <p className="whitespace-pre-wrap">{caption || m.body}</p>
                           )}
                           {refImages.length > 0 ? (
                             <div className="mt-2 space-y-2">
@@ -904,7 +973,9 @@ function Page() {
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                           <span className="num">{formatClock(m.created_at)}</span>
-                          <span className="capitalize">{m.sender}</span>
+                          <span className="capitalize">
+                            {isAi ? "AI" : m.sender === "agent" ? "Agent" : m.sender}
+                          </span>
                           {m.confidence != null ? (
                             <Pill tone="success">conf {Number(m.confidence).toFixed(2)}</Pill>
                           ) : null}

@@ -127,9 +127,11 @@ export function normalizeLeadPhone(phone: string | null | undefined): string | n
 export function conversationRepliesViaWhatsApp(c: {
   channel?: string | null;
   visitor_phone?: string | null;
+  customer?: { phone?: string | null } | null;
 }): boolean {
   if (c.channel === "whatsapp") return true;
-  if (isMarketplaceLeadChannel(c.channel) && normalizeWhatsAppDigits(c.visitor_phone)) return true;
+  const phone = c.visitor_phone || c.customer?.phone;
+  if (isMarketplaceLeadChannel(c.channel) && normalizeWhatsAppDigits(phone)) return true;
   return false;
 }
 

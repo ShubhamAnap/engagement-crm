@@ -53,7 +53,8 @@ export async function listConversations(
     query = query.gt("unread_count", 0);
   }
   if (options.assignedOnly) {
-    query = query.or("assignee_id.not.is.null,assignee_label.not.is.null");
+    // Human-assigned only — assignee_label alone matches AI labels like "AI · Support Agent"
+    query = query.not("assignee_id", "is", null);
   }
 
   // WhatsApp-style: latest message activity first (customer reply bumps thread to top).

@@ -302,6 +302,12 @@ Record decisions here so we don't re-debate.
 
 Brief notes from each working session — append, don't delete.
 
+### Session 2026-08-10 — Inbox remaining UI/UX fixes
+- Assigned filter = human `assignee_id` only (was matching AI labels).
+- Clear draft on thread switch; optimistic unread clear; list/thread load errors + Retry.
+- AI vs agent vs system bubble styles; strip `[Template:…]` from list previews; WA phone falls back to customer.phone.
+- Files: `inbox.tsx`, `chat-api.ts`, `whatsapp-window.ts`.
+
 ### Session 2026-08-10 — Sales-owned requirement defer (no bot pricing)
 - After `requirement_submitted` + assigned rep (name/phone), price/quote/catalogue/product asks → defer: “Okay sir — Mr. X is handling… will share price shortly.”
 - Partner business auto-replies (“Thank you for contacting…”) → silent, never off-topic refuse.

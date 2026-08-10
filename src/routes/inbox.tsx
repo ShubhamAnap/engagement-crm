@@ -235,9 +235,21 @@ function Page() {
   const [leadPriority, setLeadPriority] = useState<PriorityLevel>("Medium");
   const [layout, setLayout] = useState<Record<string, number> | undefined>(undefined);
   const [nowTick, setNowTick] = useState(() => Date.now());
+  /** Only one thread instance may mount — shared scroll ref breaks if desktop+mobile both render. */
+  const [isLg, setIsLg] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(min-width: 1024px)").matches : true,
+  );
 
   useEffect(() => {
     setLayout(loadLayout() ?? { list: 24, chat: 48, profile: 28 });
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const sync = () => setIsLg(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
   }, []);
 
   useEffect(() => {
@@ -343,10 +355,11 @@ function Page() {
 
   const {
     listRef: messagesScrollRef,
+    endRef: messagesEndRef,
     onScroll: onMessagesScroll,
     pinToBottom,
   } = useStickToBottomScroll(
-    [messagesQuery.data, messagesQuery.isLoading],
+    [messagesQuery.data, messagesQuery.isLoading, isLg, layout],
     selectedId ?? null,
   );
 
@@ -897,7 +910,8 @@ function Page() {
               ) : (messagesQuery.data ?? []).length === 0 ? (
                 <p className="text-sm text-muted-foreground">No messages in this thread yet.</p>
               ) : (
-                (messagesQuery.data ?? []).map((m) => {
+                <>
+                {(messagesQuery.data ?? []).map((m) => {
                   const isCustomer = m.sender === "customer";
                   const isSystem = m.sender === "system";
                   const isAi = m.sender === "ai";
@@ -998,7 +1012,9 @@ function Page() {
                       </div>
                     </div>
                   );
-                })
+                })}
+                <div ref={messagesEndRef} aria-hidden className="h-px w-full shrink-0" />
+                </>
               )}
             </div>
           </div>
@@ -1246,7 +1262,9 @@ function Page() {
               </ResizablePanel>
               <ResizableHandle withHandle />
               <ResizablePanel id="chat" defaultSize="48%" minSize="28%" className="min-h-0 min-w-0">
-                <div className="flex h-full min-h-0 flex-col overflow-hidden">{conversationThread}</div>
+                <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                  {isLg ? conversationThread : null}
+                </div>
               </ResizablePanel>
               <ResizableHandle withHandle />
               <ResizablePanel
@@ -1278,7 +1296,7 @@ function Page() {
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-border bg-card">
-            {conversationThread}
+            {!isLg ? conversationThread : null}
           </div>
         )}
       </div>

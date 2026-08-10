@@ -42,6 +42,27 @@ export function isAckOnlyMessage(text: string): boolean {
   return ACK_ONLY_RE.test(q);
 }
 
+/**
+ * Soft thanks / "thank you for update" (incl. WhatsApp button titles) — silent, no bot reply.
+ * Slightly longer than isAckOnlyMessage to cover common button labels.
+ */
+export function isSoftCustomerAckMessage(text: string): boolean {
+  const q = String(text || "").trim();
+  if (!q || q.length > 100) return false;
+  if (isAckOnlyMessage(q)) return true;
+  if (
+    /^(thanks|thank\s*you|thx|ty)(\s+for\s+(the\s+)?(update|updates|info|information|confirmation|confirming|reply|response|sharing|your\s+update))?[\s!.🙏]*$/i.test(
+      q,
+    )
+  ) {
+    return true;
+  }
+  if (/^(got\s*it|noted|received|ok\s+noted|okay\s+noted|update\s+received|thanks\s+for\s+updating)[\s!.🙏]*$/i.test(q)) {
+    return true;
+  }
+  return false;
+}
+
 export function isGreetingOnlyMessage(text: string): boolean {
   const q = String(text || "").trim();
   if (!q || q.length > 48) return false;

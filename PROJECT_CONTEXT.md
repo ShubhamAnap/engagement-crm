@@ -302,6 +302,11 @@ Record decisions here so we don't re-debate.
 
 Brief notes from each working session — append, don't delete.
 
+### Session 2026-08-10 — WhatsApp button ≠ file
+- Interactive/button replies: save real button title in Inbox; never “I received your file”.
+- Soft acks (“Thank you for update”, thanks) → silent. File/photo/voice ack only for real media types.
+- Files: `whatsapp.ts`, `enertech-scope.ts` (`isSoftCustomerAckMessage`).
+
 ### Session 2026-08-10 — Inbox remaining UI/UX fixes
 - Assigned filter = human `assignee_id` only (was matching AI labels).
 - Clear draft on thread switch; optimistic unread clear; list/thread load errors + Retry.

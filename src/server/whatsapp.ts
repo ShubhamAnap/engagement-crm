@@ -5,7 +5,7 @@ import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
-import { isOffTopicMessage, isAckOnlyMessage, isGreetingOnlyMessage } from "@/lib/enertech-scope";
+import { isOffTopicMessage, isAckOnlyMessage, isGreetingOnlyMessage, isSoftCustomerAckMessage } from "@/lib/enertech-scope";
 import {
   isEducateOnlyAsk,
   isRequirementConfirmAck,
@@ -367,6 +367,45 @@ function isHumanOwnedConversation(c: {
   return false;
 }
 
+type WaInboundMsg = {
+  from?: string;
+  id?: string;
+  timestamp?: string;
+  type?: string;
+  text?: { body?: string };
+  button?: { text?: string; payload?: string };
+  interactive?: {
+    type?: string;
+    button_reply?: { id?: string; title?: string };
+    list_reply?: { id?: string; title?: string; description?: string };
+  };
+  image?: { id?: string; caption?: string; mime_type?: string };
+  document?: { id?: string; filename?: string; caption?: string; mime_type?: string };
+  audio?: { id?: string; mime_type?: string };
+  video?: { id?: string; caption?: string; mime_type?: string };
+  sticker?: { id?: string };
+};
+
+const WA_MEDIA_TYPES = new Set(["image", "document", "audio", "video", "sticker"]);
+
+/** Extract customer-visible text from WhatsApp button / list replies. */
+function extractWhatsAppInteractiveText(msg: WaInboundMsg): string | null {
+  const type = String(msg.type || "");
+  if (type === "button") {
+    const t = msg.button?.text?.trim() || msg.button?.payload?.trim();
+    return t || null;
+  }
+  if (type === "interactive") {
+    const br = msg.interactive?.button_reply?.title?.trim();
+    if (br) return br;
+    const lr =
+      msg.interactive?.list_reply?.title?.trim() ||
+      msg.interactive?.list_reply?.description?.trim();
+    if (lr) return lr;
+  }
+  return null;
+}
+
 export async function handleWhatsAppInboundPayload(payload: unknown) {
   const supabase = createServiceSupabase();
   const cfg = await loadWhatsAppConfig();
@@ -375,18 +414,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
       changes?: Array<{
         value?: {
           contacts?: Array<{ profile?: { name?: string }; wa_id?: string }>;
-          messages?: Array<{
-            from?: string;
-            id?: string;
-            timestamp?: string;
-            type?: string;
-            text?: { body?: string };
-            image?: { id?: string; caption?: string; mime_type?: string };
-            document?: { id?: string; filename?: string; caption?: string; mime_type?: string };
-            audio?: { id?: string; mime_type?: string };
-            video?: { id?: string; caption?: string; mime_type?: string };
-            sticker?: { id?: string };
-          }>;
+          messages?: WaInboundMsg[];
         };
       }>;
     }>;
@@ -401,17 +429,79 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
       const contactName = value.contacts?.[0]?.profile?.name;
 
       for (const msg of value.messages) {
-        if (msg.type && msg.type !== "text") {
-          // Accept media — save + human-like ack (no bot/agent wording)
-          const from = msg.from;
-          if (!from) continue;
+        const msgType = String(msg.type || "text");
+        const from = msg.from;
+        if (!from) continue;
+
+        // Button / list reply → treat as text (never as a "file")
+        const interactiveText = extractWhatsAppInteractiveText(msg);
+        if (msgType === "button" || msgType === "interactive") {
           const convo = await findOrCreateWhatsAppConversation(supabase, from, contactName);
           try {
             await ensureWhatsAppLeadCustomer(supabase, convo as never, from, contactName);
           } catch (err) {
             console.error("WA CRM link failed", err);
           }
-          const mediaKind = msg.type;
+          const body = (interactiveText || "Customer tapped a button").trim();
+          if (msg.id) {
+            const { data: dup } = await supabase
+              .from("messages")
+              .select("id")
+              .eq("org_id", ORG_ID)
+              .filter("metadata->>wa_message_id", "eq", msg.id)
+              .limit(1)
+              .maybeSingle();
+            if (dup) continue;
+          }
+          const { data: customerMsg, error: msgError } = await supabase
+            .from("messages")
+            .insert({
+              org_id: ORG_ID,
+              conversation_id: convo.id,
+              sender: "customer",
+              body,
+              metadata: {
+                wa_message_id: msg.id || null,
+                wa_from: from,
+                wa_type: msgType,
+                interactive: true,
+                button_payload: msg.button?.payload || msg.interactive?.button_reply?.id || null,
+              },
+            })
+            .select("*")
+            .single();
+          if (msgError) throw new Error(msgError.message);
+
+          const nowIso = new Date().toISOString();
+          const unread = Number(convo.unread_count || 0) + 1;
+          await supabase
+            .from("conversations")
+            .update({
+              wa_last_customer_at: nowIso,
+              last_message_at: nowIso,
+              preview: body.slice(0, 160),
+              unread_count: unread,
+              updated_at: nowIso,
+            })
+            .eq("id", convo.id);
+
+          results.push({
+            conversationId: convo.id as string,
+            messageId: customerMsg.id as string,
+          });
+
+          // Button tap saved for Inbox — never send "received your file".
+          // Soft thanks / "thank you for update" → silent (no bot reply).
+          continue;
+        } else if (msgType !== "text" && WA_MEDIA_TYPES.has(msgType)) {
+          // Real media only — save + human-like ack (no bot/agent wording)
+          const convo = await findOrCreateWhatsAppConversation(supabase, from, contactName);
+          try {
+            await ensureWhatsAppLeadCustomer(supabase, convo as never, from, contactName);
+          } catch (err) {
+            console.error("WA CRM link failed", err);
+          }
+          const mediaKind = msgType;
           const caption =
             msg.image?.caption ||
             msg.document?.caption ||
@@ -442,7 +532,13 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               wa_message_id: msg.id || null,
               wa_from: from,
               media_type: mediaKind,
-              media_id: msg.image?.id || msg.document?.id || msg.audio?.id || msg.video?.id || msg.sticker?.id || null,
+              media_id:
+                msg.image?.id ||
+                msg.document?.id ||
+                msg.audio?.id ||
+                msg.video?.id ||
+                msg.sticker?.id ||
+                null,
               file_name: msg.document?.filename || null,
             },
           });
@@ -476,13 +572,21 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
                 : mediaLang === "mr"
                   ? "Okay sir, voice note milala. Thoda thamba — mi lavkar reply karto. Model, serial ani problem type karu shakta."
                   : "Okay sir, I received your voice note. Please wait — I will reply shortly. You can also type the model, serial number, and problem."
-              : mediaLang === "hi" || mediaLang === "mixed"
-                ? "Okay sir, file mil gaya. Please thoda wait — main jaldi reply karta hoon. Model, serial aur problem type bhi kar sakte ho."
-                : mediaLang === "mr"
-                  ? "Okay sir, file milali. Thoda thamba — mi lavkar reply karto. Model, serial ani problem type karu shakta."
-                  : "Okay sir, I received your file. Please wait — I will reply shortly. You can also type the model, serial number, and problem.";
+              : mediaKind === "image"
+                ? mediaLang === "hi" || mediaLang === "mixed"
+                  ? "Okay sir, photo mil gayi. Please thoda wait — main jaldi reply karta hoon."
+                  : mediaLang === "mr"
+                    ? "Okay sir, photo milali. Thoda thamba — mi lavkar reply karto."
+                    : "Okay sir, I received your photo. Please wait — I will reply shortly."
+                : mediaLang === "hi" || mediaLang === "mixed"
+                  ? "Okay sir, file mil gaya. Please thoda wait — main jaldi reply karta hoon. Model, serial aur problem type bhi kar sakte ho."
+                  : mediaLang === "mr"
+                    ? "Okay sir, file milali. Thoda thamba — mi lavkar reply karto. Model, serial ani problem type karu shakta."
+                    : "Okay sir, I received your file. Please wait — I will reply shortly. You can also type the model, serial number, and problem.";
+          const outboundAck =
+            mediaKind === "image" && /not\s*work|fault|service|repair/i.test(caption) ? ack : mediaAck;
           try {
-            await sendWhatsAppText(from, mediaKind === "image" && /not\s*work|fault|service|repair/i.test(caption) ? ack : mediaAck, cfg);
+            await sendWhatsAppText(from, outboundAck, cfg);
           } catch (err) {
             console.error("WA media ack failed", err);
           }
@@ -490,14 +594,20 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             org_id: ORG_ID,
             conversation_id: convo.id,
             sender: "ai",
-            body: mediaAck,
-            metadata: { media_ack: true },
+            body: outboundAck,
+            metadata: { media_ack: true, media_type: mediaKind },
           });
           continue;
+        } else if (msgType !== "text") {
+          // reaction / location / contacts / unknown — ignore quietly (no file ack)
+          continue;
         }
-        const from = msg.from;
+
         const text = msg.text?.body?.trim();
         if (!from || !text) continue;
+
+        // Soft thanks also on plain text (parity with buttons)
+        // (handled later via isAckOnlyMessage / shouldSuppress — also gate soft update acks early after insert)
 
         // Dedupe by Meta message id in metadata
         if (msg.id) {
@@ -552,6 +662,11 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
         }
 
         results.push({ conversationId: convo.id as string, messageId: customerMsg.id as string });
+
+        // Plain-text soft thanks / "thank you for update" — save only
+        if (isSoftCustomerAckMessage(text) || isAckOnlyMessage(text)) {
+          continue;
+        }
 
         const previousWaLast =
           (convo.wa_last_customer_at as string | null | undefined) || null;

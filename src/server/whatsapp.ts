@@ -17,6 +17,9 @@ import {
   isAllowedWhatsAppGreetingTemplateName,
   shouldSuppressColdGreeting,
   isColdConversationStart,
+  resolveSalesOwnerGate,
+  salesPersonDeferReply,
+  isBusinessAutoReplyMessage,
 } from "@/lib/conversation-intent";
 import {
   wantsHumanHandoff,
@@ -767,6 +770,43 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             console.error("WA lead requirement lookup failed", err);
           }
 
+          // Sales-owned requirement (requirement_submitted + assigned rep): history-first
+          const salesGate = resolveSalesOwnerGate({ text, history: historyRows });
+          if (salesGate.action === "silent") {
+            continue;
+          }
+          if (salesGate.action === "defer") {
+            reply = salesPersonDeferReply({
+              lang: sessionLang,
+              salesName: salesGate.salesName,
+              salesPhone: salesGate.salesPhone,
+              requirement: salesGate.requirement || leadRequirement,
+            });
+            await supabase.from("messages").insert({
+              org_id: ORG_ID,
+              conversation_id: convo.id,
+              sender: "ai",
+              body: reply,
+              metadata: {
+                sales_owner_defer: true,
+                sales_name: salesGate.salesName,
+                sales_phone: salesGate.salesPhone,
+                requirement: salesGate.requirement || leadRequirement,
+              },
+            });
+            try {
+              await sendWhatsAppText(from, reply, cfg);
+            } catch (err) {
+              console.error("WA sales-owner defer send failed", err);
+            }
+            continue;
+          }
+
+          // Partner business auto-reply — never off-topic refuse
+          if (isBusinessAutoReplyMessage(text)) {
+            continue;
+          }
+
           // "ok" / "thanks" / soft "hi" on an active sales thread — save only, no bot reply
           if (
             shouldSuppressColdGreeting({
@@ -1412,6 +1452,10 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             } catch (err) {
               console.error("WA more-photos empty send failed", err);
             }
+            continue;
+          }
+
+          if (isBusinessAutoReplyMessage(text)) {
             continue;
           }
 

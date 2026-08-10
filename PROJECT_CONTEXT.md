@@ -302,6 +302,11 @@ Record decisions here so we don't re-debate.
 
 Brief notes from each working session — append, don't delete.
 
+### Session 2026-08-10 — Sales-owned requirement defer (no bot pricing)
+- After `requirement_submitted` + assigned rep (name/phone), price/quote/catalogue/product asks → defer: “Okay sir — Mr. X is handling… will share price shortly.”
+- Partner business auto-replies (“Thank you for contacting…”) → silent, never off-topic refuse.
+- Files: `conversation-intent.ts`, `whatsapp.ts`, `widget-chat.ts`.
+
 ### Session 2026-08-10 — WhatsApp CX: stop hello_world on soft “Hii”
 - After requirement/ack / “representative will contact” / human thread, soft `hi`/`ok` stays silent (no cold welcome).
 - Never send Meta sample templates (`hello_world`, test/demo); greeting template only via `WHATSAPP_GREETING_TEMPLATE_NAME` or allowlisted welcome_* names.

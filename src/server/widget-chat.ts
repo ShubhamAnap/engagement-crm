@@ -16,6 +16,9 @@ import {
   extractPowerHint,
   requirementConfirmReply,
   shouldSuppressColdGreeting,
+  resolveSalesOwnerGate,
+  salesPersonDeferReply,
+  isBusinessAutoReplyMessage,
 } from "@/lib/conversation-intent";
 import {
   wantsHumanHandoff,
@@ -1081,6 +1084,62 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       body: String(m.body || ""),
     }));
 
+    const salesGate = resolveSalesOwnerGate({ text, history: historyForContext });
+    if (salesGate.action === "silent") {
+      return {
+        messages: await getConversationMessages(supabase, data.conversationId),
+        reply: null,
+        source: "fallback",
+        aiPaused: false,
+        status: convo.status,
+      };
+    }
+    if (salesGate.action === "defer") {
+      const reply = salesPersonDeferReply({
+        lang: sessionLang,
+        salesName: salesGate.salesName,
+        salesPhone: salesGate.salesPhone,
+        requirement: salesGate.requirement || leadReqText,
+      });
+      await supabase.from("messages").insert({
+        org_id: ORG_ID,
+        conversation_id: data.conversationId,
+        sender: "ai",
+        body: reply,
+        metadata: {
+          sales_owner_defer: true,
+          sales_name: salesGate.salesName,
+          sales_phone: salesGate.salesPhone,
+          requirement: salesGate.requirement || leadReqText,
+        },
+      });
+      await supabase
+        .from("conversations")
+        .update({
+          preview: reply.slice(0, 160),
+          last_message_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", data.conversationId);
+      return {
+        messages: await getConversationMessages(supabase, data.conversationId),
+        reply,
+        source: "fallback",
+        aiPaused: false,
+        status: convo.status,
+      };
+    }
+
+    if (isBusinessAutoReplyMessage(text)) {
+      return {
+        messages: await getConversationMessages(supabase, data.conversationId),
+        reply: null,
+        source: "fallback",
+        aiPaused: false,
+        status: convo.status,
+      };
+    }
+
     if (
       shouldSuppressColdGreeting({
         text,
@@ -1620,6 +1679,16 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
         messages: await getConversationMessages(supabase, data.conversationId),
         reply,
         source: "openai",
+        aiPaused: false,
+        status: convo.status,
+      };
+    }
+
+    if (isBusinessAutoReplyMessage(text)) {
+      return {
+        messages: await getConversationMessages(supabase, data.conversationId),
+        reply: null,
+        source: "fallback",
         aiPaused: false,
         status: convo.status,
       };

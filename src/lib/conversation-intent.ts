@@ -99,6 +99,149 @@ export function shouldSuppressColdGreeting(options: {
   return false;
 }
 
+export type SalesOwnedContext = {
+  owned: boolean;
+  salesName: string | null;
+  salesPhone: string | null;
+  requirement: string | null;
+};
+
+/**
+ * Partner / dealer WhatsApp business greeting (not an EnerTech product question).
+ * Example: "Thank you for contacting AG Renewable… how can we help you? 🎈"
+ */
+export function isBusinessAutoReplyMessage(text: string): boolean {
+  const q = String(text || "").trim();
+  if (!q || q.length < 36) return false;
+  if (/thank you for contacting/i.test(q) && /how (can|may) we help/i.test(q)) return true;
+  if (/thank you for (contacting|reaching)/i.test(q) && /\bservices?\b/i.test(q) && q.length > 50) {
+    return true;
+  }
+  const emojiCount = (q.match(/\p{Extended_Pictographic}/gu) || []).length;
+  if (emojiCount >= 3 && /how (can|may) we help|thank you for contacting/i.test(q)) return true;
+  return false;
+}
+
+/**
+ * Parse sales ownership from requirement_submitted (or similar) outbound in history.
+ */
+export function resolveSalesOwnedFromHistory(
+  history: Array<{ sender: string; body: string }>,
+): SalesOwnedContext {
+  const recent = history.slice(-24).reverse();
+  for (const m of recent) {
+    if (m.sender === "customer") continue;
+    const body = String(m.body || "");
+    const isReqAck =
+      /\[Template:\s*requirement_submitted\]/i.test(body) ||
+      (/requirement\s*submitted\s*successfully/i.test(body) && REPRESENTATIVE_CONTACT_RE.test(body)) ||
+      (/your requirement for/i.test(body) && /will contact you shortly/i.test(body));
+    if (!isReqAck) continue;
+
+    const nameMatch =
+      body.match(/representative\s+\*?Mr\.?\s*([^*\n,]+?)\*?/i) ||
+      body.match(/Our representative\s+\*([^*]+)\*/i) ||
+      body.match(/\bMr\.?\s*([A-Za-z][A-Za-z.\s]{1,40}?)(?:\s+will|\*|,|\n|$)/i);
+    const phoneMatch =
+      body.match(/(?:reach him at|reach them at|at)\s*\*?(\+?\d[\d\s-]{8,18}\d)\*?/i) ||
+      body.match(/\*?(\+?91\d{10})\*?/) ||
+      body.match(/\*?([6-9]\d{9})\*?/);
+    const reqMatch =
+      body.match(/requirement for\s+\*([^*]+)\*/i) ||
+      body.match(/requirement for\s+(.+?)\s+has been submitted/i);
+
+    const salesName = nameMatch?.[1]?.replace(/\*/g, "").replace(/\s+/g, " ").trim() || null;
+    const salesPhone = phoneMatch?.[1] ? phoneMatch[1].replace(/\D/g, "") : null;
+    const requirement = reqMatch?.[1]?.replace(/\*/g, "").replace(/\s+/g, " ").trim().slice(0, 160) || null;
+
+    return {
+      owned: true,
+      salesName: salesName || null,
+      salesPhone: salesPhone && salesPhone.length >= 10 ? salesPhone : null,
+      requirement,
+    };
+  }
+  return { owned: false, salesName: null, salesPhone: null, requirement: null };
+}
+
+/** Price / quote / catalogue asks that belong to the assigned sales person. */
+export function wantsSalesOwnedCommercialDefer(text: string): boolean {
+  const q = String(text || "").trim();
+  if (!q) return false;
+  if (isEducateOnlyAsk(q)) return false;
+  if (PRICE_RE.test(q)) return true;
+  if (/\b(quotation|quote|proforma|commercial offer|best price)\b/i.test(q)) return true;
+  if (/\b(send|share|bhejo)\b[\s\S]{0,40}\b(price|rate|quote|quotation)\b/i.test(q)) return true;
+  if (/\b(price|rate|quote)\b[\s\S]{0,40}\b(send|share|bhejo|for|lucknow|pune|mumbai|delhi)\b/i.test(q)) {
+    return true;
+  }
+  if (/\b(catalogue|catalog|brochure|datasheet)\b/i.test(q)) return true;
+  // Generic transactional product ask while sales owns the requirement
+  if (hasTransactionalProductSignal(q)) return true;
+  return false;
+}
+
+export function salesPersonDeferReply(options: {
+  lang?: string | null;
+  salesName?: string | null;
+  salesPhone?: string | null;
+  requirement?: string | null;
+}): string {
+  const lang = (options.lang || "en").toLowerCase();
+  const name = (options.salesName || "our sales representative").replace(/\s+/g, " ").trim();
+  const phone = options.salesPhone ? options.salesPhone.replace(/\D/g, "") : "";
+  const phoneBit = phone
+    ? lang === "hi" || lang === "mixed"
+      ? ` Unse ${phone} pe bhi baat kar sakte ho.`
+      : lang === "mr"
+        ? ` Tyanna ${phone} var pan contact karu shakta.`
+        : ` You may also reach them at ${phone}.`
+    : "";
+
+  if (lang === "hi" || lang === "mixed") {
+    return `Ji sir — ${name} aapka requirement EnerTech taraf se handle kar rahe hain. Price aur details woh jaldi share karenge.${phoneBit}`
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  if (lang === "mr") {
+    return `Ho sir — ${name} tumcha requirement EnerTech kadeun handle karat ahet. Price ani details te lavkar share karneel.${phoneBit}`
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  return `Okay sir — ${name} is handling your requirement from EnerTech. They will share the price and details with you shortly.${phoneBit}`
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * History-first gate: after requirement_submitted + assigned rep, do not price-dump.
+ * Autoreply → silent; price/quote/catalogue → defer to sales person.
+ */
+export function resolveSalesOwnerGate(options: {
+  text: string;
+  history: Array<{ sender: string; body: string }>;
+}): SalesOwnedContext & {
+  action: "none" | "silent" | "defer";
+} {
+  const owned = resolveSalesOwnedFromHistory(options.history);
+  if (!owned.owned) return { ...owned, action: "none" };
+  if (isBusinessAutoReplyMessage(options.text) || isGreetingOnlyLike(options.text)) {
+    return { ...owned, action: "silent" };
+  }
+  if (wantsSalesOwnedCommercialDefer(options.text)) {
+    return { ...owned, action: "defer" };
+  }
+  return { ...owned, action: "none" };
+}
+
+function isGreetingOnlyLike(text: string): boolean {
+  const q = String(text || "").trim();
+  if (!q || q.length > 48) return false;
+  return /^(hi|hello|hey|hii|hlo|namaste|namaskar|good\s*(morning|afternoon|evening)|thanks|thank\s*you|ok|okay|ji)[\s!.]*$/i.test(
+    q,
+  );
+}
+
 /** True when the message is mainly asking for an explanation / concept. */
 export function isInformationalProductAsk(text: string): boolean {
   const q = String(text || "").trim();

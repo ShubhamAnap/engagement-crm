@@ -13,6 +13,10 @@ import {
   resolveActiveRequirement,
   extractPowerHint,
   requirementConfirmReply,
+  isBlockedWhatsAppGreetingTemplate,
+  isAllowedWhatsAppGreetingTemplateName,
+  shouldSuppressColdGreeting,
+  isColdConversationStart,
 } from "@/lib/conversation-intent";
 import {
   wantsHumanHandoff,
@@ -279,7 +283,7 @@ export async function findOrCreateWhatsAppConversation(
   return created;
 }
 
-/** When 24h window was closed, welcome via approved template (env or hello/welcome name match). */
+/** When 24h window was closed on a cold start, welcome via approved template only (never Meta samples). */
 async function sendGreetingTemplateFallback(options: {
   supabase: ReturnType<typeof createServiceSupabase>;
   toPhone: string;
@@ -288,6 +292,11 @@ async function sendGreetingTemplateFallback(options: {
   cfg: WhatsAppChannelConfig;
 }): Promise<boolean> {
   const envName = (process.env.WHATSAPP_GREETING_TEMPLATE_NAME || "").trim();
+  if (envName && isBlockedWhatsAppGreetingTemplate(envName)) {
+    console.warn("WHATSAPP_GREETING_TEMPLATE_NAME is a blocked Meta sample — skipping template greeting", envName);
+    return false;
+  }
+
   const { data: rows } = await options.supabase
     .from("wa_message_templates")
     .select("name, language, status, body_text")
@@ -302,10 +311,10 @@ async function sendGreetingTemplateFallback(options: {
     body_text?: string | null;
   }>).filter((t) => /approved/i.test(String(t.status || "")));
 
-  const pool = approved.length ? approved : [];
+  const pool = approved.filter((t) => !isBlockedWhatsAppGreetingTemplate(t.name));
   const hit =
     (envName ? pool.find((t) => t.name === envName) : null) ||
-    pool.find((t) => /hello|welcome|greet|enquiry|thank/i.test(t.name)) ||
+    pool.find((t) => isAllowedWhatsAppGreetingTemplateName(t.name)) ||
     null;
 
   if (!hit?.name) return false;
@@ -336,6 +345,23 @@ async function sendGreetingTemplateFallback(options: {
     console.error("WhatsApp greeting template failed", err);
     return false;
   }
+}
+
+function isHumanOwnedConversation(c: {
+  status?: string | null;
+  assignee_id?: string | null;
+  assignee_label?: string | null;
+}): boolean {
+  const status = String(c.status || "");
+  if (status === "human" || status === "escalated") return true;
+  if (c.assignee_id) return true;
+  const label = String(c.assignee_label || "").toLowerCase();
+  if (!label) return false;
+  if (/\bai\b/.test(label) || label.includes("enerbot") || label.includes("bot")) return false;
+  if (label.includes("human queue")) return true;
+  // Named agent / admin assignee without AI marker
+  if (!/support agent/.test(label) && label.length > 1) return true;
+  return false;
 }
 
 export async function handleWhatsAppInboundPayload(payload: unknown) {
@@ -564,6 +590,21 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             ? (convo.metadata as Record<string, unknown>)
             : {};
 
+        // Fresh ownership — avoid greeting/AI after human takeover (stale convo row)
+        let ownedByHuman = isHumanOwnedConversation(convo as never);
+        try {
+          const { data: freshOwn } = await supabase
+            .from("conversations")
+            .select("status, assignee_id, assignee_label")
+            .eq("id", convo.id)
+            .maybeSingle();
+          if (freshOwn) {
+            ownedByHuman = isHumanOwnedConversation(freshOwn as never);
+          }
+        } catch {
+          /* keep stale */
+        }
+
         // Recent customer lines for session language (before full AI path)
         const { data: langHist } = await supabase
           .from("messages")
@@ -625,8 +666,8 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           console.error("WA CRM link failed", err);
         }
 
-        // Escalated/human: still answer explicit language switch
-        if (status === "human" || status === "escalated") {
+        // Human / escalated / assigned agent: store customer msg only (language switch ack allowed)
+        if (ownedByHuman || status === "human" || status === "escalated") {
           const switchTo = explicitLanguageRequest(text);
           if (switchTo) {
             const ack = languageSwitchAck(switchTo);
@@ -726,7 +767,19 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             console.error("WA lead requirement lookup failed", err);
           }
 
-          // "ok" / "thanks" / "bye" — save customer msg only, no bot reply
+          // "ok" / "thanks" / soft "hi" on an active sales thread — save only, no bot reply
+          if (
+            shouldSuppressColdGreeting({
+              text,
+              history: historyRows,
+              leadRequirement,
+              isGreeting: isGreetingOnlyMessage(text),
+              isAck: isAckOnlyMessage(text),
+            })
+          ) {
+            continue;
+          }
+
           if (isAckOnlyMessage(text)) {
             continue;
           }
@@ -764,8 +817,12 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             continue;
           }
 
-          // Short greeting only — free text inside open 24h window; template when window was closed
+          // Cold-start greeting only — never Meta hello_world; template only when window was closed
           if (isGreetingOnlyMessage(text)) {
+            if (!isColdConversationStart(historyRows)) {
+              continue;
+            }
+
             const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
             const { data: priorGreet } = await supabase
               .from("messages")
@@ -798,7 +855,6 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
                 console.error("WhatsApp greeting send failed", err);
               }
             } else {
-              // Window was closed / first contact before this message — prefer approved template
               const sentTpl = await sendGreetingTemplateFallback({
                 supabase,
                 toPhone: from,
@@ -807,7 +863,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
                 cfg,
               });
               if (!sentTpl) {
-                // Customer just messaged so Meta allows free-form — last-resort welcome
+                // Prefer short free-text welcome over a wrong / sample template
                 await supabase.from("messages").insert({
                   org_id: ORG_ID,
                   conversation_id: convo.id,

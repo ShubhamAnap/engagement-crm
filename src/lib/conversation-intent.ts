@@ -23,8 +23,81 @@ const CONFIRM_PREFIX_RE =
 const REQUIREMENT_CONTEXT_RE =
   /requirement\s*submitted|requirement\s*received|thank\s*you\s*for\s*your\s*requirement|servo|stabilizer|stabiliser|ups|inverter|battery|hybrid|bess|enquiry|inquiry|lead|\[template:/i;
 
+/** Outbound that already promised human follow-up — don't re-welcome on "hi". */
+const REPRESENTATIVE_CONTACT_RE =
+  /\b(representative|will contact|contact you shortly|our team will|sales (?:person|executive|team)|call(?:\s*you)?(?:\s*back)?|callback|krishna|engineer will|executive will)\b/i;
+
 const PRODUCT_BROWSE_RE =
   /\b(inverters?|ups|hybrids?|batter(?:y|ies)|bess|solar|ongrid|offgrid|stabilizers?|servo)\b/i;
+
+/** Meta Cloud API sample / demo templates — never send to real customers. */
+export function isBlockedWhatsAppGreetingTemplate(name: string): boolean {
+  const n = String(name || "")
+    .trim()
+    .toLowerCase();
+  if (!n) return true;
+  if (n === "hello_world" || n.startsWith("hello_world")) return true;
+  if (/^(sample|test|demo)([_-]|$)/i.test(n)) return true;
+  if (/_test$|_sample$|_demo$/i.test(n)) return true;
+  return false;
+}
+
+/** True welcome-style names we may use when env is unset (still never hello_world). */
+export function isAllowedWhatsAppGreetingTemplateName(name: string): boolean {
+  if (isBlockedWhatsAppGreetingTemplate(name)) return false;
+  return /^(welcome|greet|enquiry_ack|inquiry_ack|thank_you|thanks)/i.test(String(name || "").trim());
+}
+
+/**
+ * Cold start = no prior AI/agent outbound and at most this one customer line.
+ * History may already include the just-saved customer message.
+ */
+export function isColdConversationStart(
+  history: Array<{ sender: string; body?: string }>,
+): boolean {
+  let outbound = 0;
+  let customers = 0;
+  for (const m of history) {
+    if (m.sender === "customer") customers += 1;
+    else if (m.sender === "ai" || m.sender === "agent" || m.sender === "system") outbound += 1;
+  }
+  return outbound === 0 && customers <= 1;
+}
+
+/** Thread already in sales/support handling — soft "hi/ok" must not reset to welcome. */
+export function hasActiveCustomerHandlingContext(
+  history: Array<{ sender: string; body: string }>,
+  leadRequirement?: string | null,
+): boolean {
+  if (String(leadRequirement || "").trim()) return true;
+  if (hasRecentRequirementContext(history, leadRequirement)) return true;
+  const recent = history.slice(-16);
+  for (const m of recent) {
+    if (m.sender === "agent") return true;
+    if (m.sender !== "ai" && m.sender !== "system") continue;
+    const body = String(m.body || "");
+    if (REPRESENTATIVE_CONTACT_RE.test(body)) return true;
+    if (REQUIREMENT_CONTEXT_RE.test(body)) return true;
+  }
+  return false;
+}
+
+/**
+ * Soft ping after an active thread: stay silent (or skip cold greeting).
+ * Prefer no reply over a wrong welcome / Meta sample template.
+ */
+export function shouldSuppressColdGreeting(options: {
+  text: string;
+  history: Array<{ sender: string; body: string }>;
+  leadRequirement?: string | null;
+  isGreeting: boolean;
+  isAck: boolean;
+}): boolean {
+  if (!options.isGreeting && !options.isAck) return false;
+  if (hasActiveCustomerHandlingContext(options.history, options.leadRequirement)) return true;
+  if (!isColdConversationStart(options.history)) return true;
+  return false;
+}
 
 /** True when the message is mainly asking for an explanation / concept. */
 export function isInformationalProductAsk(text: string): boolean {

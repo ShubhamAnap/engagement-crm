@@ -15,6 +15,7 @@ import {
   resolveActiveRequirement,
   extractPowerHint,
   requirementConfirmReply,
+  shouldSuppressColdGreeting,
 } from "@/lib/conversation-intent";
 import {
   wantsHumanHandoff,
@@ -1074,6 +1075,29 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       (leadRequirement?.requirement as string) ||
       (leadRequirement?.product_label as string) ||
       null;
+
+    const historyForContext = priorHistory.map((m) => ({
+      sender: m.sender as string,
+      body: String(m.body || ""),
+    }));
+
+    if (
+      shouldSuppressColdGreeting({
+        text,
+        history: historyForContext,
+        leadRequirement: leadReqText,
+        isGreeting: isGreetingOnlyMessage(text),
+        isAck: false,
+      })
+    ) {
+      return {
+        messages: await getConversationMessages(supabase, data.conversationId),
+        reply: null,
+        source: "fallback",
+        aiPaused: false,
+        status: convo.status,
+      };
+    }
 
     if (
       isRequirementConfirmAck(text) &&

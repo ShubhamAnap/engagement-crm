@@ -22,12 +22,14 @@ import {
   ENERTECH_ORG_ID,
   formatClock,
   formatRelativeTime,
+  getConversationById,
   listConversations,
   listMessages,
   markConversationRead,
   returnConversationToAi,
   sendAgentMessage,
   uploadAgentAttachment,
+  type InboxConversation,
 } from "@/lib/chat-api";
 import {
   listWaTemplates,
@@ -52,7 +54,19 @@ import { RecommendProductDialog } from "@/components/inbox/RecommendProductDialo
 import { SendWhatsAppTemplateDialog } from "@/components/inbox/SendWhatsAppTemplateDialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
-const filters = ["All", "Unread", "Assigned", "Website", "WhatsApp", "IndiaMART", "TradeIndia", "Instagram", "Facebook", "Email"];
+const filters = [
+  "All",
+  "Unread",
+  "Assigned",
+  "Website",
+  "WhatsApp",
+  "IndiaMART",
+  "TradeIndia",
+  "Brainmine",
+  "Instagram",
+  "Facebook",
+  "Email",
+];
 
 /** Map Inbox chip label → DB channel (null = no channel eq). */
 function inboxChannelParam(filter: string): string | null {
@@ -65,6 +79,8 @@ function inboxChannelParam(filter: string): string | null {
       return "indiamart";
     case "TradeIndia":
       return "tradeindia";
+    case "Brainmine":
+      return "brainmine";
     case "Instagram":
       return "instagram";
     case "Facebook":
@@ -73,6 +89,33 @@ function inboxChannelParam(filter: string): string | null {
       return "email";
     default:
       return null;
+  }
+}
+
+function inboxEmptyDescription(filter: string): string {
+  switch (filter) {
+    case "Unread":
+      return "No unread conversations right now.";
+    case "Assigned":
+      return "No assigned conversations yet.";
+    case "Website":
+      return "No submitted website contacts yet. When a visitor saves name and phone in the chatbot, they appear here.";
+    case "WhatsApp":
+      return "No WhatsApp threads yet. Inbound Meta messages will show here.";
+    case "IndiaMART":
+      return "No IndiaMART conversations yet. Synced enquiries with WhatsApp contact appear here.";
+    case "TradeIndia":
+      return "No TradeIndia conversations yet.";
+    case "Brainmine":
+      return "No Brainmine-linked conversations yet. Leads sync on Channels; chat threads appear when messaging starts.";
+    case "Instagram":
+      return "No Instagram conversations yet.";
+    case "Facebook":
+      return "No Facebook conversations yet.";
+    case "Email":
+      return "No email conversations yet.";
+    default:
+      return "When customers message any connected channel, threads appear here — newest reply on top.";
   }
 }
 const leadStatuses: LeadStatus[] = ["New", "Contacted", "Qualified", "Proposal", "Negotiation", "Won", "Lost"];
@@ -141,7 +184,8 @@ export const Route = createFileRoute("/inbox")({
       { title: "Omnichannel Inbox — EnerTech Engage" },
       {
         name: "description",
-        content: "Every website, WhatsApp, email, Instagram and Facebook conversation in one shared workspace.",
+        content:
+          "Every website, WhatsApp, email, IndiaMART, TradeIndia, Instagram and Facebook conversation in one shared workspace.",
       },
       { property: "og:title", content: "Omnichannel Inbox — EnerTech Engage" },
     ],
@@ -181,6 +225,7 @@ function Page() {
   const [returningToAi, setReturningToAi] = useState(false);
   const attachInputRef = useRef<HTMLInputElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const prevSelectedForScrollRef = useRef<string | null>(null);
   const [leadStatus, setLeadStatus] = useState<LeadStatus>("New");
   const [leadPriority, setLeadPriority] = useState<PriorityLevel>("Medium");
   const [layout, setLayout] = useState<Record<string, number> | undefined>(undefined);
@@ -237,6 +282,13 @@ function Page() {
     }
   }, [deepLinkId]);
 
+  const deepLinkQuery = useQuery({
+    queryKey: ["conversation", orgId, selectedId],
+    enabled: Boolean(selectedId) && !(conversationsQuery.data ?? []).some((c) => c.id === selectedId),
+    queryFn: () => getConversationById(selectedId!, orgId),
+    staleTime: 30_000,
+  });
+
   // Desktop only: auto-select first conversation so the middle pane isn't empty.
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -263,7 +315,9 @@ function Page() {
     void navigate({ to: "/inbox", search: {}, replace: true });
   }
 
-  const selected = conversations.find((c) => c.id === selectedId) ?? null;
+  const selected: InboxConversation | null =
+    conversations.find((c) => c.id === selectedId) ??
+    (deepLinkQuery.data && deepLinkQuery.data.id === selectedId ? deepLinkQuery.data : null);
 
   useEffect(() => {
     setLeadStatus(selected?.lead?.status ?? "New");
@@ -277,10 +331,15 @@ function Page() {
     refetchInterval: 4000,
   });
 
-  // Open thread at latest message (WhatsApp-style), not at the top of history
+  // Stick to bottom like WhatsApp; if user scrolled up, don't yank them down on poll.
   useLayoutEffect(() => {
     const el = messagesScrollRef.current;
     if (!el || messagesQuery.isLoading) return;
+    const switched = prevSelectedForScrollRef.current !== selectedId;
+    prevSelectedForScrollRef.current = selectedId;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const nearBottom = distanceFromBottom < 120;
+    if (!switched && !nearBottom && el.scrollTop > 0) return;
     const jump = () => {
       el.scrollTop = el.scrollHeight;
     };
@@ -608,11 +667,7 @@ function Page() {
           <div className="p-4">
             <EmptyState
               title="No conversations yet"
-              description={
-                channelFilter === "Website"
-                  ? "No submitted website contacts yet. When a visitor saves name, email, and phone in the chatbot, they appear here with their details."
-                  : "Open Website chat and send a message — it will appear here."
-              }
+              description={inboxEmptyDescription(channelFilter)}
             />
           </div>
         ) : (
@@ -753,7 +808,16 @@ function Page() {
 
       {!selected ? (
         <div className="flex min-h-0 flex-1 items-center justify-center p-6">
-          <EmptyState title="Select a conversation" description="Choose a thread from the left." />
+          {selectedId && deepLinkQuery.isLoading ? (
+            <p className="text-sm text-muted-foreground">Opening conversation…</p>
+          ) : selectedId && deepLinkQuery.isError ? (
+            <EmptyState
+              title="Conversation not found"
+              description="This thread may have been removed, or you don’t have access."
+            />
+          ) : (
+            <EmptyState title="Select a conversation" description="Choose a thread from the left." />
+          )}
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -1054,7 +1118,7 @@ function Page() {
       <div className={cn("shrink-0", mobileThreadOpen && "hidden lg:block")}>
         <PageHeader
           title="Omnichannel Inbox"
-          description="Live conversations from website chat and other channels."
+          description="Newest customer replies rise to the top — like WhatsApp."
           actions={
             <Button
               size="sm"

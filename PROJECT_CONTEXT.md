@@ -9,7 +9,7 @@
 
 Run **EnerTech Engage** as a **working enterprise AI customer engagement platform** for EnerTech UPS Pvt. Ltd., with architecture that can later become multi-tenant SaaS.
 
-**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Section polish in progress** — Dashboard data/UX fixes done (2026-08-10). Next: Inbox (or next module user picks); ops (migrations 029–030 if not done).
+**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Section polish:** Dashboard + Inbox (recent-on-top) done 2026-08-10. Next: next module user picks; ops (migrations 029–030 if not done).
 **Approach:** Prefer stabilize and ship focused improvements; new modules only when requested.
 
 ---
@@ -301,6 +301,12 @@ Record decisions here so we don't re-debate.
 ## Session Log
 
 Brief notes from each working session — append, don't delete.
+
+### Session 2026-08-10 — Inbox polish (recent-on-top)
+- List sorts by `last_message_at` (customer reply / any message bumps thread to top like WhatsApp); no longer primary-sort by `updated_at` (mark-as-read was reshuffling).
+- Deep link `/inbox?c=` loads conversation via `getConversationById` when outside current filter/list.
+- Brainmine filter chip; per-filter empty copy; smarter message auto-scroll (stick to bottom unless user scrolled up).
+- Files: `src/lib/chat-api.ts`, `src/routes/inbox.tsx`.
 
 ### Session 2026-08-10 — Dashboard section polish
 - Exact KPI counts (products/conversations/leads/customers/status/lead stages) — products no longer capped at 50.

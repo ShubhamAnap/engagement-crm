@@ -31,6 +31,9 @@ export type ListConversationsOptions = {
   limit?: number;
 };
 
+const CONVERSATION_SELECT =
+  "*, customer:customers(id, name, company, email, phone), lead:leads(id, name, company, status, score, priority, product_label)";
+
 export async function listConversations(
   orgId: string = ENERTECH_ORG_ID,
   options: ListConversationsOptions = {},
@@ -40,9 +43,7 @@ export async function listConversations(
 
   let query = supabase
     .from("conversations")
-    .select(
-      "*, customer:customers(id, name, company, email, phone), lead:leads(id, name, company, status, score, priority, product_label)",
-    )
+    .select(CONVERSATION_SELECT)
     .eq("org_id", orgId);
 
   if (options.channel) {
@@ -55,17 +56,18 @@ export async function listConversations(
     query = query.or("assignee_id.not.is.null,assignee_label.not.is.null");
   }
 
-  // Prefer activity time: messages update last_message_at; form/create update updated_at
+  // WhatsApp-style: latest message activity first (customer reply bumps thread to top).
+  // Do not primary-sort by updated_at — mark-as-read also bumps updated_at.
   const { data, error } = await query
-    .order("updated_at", { ascending: false })
     .order("last_message_at", { ascending: false, nullsFirst: false })
+    .order("updated_at", { ascending: false })
     .limit(limit);
 
   if (error) throw error;
 
   const rows = (data ?? []) as InboxConversation[];
   // Website: only show chats after chatbot contact form (real name + phone) — hide anonymous opens
-  return rows.filter((c) => {
+  const visible = rows.filter((c) => {
     if (c.channel !== "website") return true;
     const phone = (c.visitor_phone || c.customer?.phone || "").replace(/\D/g, "");
     const name = (c.customer?.name || c.visitor_name || "").trim();
@@ -75,6 +77,29 @@ export async function listConversations(
       name.toLowerCase() === "visitor";
     return phone.length >= 10 && !anon;
   });
+
+  // Stable client sort after website filter (null last_message_at → created_at)
+  return visible.sort((a, b) => {
+    const ta = new Date(a.last_message_at || a.created_at || 0).getTime();
+    const tb = new Date(b.last_message_at || b.created_at || 0).getTime();
+    return tb - ta;
+  });
+}
+
+/** Single conversation for deep links when the row is outside the current list/filter. */
+export async function getConversationById(
+  conversationId: string,
+  orgId: string = ENERTECH_ORG_ID,
+): Promise<InboxConversation | null> {
+  const supabase = getBrowserSupabase();
+  const { data, error } = await supabase
+    .from("conversations")
+    .select(CONVERSATION_SELECT)
+    .eq("org_id", orgId)
+    .eq("id", conversationId)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as InboxConversation | null) ?? null;
 }
 
 export async function listMessages(conversationId: string): Promise<DbMessage[]> {
@@ -277,9 +302,7 @@ export async function listHandoffQueue(orgId: string = ENERTECH_ORG_ID): Promise
 
   const { data, error } = await supabase
     .from("conversations")
-    .select(
-      "*, customer:customers(id, name, company, email, phone), lead:leads(id, name, company, status, score, priority, product_label)",
-    )
+    .select(CONVERSATION_SELECT)
     .eq("org_id", orgId)
     .in("status", ["escalated", "human", "resolved"])
     .order("updated_at", { ascending: false })

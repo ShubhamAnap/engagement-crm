@@ -434,6 +434,22 @@ async function executeLeafAction(
         language: action.language || "en",
         bodyParams: bodyParams.length ? bodyParams : undefined,
       });
+      try {
+        const { logWhatsAppTemplateSendToInbox } = await import("@/server/whatsapp-broadcast");
+        await logWhatsAppTemplateSendToInbox({
+          conversationId: ctx.conversationId || null,
+          phone,
+          visitorName: ctx.leadName || null,
+          templateName: action.templateName,
+          language: action.language || "en",
+          bodyParams: bodyParams.length ? bodyParams : undefined,
+          waMessageId: waId,
+          sender: "ai",
+          automation: true,
+        });
+      } catch (err) {
+        console.error("Failed to log automation WhatsApp template to Inbox", err);
+      }
       return `send_whatsapp_template=${action.templateName}:${waId || "ok"}→${phone}`;
     }
     case "send_email": {

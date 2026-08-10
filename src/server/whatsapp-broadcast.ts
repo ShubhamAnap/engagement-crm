@@ -576,6 +576,107 @@ export async function sendWhatsAppTemplateMessage(options: {
   return json.messages?.[0]?.id || null;
 }
 
+/**
+ * Persist an outbound template send into Inbox chat (automation / system sends).
+ * Finds or creates the WhatsApp conversation for the phone when conversationId is missing.
+ */
+export async function logWhatsAppTemplateSendToInbox(options: {
+  conversationId?: string | null;
+  phone: string;
+  visitorName?: string | null;
+  templateName: string;
+  language?: string;
+  bodyParams?: string[];
+  waMessageId?: string | null;
+  /** agent = human Inbox send; ai = automation / bot */
+  sender?: "ai" | "agent" | "system";
+  automation?: boolean;
+  automationName?: string | null;
+  /** Extra metadata flags (e.g. greeting: true) */
+  extraMetadata?: Record<string, unknown>;
+}): Promise<{ conversationId: string; messageId: string } | null> {
+  const supabase = createServiceSupabase();
+  const { normalizeWhatsAppDigits } = await import("@/lib/whatsapp-window");
+  const phone = normalizeWhatsAppDigits(options.phone);
+  if (!phone) return null;
+
+  let conversationId = options.conversationId || null;
+  if (conversationId) {
+    const { data: existing } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("id", conversationId)
+      .eq("org_id", ORG_ID)
+      .maybeSingle();
+    if (!existing) conversationId = null;
+  }
+
+  if (!conversationId) {
+    const { findOrCreateWhatsAppConversation } = await import("@/server/whatsapp");
+    const convo = await findOrCreateWhatsAppConversation(
+      supabase,
+      phone,
+      options.visitorName || undefined,
+    );
+    conversationId = convo.id as string;
+  }
+
+  const params = options.bodyParams || [];
+  let previewBody = options.templateName;
+  // Prefer filled body text from local template library when available
+  const { data: tpl } = await supabase
+    .from("wa_message_templates")
+    .select("name, body_text, language")
+    .eq("org_id", ORG_ID)
+    .eq("name", options.templateName)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (tpl?.body_text) {
+    previewBody = String(tpl.body_text);
+    params.forEach((val, i) => {
+      previewBody = previewBody.replace(new RegExp(`\\{\\{${i + 1}\\}\\}`, "g"), val || "");
+    });
+  } else if (params.length) {
+    previewBody = `${options.templateName}: ${params.join(" · ")}`;
+  }
+
+  const now = new Date().toISOString();
+  const body = `[Template: ${options.templateName}] ${previewBody}`.slice(0, 8000);
+  const { data: msg, error } = await supabase
+    .from("messages")
+    .insert({
+      org_id: ORG_ID,
+      conversation_id: conversationId,
+      sender: options.sender || "ai",
+      body,
+      metadata: {
+        whatsapp_template: true,
+        template_name: options.templateName,
+        template_language: options.language || tpl?.language || "en",
+        wa_message_id: options.waMessageId || null,
+        body_params: params,
+        automation: Boolean(options.automation),
+        automation_name: options.automationName || null,
+        ...(options.extraMetadata || {}),
+      },
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(error.message);
+
+  await supabase
+    .from("conversations")
+    .update({
+      last_message_at: now,
+      preview: body.slice(0, 160),
+      updated_at: now,
+    })
+    .eq("id", conversationId);
+
+  return { conversationId, messageId: msg.id as string };
+}
+
 export const runWhatsAppBroadcast = createServerFn({ method: "POST" })
   .validator(z.object({ broadcastId: z.string().uuid() }))
   .handler(async ({ data }) => {

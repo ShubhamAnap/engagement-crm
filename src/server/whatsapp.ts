@@ -217,7 +217,7 @@ async function getWhatsAppChannelId(supabase: ReturnType<typeof createServiceSup
   return data?.id as string | undefined;
 }
 
-async function findOrCreateWhatsAppConversation(
+export async function findOrCreateWhatsAppConversation(
   supabase: ReturnType<typeof createServiceSupabase>,
   phone: string,
   profileName?: string,
@@ -269,6 +269,65 @@ async function findOrCreateWhatsAppConversation(
 
   if (error) throw new Error(error.message);
   return created;
+}
+
+/** When 24h window was closed, welcome via approved template (env or hello/welcome name match). */
+async function sendGreetingTemplateFallback(options: {
+  supabase: ReturnType<typeof createServiceSupabase>;
+  toPhone: string;
+  conversationId: string;
+  visitorName?: string | null;
+  cfg: WhatsAppChannelConfig;
+}): Promise<boolean> {
+  const envName = (process.env.WHATSAPP_GREETING_TEMPLATE_NAME || "").trim();
+  const { data: rows } = await options.supabase
+    .from("wa_message_templates")
+    .select("name, language, status, body_text")
+    .eq("org_id", ORG_ID)
+    .order("updated_at", { ascending: false })
+    .limit(40);
+
+  const approved = ((rows || []) as Array<{
+    name: string;
+    language?: string;
+    status?: string;
+    body_text?: string | null;
+  }>).filter((t) => /approved/i.test(String(t.status || "")));
+
+  const pool = approved.length ? approved : [];
+  const hit =
+    (envName ? pool.find((t) => t.name === envName) : null) ||
+    pool.find((t) => /hello|welcome|greet|enquiry|thank/i.test(t.name)) ||
+    null;
+
+  if (!hit?.name) return false;
+
+  try {
+    const { sendWhatsAppTemplateMessage, logWhatsAppTemplateSendToInbox } = await import(
+      "@/server/whatsapp-broadcast"
+    );
+    const waId = await sendWhatsAppTemplateMessage({
+      toPhone: options.toPhone,
+      templateName: hit.name,
+      language: hit.language || "en",
+      cfg: options.cfg,
+    });
+    await logWhatsAppTemplateSendToInbox({
+      conversationId: options.conversationId,
+      phone: options.toPhone,
+      visitorName: options.visitorName,
+      templateName: hit.name,
+      language: hit.language || "en",
+      waMessageId: waId,
+      sender: "ai",
+      automation: false,
+      extraMetadata: { greeting: true, greeting_mode: "template" },
+    });
+    return true;
+  } catch (err) {
+    console.error("WhatsApp greeting template failed", err);
+    return false;
+  }
 }
 
 export async function handleWhatsAppInboundPayload(payload: unknown) {
@@ -457,6 +516,9 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
 
         results.push({ conversationId: convo.id as string, messageId: customerMsg.id as string });
 
+        const previousWaLast =
+          (convo.wa_last_customer_at as string | null | undefined) || null;
+
         // Open Meta window on matching IndiaMART/TradeIndia threads (same phone)
         try {
           const { normalizeWhatsAppDigits } = await import("@/lib/whatsapp-window");
@@ -614,20 +676,63 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             continue;
           }
 
-          // Short greeting only
+          // Short greeting only — free text inside open 24h window; template when window was closed
           if (isGreetingOnlyMessage(text)) {
+            const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+            const { data: priorGreet } = await supabase
+              .from("messages")
+              .select("id")
+              .eq("conversation_id", convo.id)
+              .eq("sender", "ai")
+              .gte("created_at", since)
+              .filter("metadata->>greeting", "eq", "true")
+              .limit(1)
+              .maybeSingle();
+            if (priorGreet) {
+              continue;
+            }
+
+            const { getWhatsAppWindow } = await import("@/lib/whatsapp-window");
+            const prevWin = getWhatsAppWindow(previousWaLast);
             reply = greetingReplyForLang(sessionLang);
-            await supabase.from("messages").insert({
-              org_id: ORG_ID,
-              conversation_id: convo.id,
-              sender: "ai",
-              body: reply,
-              metadata: { greeting: true },
-            });
-            try {
-              await sendWhatsAppText(from, reply, cfg);
-            } catch (err) {
-              console.error("WhatsApp greeting send failed", err);
+
+            if (prevWin.open) {
+              await supabase.from("messages").insert({
+                org_id: ORG_ID,
+                conversation_id: convo.id,
+                sender: "ai",
+                body: reply,
+                metadata: { greeting: true, greeting_mode: "free_text" },
+              });
+              try {
+                await sendWhatsAppText(from, reply, cfg);
+              } catch (err) {
+                console.error("WhatsApp greeting send failed", err);
+              }
+            } else {
+              // Window was closed / first contact before this message — prefer approved template
+              const sentTpl = await sendGreetingTemplateFallback({
+                supabase,
+                toPhone: from,
+                conversationId: convo.id as string,
+                visitorName: (convo.visitor_name as string) || contactName || null,
+                cfg,
+              });
+              if (!sentTpl) {
+                // Customer just messaged so Meta allows free-form — last-resort welcome
+                await supabase.from("messages").insert({
+                  org_id: ORG_ID,
+                  conversation_id: convo.id,
+                  sender: "ai",
+                  body: reply,
+                  metadata: { greeting: true, greeting_mode: "free_text_fallback" },
+                });
+                try {
+                  await sendWhatsAppText(from, reply, cfg);
+                } catch (err) {
+                  console.error("WhatsApp greeting fallback send failed", err);
+                }
+              }
             }
             continue;
           }

@@ -792,36 +792,8 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
 
           if (mediaKind === "sticker") continue;
 
-          const mediaLang = sessionLangFromHistory(
-            caption || "please check",
-            null,
-            normalizeStoredLang(
-              convo.metadata && typeof convo.metadata === "object"
-                ? (convo.metadata as Record<string, unknown>).preferred_lang
-                : null,
-            ),
-          );
-          const ack = humanWaitReplyForLang(mediaLang);
-          const mediaAck =
-            mediaKind === "audio"
-              ? mediaLang === "hi" || mediaLang === "mixed"
-                ? "Okay sir, voice note mil gaya. Please thoda wait — main jaldi reply karta hoon. Model, serial aur problem type bhi kar sakte ho."
-                : mediaLang === "mr"
-                  ? "Okay sir, voice note milala. Thoda thamba — mi lavkar reply karto. Model, serial ani problem type karu shakta."
-                  : "Okay sir, I received your voice note. Please wait — I will reply shortly. You can also type the model, serial number, and problem."
-              : mediaKind === "image"
-                ? mediaLang === "hi" || mediaLang === "mixed"
-                  ? "Okay sir, photo mil gayi. Please thoda wait — main jaldi reply karta hoon."
-                  : mediaLang === "mr"
-                    ? "Okay sir, photo milali. Thoda thamba — mi lavkar reply karto."
-                    : "Okay sir, I received your photo. Please wait — I will reply shortly."
-                : mediaLang === "hi" || mediaLang === "mixed"
-                  ? "Okay sir, file mil gaya. Please thoda wait — main jaldi reply karta hoon. Model, serial aur problem type bhi kar sakte ho."
-                  : mediaLang === "mr"
-                    ? "Okay sir, file milali. Thoda thamba — mi lavkar reply karto. Model, serial ani problem type karu shakta."
-                    : "Okay sir, I received your file. Please wait — I will reply shortly. You can also type the model, serial number, and problem.";
-          const outboundAck =
-            mediaKind === "image" && /not\s*work|fault|service|repair/i.test(caption) ? ack : mediaAck;
+          // Keep media ack minimal — no long "received your file / type model" scripts.
+          const outboundAck = "Okay sir.";
           let ackWamid: string | null = null;
           try {
             const ackJson = await sendWhatsAppText(from, outboundAck, cfg);

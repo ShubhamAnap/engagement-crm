@@ -236,9 +236,7 @@ export async function uploadAgentAttachment(options: {
   const { data: pub } = supabase.storage.from(ATTACH_BUCKET).getPublicUrl(storagePath);
   const url = pub.publicUrl;
   const isImage = mime.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(lower);
-  const body = isImage
-    ? `Shared an image: ${safeName}\n${url}`
-    : `Shared a file: ${safeName}\n${url}`;
+  const body = isImage ? `Shared an image: ${safeName}` : `Shared a file: ${safeName}`;
 
   return sendAgentMessage(conversationId, body, profileId, orgId, assigneeLabel, {
     attachment: true,

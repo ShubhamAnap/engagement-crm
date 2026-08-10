@@ -1889,6 +1889,13 @@ export const sendWhatsAppAgentReply = createServerFn({ method: "POST" })
     z.object({
       conversationId: z.string().uuid(),
       body: z.string().min(1).max(4000),
+      attachment: z
+        .object({
+          url: z.string().url(),
+          fileName: z.string().min(1).max(200),
+          mimeType: z.string().max(120).optional(),
+        })
+        .optional(),
     }),
   )
   .handler(async ({ data }) => {
@@ -1941,7 +1948,27 @@ export const sendWhatsAppAgentReply = createServerFn({ method: "POST" })
       normalizeWhatsAppDigits(String(convo.widget_session_id || "").replace(/^wa:/, ""));
     if (!phone) throw new Error("WhatsApp recipient phone missing on conversation");
 
-    await sendWhatsAppText(phone, data.body);
+    if (data.attachment?.url) {
+      const fileName = data.attachment.fileName;
+      const mime = (data.attachment.mimeType || "").toLowerCase();
+      const isImage =
+        mime.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(fileName);
+      if (isImage) {
+        await sendWhatsAppImage({
+          toPhone: phone,
+          imageUrl: data.attachment.url,
+          caption: fileName,
+        });
+      } else {
+        await sendWhatsAppDocument({
+          toPhone: phone,
+          documentUrl: data.attachment.url,
+          fileName,
+        });
+      }
+    } else {
+      await sendWhatsAppText(phone, data.body);
+    }
     return { ok: true, window: win, via: marketplace ? channel : "whatsapp" };
   });
 

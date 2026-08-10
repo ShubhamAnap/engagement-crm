@@ -520,9 +520,22 @@ function Page() {
         file,
       });
       const body = msg.body as string;
+      const meta = (msg.metadata || {}) as Record<string, unknown>;
+      const attachmentUrl = typeof meta.url === "string" ? meta.url : null;
+      const fileName =
+        (typeof meta.file_name === "string" && meta.file_name) || file.name || "file";
+      const mimeType = typeof meta.mime_type === "string" ? meta.mime_type : file.type || undefined;
       if (waOutbound && waCanCloudApi) {
         const { sendWhatsAppAgentReply } = await import("@/server/whatsapp");
-        await sendWhatsAppAgentReply({ data: { conversationId: selected.id, body } });
+        await sendWhatsAppAgentReply({
+          data: {
+            conversationId: selected.id,
+            body,
+            ...(attachmentUrl
+              ? { attachment: { url: attachmentUrl, fileName, mimeType } }
+              : {}),
+          },
+        });
       }
       if (selected.channel === "email") {
         const { sendEmailAgentReply } = await import("@/server/email");

@@ -24,7 +24,22 @@ export type AiAnswerRow = {
   memory: string;
   model: string;
   grounded: boolean;
+  /** Customer message immediately before this AI reply (if found). */
+  customerQuestion: string | null;
 };
+
+export type AiAnswerStats = {
+  answersToday: number;
+  groundedPct: number;
+  hallucinationFlags: number;
+  sampleSize: number;
+};
+
+function startOfTodayIso(): string {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today.toISOString();
+}
 
 function parseSources(raw: unknown): InspectorSource[] {
   if (!Array.isArray(raw)) return [];
@@ -46,21 +61,42 @@ function parseSources(raw: unknown): InspectorSource[] {
     .filter(Boolean) as InspectorSource[];
 }
 
+function riskFromMessage(msg: Pick<DbMessage, "confidence" | "metadata" | "sources">): "Low" | "Medium" | "High" {
+  const meta = (msg.metadata || {}) as Record<string, unknown>;
+  if (meta.hallucination_risk === "High" || meta.hallucination_risk === "Medium" || meta.hallucination_risk === "Low") {
+    return meta.hallucination_risk;
+  }
+  const confidence = msg.confidence != null ? Number(msg.confidence) : 0.7;
+  const sources = parseSources(msg.sources);
+  const grounded = meta.grounded === true || sources.length > 0;
+  if (!grounded) return "High";
+  if (confidence >= 0.8) return "Low";
+  if (confidence >= 0.65) return "Medium";
+  return "High";
+}
+
+function isGroundedMessage(msg: Pick<DbMessage, "metadata" | "sources">): boolean {
+  const meta = (msg.metadata || {}) as Record<string, unknown>;
+  const sources = parseSources(msg.sources);
+  return meta.grounded === true || sources.length > 0;
+}
+
 function parseInspector(msg: DbMessage): Omit<
   AiAnswerRow,
-  "message" | "conversationId" | "externalRef" | "customer" | "channel" | "agentLabel" | "preview" | "whenLabel"
+  | "message"
+  | "conversationId"
+  | "externalRef"
+  | "customer"
+  | "channel"
+  | "agentLabel"
+  | "preview"
+  | "whenLabel"
+  | "customerQuestion"
 > {
   const meta = (msg.metadata || {}) as Record<string, unknown>;
   const sources = parseSources(msg.sources);
   const confidence = msg.confidence != null ? Number(msg.confidence) : 0.7;
-  const risk =
-    meta.hallucination_risk === "High" || meta.hallucination_risk === "Medium" || meta.hallucination_risk === "Low"
-      ? meta.hallucination_risk
-      : confidence >= 0.8
-        ? "Low"
-        : confidence >= 0.65
-          ? "Medium"
-          : "High";
+  const risk = riskFromMessage(msg);
   const reasoning = Array.isArray(meta.reasoning)
     ? meta.reasoning.map(String)
     : [
@@ -77,8 +113,51 @@ function parseInspector(msg: DbMessage): Omit<
     reasoning,
     memory: typeof meta.memory === "string" ? meta.memory : "Session memory from conversation history.",
     model: typeof meta.model === "string" ? meta.model : "gpt-4o-mini",
-    grounded: meta.grounded === true || sources.length > 0,
+    grounded: isGroundedMessage(msg),
   };
+}
+
+async function loadPriorCustomerQuestions(
+  orgId: string,
+  aiMessages: DbMessage[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!aiMessages.length) return out;
+
+  const supabase = getBrowserSupabase();
+  const convoIds = [...new Set(aiMessages.map((m) => m.conversation_id))];
+  const oldestAiMs = Math.min(...aiMessages.map((m) => new Date(m.created_at).getTime()));
+  // Look back so the question just before the oldest AI reply is still included
+  const sinceIso = new Date(oldestAiMs - 48 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from("messages")
+    .select("id, conversation_id, body, created_at, sender")
+    .eq("org_id", orgId)
+    .eq("sender", "customer")
+    .in("conversation_id", convoIds)
+    .gte("created_at", sinceIso)
+    .order("created_at", { ascending: true })
+    .limit(1000);
+  if (error || !data?.length) return out;
+
+  const byConvo = new Map<string, Array<{ id: string; conversation_id: string; body: string; created_at: string }>>();
+  for (const row of data) {
+    const list = byConvo.get(row.conversation_id as string) ?? [];
+    list.push(row as { id: string; conversation_id: string; body: string; created_at: string });
+    byConvo.set(row.conversation_id as string, list);
+  }
+
+  for (const ai of aiMessages) {
+    const prior = byConvo.get(ai.conversation_id) ?? [];
+    let best: { body: string; created_at: string } | null = null;
+    for (const m of prior) {
+      if (m.created_at >= ai.created_at) continue;
+      if (!best || m.created_at > best.created_at) best = m;
+    }
+    if (best?.body) out.set(ai.id, best.body);
+  }
+  return out;
 }
 
 export async function listRecentAiAnswers(orgId: string, limit = 40): Promise<AiAnswerRow[]> {
@@ -96,12 +175,15 @@ export async function listRecentAiAnswers(orgId: string, limit = 40): Promise<Ai
   if (!msgs.length) return [];
 
   const convoIds = [...new Set(msgs.map((m) => m.conversation_id))];
-  const { data: convos, error: cErr } = await supabase
-    .from("conversations")
-    .select(
-      "id, external_ref, channel, assignee_label, visitor_name, preview, customer:customers(name)",
-    )
-    .in("id", convoIds);
+  const [{ data: convos, error: cErr }, questionsByAiId] = await Promise.all([
+    supabase
+      .from("conversations")
+      .select(
+        "id, external_ref, channel, assignee_label, visitor_name, preview, customer:customers(name)",
+      )
+      .in("id", convoIds),
+    loadPriorCustomerQuestions(orgId, msgs),
+  ]);
   if (cErr) throw cErr;
 
   const byId = new Map((convos ?? []).map((c) => [c.id as string, c]));
@@ -120,22 +202,48 @@ export async function listRecentAiAnswers(orgId: string, limit = 40): Promise<Ai
       agentLabel: (c?.assignee_label as string) || "AI · Support",
       preview: m.body.slice(0, 160),
       whenLabel: formatRelativeTime(m.created_at),
+      customerQuestion: questionsByAiId.get(m.id) ?? null,
       ...parsed,
     };
   });
 }
 
-export async function getAiAnswerStats(orgId: string) {
-  const rows = await listRecentAiAnswers(orgId, 100);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayRows = rows.filter((r) => new Date(r.message.created_at) >= today);
-  const grounded = todayRows.filter((r) => r.grounded).length;
-  const highRisk = todayRows.filter((r) => r.hallucinationRisk === "High").length;
+export async function getAiAnswerStats(orgId: string): Promise<AiAnswerStats> {
+  const supabase = getBrowserSupabase();
+  const since = startOfTodayIso();
+
+  const [answersTodayRes, todayMsgsRes, sampleRows] = await Promise.all([
+    supabase
+      .from("messages")
+      .select("id", { count: "exact", head: true })
+      .eq("org_id", orgId)
+      .eq("sender", "ai")
+      .gte("created_at", since),
+    supabase
+      .from("messages")
+      .select("id, confidence, sources, metadata, created_at")
+      .eq("org_id", orgId)
+      .eq("sender", "ai")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(500),
+    listRecentAiAnswers(orgId, 100),
+  ]);
+
+  if (answersTodayRes.error) throw answersTodayRes.error;
+  if (todayMsgsRes.error) throw todayMsgsRes.error;
+
+  const answersToday = answersTodayRes.count ?? 0;
+  const todayMsgs = (todayMsgsRes.data ?? []) as Array<
+    Pick<DbMessage, "id" | "confidence" | "sources" | "metadata" | "created_at">
+  >;
+  const grounded = todayMsgs.filter((m) => isGroundedMessage(m)).length;
+  const highRisk = todayMsgs.filter((m) => riskFromMessage(m) === "High").length;
+
   return {
-    answersToday: todayRows.length || rows.length,
-    groundedPct: todayRows.length ? Math.round((grounded / todayRows.length) * 1000) / 10 : 0,
+    answersToday,
+    groundedPct: todayMsgs.length ? Math.round((grounded / todayMsgs.length) * 1000) / 10 : 0,
     hallucinationFlags: highRisk,
-    sampleSize: rows.length,
+    sampleSize: sampleRows.length,
   };
 }

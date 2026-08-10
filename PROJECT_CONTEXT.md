@@ -9,7 +9,7 @@
 
 Run **EnerTech Engage** as a **working enterprise AI customer engagement platform** for EnerTech UPS Pvt. Ltd., with architecture that can later become multi-tenant SaaS.
 
-**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Section polish:** Dashboard + Inbox + AI Chat Support (2026-08-10). Next: next module user picks; ops (migrations 029–030 if not done).
+**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Section polish:** Dashboard + Inbox (WhatsApp-like send/receive A+B+C: inbound media download/preview, silent delivery/read ticks, day separators, realtime, multiline drafts) + AI Chat Support (2026-08-10). Next: next module user picks; ops (migrations 029–030 if not done). Ensure Supabase Realtime is enabled on `messages`/`conversations` for live Inbox.
 **Approach:** Prefer stabilize and ship focused improvements; new modules only when requested.
 
 ---
@@ -301,6 +301,13 @@ Record decisions here so we don't re-debate.
 ## Session Log
 
 Brief notes from each working session — append, don't delete.
+
+### Session 2026-08-10 — Inbox WhatsApp-like A+B+C
+- **A:** Inbound WA media downloaded from Meta → Supabase `knowledge` bucket; Inbox preview for image/PDF/audio/video; media sets `wa_last_customer_at` (24h window); list previews `📷/📄/🎤/🎬`.
+- **B:** Multiline composer + per-conversation drafts; stamp outbound `wa_message_id` + `wa_status=sent` after Cloud API send; pin scroll after send/attach.
+- **C:** Meta `statuses` (delivered/read/failed) update message ticks **only** — never bump conversation / unread / preview; day separators; Supabase Realtime on messages+conversations (poll fallback).
+- Files: `whatsapp.ts`, `chat-api.ts`, `inbox.tsx`, `chat-scroll.ts`, `PROJECT_CONTEXT.md`.
+- Ops: enable Realtime publication for `messages` and `conversations` in Supabase if ticks/live list feel delayed.
 
 ### Session 2026-08-10 — WhatsApp button ≠ file
 - Interactive/button replies: save real button title in Inbox; never “I received your file”.

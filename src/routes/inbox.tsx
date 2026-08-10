@@ -13,9 +13,22 @@ import {
   ListSkeleton,
 } from "@/components/shared/ui-kit";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Clock, ExternalLink, LayoutGrid, Package, Paperclip, RefreshCw, Send, ArrowLeft, User, Bot } from "lucide-react";
+import {
+  Check,
+  CheckCheck,
+  Clock,
+  ExternalLink,
+  LayoutGrid,
+  Package,
+  Paperclip,
+  RefreshCw,
+  Send,
+  ArrowLeft,
+  User,
+  Bot,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import {
@@ -26,11 +39,13 @@ import {
   listConversations,
   listMessages,
   markConversationRead,
+  patchMessageMetadata,
   returnConversationToAi,
   sendAgentMessage,
   uploadAgentAttachment,
   type InboxConversation,
 } from "@/lib/chat-api";
+import { getBrowserSupabase } from "@/lib/supabase";
 import {
   listWaTemplates,
   sendInboxWhatsAppTemplate,
@@ -123,8 +138,99 @@ function inboxEmptyDescription(filter: string): string {
 function cleanInboxPreview(preview: string | null | undefined): string {
   const raw = String(preview || "").trim();
   if (!raw) return "No messages yet";
-  return raw.replace(/^\[Template:\s*[^\]]+\]\s*/i, "").trim() || raw;
+  let text = raw.replace(/^\[Template:\s*[^\]]+\]\s*/i, "").trim() || raw;
+  if (/^📷|^📄|^🎤|^🎬/u.test(text) || /^\[(image|document|audio|video|sticker)\]/i.test(text)) {
+    const first = text.split("\n")[0]?.trim() || text;
+    if (/^\[image\]/i.test(first)) return "📷 Photo";
+    if (/^\[document\]/i.test(first)) return "📄 Document";
+    if (/^\[audio\]/i.test(first)) return "🎤 Voice note";
+    if (/^\[video\]/i.test(first)) return "🎬 Video";
+    if (/^\[sticker\]/i.test(first)) return "Sticker";
+    return first.slice(0, 80);
+  }
+  return text;
 }
+
+function dayDividerLabel(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const today = new Date();
+  const startToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const startMsg = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((startToday.getTime() - startMsg.getTime()) / 86_400_000);
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+}
+
+function sameCalendarDay(a: string, b: string): boolean {
+  const da = new Date(a);
+  const db = new Date(b);
+  return (
+    da.getFullYear() === db.getFullYear() &&
+    da.getMonth() === db.getMonth() &&
+    da.getDate() === db.getDate()
+  );
+}
+
+type MessageAttach = {
+  url: string;
+  fileName: string;
+  isImage: boolean;
+  isAudio: boolean;
+  isVideo: boolean;
+  isDocument: boolean;
+  mimeType: string;
+};
+
+function messageAttachment(m: DbMessage): MessageAttach | null {
+  const meta = (m.metadata || {}) as Record<string, unknown>;
+  const url = typeof meta.url === "string" ? meta.url : null;
+  const mimeType = String(meta.mime_type || "").toLowerCase();
+  const mediaType = String(meta.media_type || "").toLowerCase();
+  const fileName =
+    (typeof meta.file_name === "string" && meta.file_name) ||
+    (url ? decodeURIComponent(url.split("/").pop() || "file") : "file");
+  if (url) {
+    const isImage =
+      mimeType.startsWith("image/") ||
+      mediaType === "image" ||
+      mediaType === "sticker" ||
+      /\.(png|jpe?g|webp|gif)(\?|$)/i.test(fileName) ||
+      /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
+    const isAudio =
+      mimeType.startsWith("audio/") ||
+      mediaType === "audio" ||
+      /\.(ogg|mp3|m4a|wav|opus)(\?|$)/i.test(fileName);
+    const isVideo =
+      mimeType.startsWith("video/") ||
+      mediaType === "video" ||
+      /\.(mp4|3gp|mov|webm)(\?|$)/i.test(fileName);
+    const isDocument = !isImage && !isAudio && !isVideo;
+    return { url, fileName, isImage, isAudio, isVideo, isDocument, mimeType };
+  }
+  if (meta.attachment) {
+    const match = m.body.match(/https?:\/\/\S+/);
+    if (match) {
+      return {
+        url: match[0],
+        fileName,
+        isImage: /\.(png|jpe?g|webp|gif)(\?|$)/i.test(match[0]),
+        isAudio: false,
+        isVideo: false,
+        isDocument: true,
+        mimeType,
+      };
+    }
+  }
+  return null;
+}
+
+function messageWaStatus(m: DbMessage): string | null {
+  const status = (m.metadata as { wa_status?: unknown } | null)?.wa_status;
+  return typeof status === "string" ? status.toLowerCase() : null;
+}
+
 const leadStatuses: LeadStatus[] = ["New", "Contacted", "Qualified", "Proposal", "Negotiation", "Won", "Lost"];
 const leadPriorities: PriorityLevel[] = ["High", "Medium", "Low"];
 const LAYOUT_KEY = "enertech-inbox-layout-v1";
@@ -134,32 +240,6 @@ function waTone(tone: WhatsAppWindowState["tone"]): "success" | "warning" | "dan
   if (tone === "warn") return "warning";
   if (tone === "critical" || tone === "closed") return "danger";
   return "neutral";
-}
-
-function messageAttachment(m: DbMessage): { url: string; fileName: string; isImage: boolean } | null {
-  const meta = (m.metadata || {}) as Record<string, unknown>;
-  const url = typeof meta.url === "string" ? meta.url : null;
-  const fileName =
-    (typeof meta.file_name === "string" && meta.file_name) ||
-    (url ? decodeURIComponent(url.split("/").pop() || "file") : "file");
-  if (url) {
-    const isImage =
-      String(meta.mime_type || "").startsWith("image/") ||
-      /\.(png|jpe?g|webp|gif)(\?|$)/i.test(fileName) ||
-      /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
-    return { url, fileName, isImage };
-  }
-  if (meta.attachment) {
-    const match = m.body.match(/https?:\/\/\S+/);
-    if (match) {
-      return {
-        url: match[0],
-        fileName,
-        isImage: /\.(png|jpe?g|webp|gif)(\?|$)/i.test(match[0]),
-      };
-    }
-  }
-  return null;
 }
 
 function messageReferenceImages(
@@ -222,7 +302,20 @@ function Page() {
   /** Mobile: list-first; open thread full-screen after tap (or deep link). */
   const [mobileThreadOpen, setMobileThreadOpen] = useState(() => Boolean(deepLinkId));
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
-  const [draft, setDraft] = useState("");
+  const [draftByConversation, setDraftByConversation] = useState<Record<string, string>>({});
+  const draft = selectedId ? draftByConversation[selectedId] || "" : "";
+  function setDraft(value: string) {
+    if (!selectedId) return;
+    setDraftByConversation((prev) => ({ ...prev, [selectedId]: value }));
+  }
+  function clearDraft(conversationId: string) {
+    setDraftByConversation((prev) => {
+      if (!(conversationId in prev)) return prev;
+      const next = { ...prev };
+      delete next[conversationId];
+      return next;
+    });
+  }
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [sendingTemplate, setSendingTemplate] = useState(false);
@@ -299,10 +392,47 @@ function Page() {
     }
   }, [deepLinkId]);
 
-  // Don't carry a half-written reply into another thread
+  // Live Inbox: Realtime for messages + conversation list (poll remains as fallback).
   useEffect(() => {
-    setDraft("");
-  }, [selectedId]);
+    if (!orgId) return;
+    const supabase = getBrowserSupabase();
+    const channel = supabase
+      .channel(`inbox-conversations-${orgId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "conversations", filter: `org_id=eq.${orgId}` },
+        () => {
+          void queryClient.invalidateQueries({ queryKey: ["conversations", orgId] });
+        },
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [orgId, queryClient]);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const supabase = getBrowserSupabase();
+    const channel = supabase
+      .channel(`inbox-messages-${selectedId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "messages",
+          filter: `conversation_id=eq.${selectedId}`,
+        },
+        () => {
+          void queryClient.invalidateQueries({ queryKey: ["messages", selectedId] });
+        },
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [selectedId, queryClient]);
 
   const deepLinkQuery = useQuery({
     queryKey: ["conversation", orgId, selectedId],
@@ -469,7 +599,8 @@ function Page() {
     setSending(true);
     try {
       const body = draft.trim();
-      await sendAgentMessage(
+      pinToBottom();
+      const saved = await sendAgentMessage(
         selected.id,
         body,
         profile.id,
@@ -478,7 +609,13 @@ function Page() {
       );
       if (waOutbound && waCanCloudApi) {
         const { sendWhatsAppAgentReply } = await import("@/server/whatsapp");
-        await sendWhatsAppAgentReply({ data: { conversationId: selected.id, body } });
+        const result = await sendWhatsAppAgentReply({ data: { conversationId: selected.id, body } });
+        if (result?.waMessageId) {
+          await patchMessageMetadata(saved.id, {
+            wa_message_id: result.waMessageId,
+            wa_status: "sent",
+          });
+        }
       } else if (waCanAppFallback && waPhone) {
         window.open(whatsappMeUrl(waPhone, body), "_blank", "noopener,noreferrer");
       }
@@ -490,7 +627,8 @@ function Page() {
         const { sendMetaAgentReply } = await import("@/server/meta-messenger");
         await sendMetaAgentReply({ data: { conversationId: selected.id, body } });
       }
-      setDraft("");
+      clearDraft(selected.id);
+      pinToBottom();
       await queryClient.invalidateQueries({ queryKey: ["messages", selected.id] });
       await queryClient.invalidateQueries({ queryKey: ["conversations", orgId] });
       toast.success(
@@ -526,6 +664,7 @@ function Page() {
     }
     setUploading(true);
     try {
+      pinToBottom();
       const msg = await uploadAgentAttachment({
         conversationId: selected.id,
         orgId,
@@ -541,7 +680,7 @@ function Page() {
       const mimeType = typeof meta.mime_type === "string" ? meta.mime_type : file.type || undefined;
       if (waOutbound && waCanCloudApi) {
         const { sendWhatsAppAgentReply } = await import("@/server/whatsapp");
-        await sendWhatsAppAgentReply({
+        const result = await sendWhatsAppAgentReply({
           data: {
             conversationId: selected.id,
             body,
@@ -550,6 +689,12 @@ function Page() {
               : {}),
           },
         });
+        if (result?.waMessageId) {
+          await patchMessageMetadata(msg.id, {
+            wa_message_id: result.waMessageId,
+            wa_status: "sent",
+          });
+        }
       }
       if (selected.channel === "email") {
         const { sendEmailAgentReply } = await import("@/server/email");
@@ -561,6 +706,7 @@ function Page() {
       }
       await queryClient.invalidateQueries({ queryKey: ["messages", selected.id] });
       await queryClient.invalidateQueries({ queryKey: ["conversations", orgId] });
+      pinToBottom();
       toast.success("Attachment shared in conversation");
     } catch (err) {
       console.error(err);
@@ -704,8 +850,8 @@ function Page() {
           >
             {f}
           </button>
-        ))}
-      </div>
+              ))}
+            </div>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {conversationsQuery.isLoading ? (
           <div className="p-3">
@@ -735,7 +881,7 @@ function Page() {
             />
           </div>
         ) : (
-          <ul className="divide-y divide-border">
+            <ul className="divide-y divide-border">
             {conversations.map((c) => {
               const active = c.id === selectedId;
               const name = c.customer?.name || c.visitor_name || c.visitor_email || "Visitor";
@@ -754,7 +900,7 @@ function Page() {
                       active ? "bg-secondary/70" : "hover:bg-secondary/40",
                     )}
                   >
-                    <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2">
                       <ChannelIcon
                         channel={(c.channel as ChannelType) || "website"}
                         className="shrink-0 text-muted-foreground"
@@ -763,7 +909,7 @@ function Page() {
                       <span className="num shrink-0 text-[11px] text-muted-foreground">
                         {formatRelativeTime(c.last_message_at || c.created_at)}
                       </span>
-                    </div>
+                  </div>
                     <p className="mt-1 truncate text-xs text-muted-foreground">
                       {cleanInboxPreview(c.preview)}
                     </p>
@@ -786,12 +932,12 @@ function Page() {
                           {c.unread_count}
                         </Pill>
                       )}
-                    </div>
+                  </div>
                   </button>
                 </li>
               );
             })}
-          </ul>
+            </ul>
         )}
       </div>
     </CardPanel>
@@ -911,36 +1057,53 @@ function Page() {
                 <p className="text-sm text-muted-foreground">No messages in this thread yet.</p>
               ) : (
                 <>
-                {(messagesQuery.data ?? []).map((m) => {
+                {(messagesQuery.data ?? []).map((m, idx, all) => {
                   const isCustomer = m.sender === "customer";
                   const isSystem = m.sender === "system";
                   const isAi = m.sender === "ai";
                   const attach = messageAttachment(m);
                   const refImages = messageReferenceImages(m);
+                  const waStatus = messageWaStatus(m);
+                  const prev = idx > 0 ? all[idx - 1] : null;
+                  const showDay = !prev || !sameCalendarDay(prev.created_at, m.created_at);
                   const caption = attach
                     ? m.body
                         .replace(attach.url, "")
                         .replace(/\n+/g, " ")
+                        .replace(/^📷\s*Photo\s*/u, "")
+                        .replace(/^📄\s*/u, "")
+                        .replace(/^🎤\s*Voice note\s*/u, "")
+                        .replace(/^🎬\s*Video\s*/u, "")
+                        .replace(/^Shared (an image|a file):\s*/i, "")
                         .replace(/^Reference photo:\s*.*$/i, "")
                         .trim()
                     : m.body.replace(/!\[[^\]]*\]\([^)]+\)/g, "").trim();
+                  const dayChip = showDay ? (
+                    <div key={`day-${m.id}`} className="flex justify-center px-2 py-1">
+                      <span className="rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                        {dayDividerLabel(m.created_at)}
+                      </span>
+                    </div>
+                  ) : null;
                   if (isSystem) {
                     return (
-                      <div key={m.id} className="flex justify-center px-2">
-                        <p className="max-w-[90%] rounded-lg bg-muted/60 px-3 py-1.5 text-center text-xs text-muted-foreground">
-                          {caption || m.body}
-                          <span className="num mt-0.5 block text-[10px] opacity-80">
-                            {formatClock(m.created_at)}
-                          </span>
-                        </p>
+                      <div key={m.id}>
+                        {dayChip}
+                        <div className="flex justify-center px-2">
+                          <p className="max-w-[90%] rounded-lg bg-muted/60 px-3 py-1.5 text-center text-xs text-muted-foreground">
+                            {caption || m.body}
+                            <span className="num mt-0.5 block text-[10px] opacity-80">
+                              {formatClock(m.created_at)}
+                            </span>
+                          </p>
+                        </div>
                       </div>
                     );
                   }
                   return (
-                    <div
-                      key={m.id}
-                      className={isCustomer ? "flex justify-start" : "flex justify-end"}
-                    >
+                    <div key={m.id}>
+                      {dayChip}
+                      <div className={isCustomer ? "flex justify-start" : "flex justify-end"}>
                       <div className="max-w-[min(88%,28rem)] sm:max-w-[min(78%,28rem)]">
                         <div
                           className={
@@ -955,11 +1118,26 @@ function Page() {
                             <a href={attach.url} target="_blank" rel="noreferrer" className="block">
                               <img
                                 src={attach.url}
-                                alt="Reference photo"
-                                className="mb-1 max-h-48 max-w-full rounded-lg object-contain"
+                                alt={attach.fileName || "Photo"}
+                                className="mb-1 max-h-56 max-w-full rounded-lg object-contain"
+                                loading="lazy"
                               />
                               {caption ? <p className="whitespace-pre-wrap">{caption}</p> : null}
                             </a>
+                          ) : attach?.isVideo ? (
+                            <div className="space-y-1">
+                              <video
+                                src={attach.url}
+                                controls
+                                className="max-h-56 max-w-full rounded-lg bg-black/10"
+                              />
+                              {caption ? <p className="whitespace-pre-wrap">{caption}</p> : null}
+                            </div>
+                          ) : attach?.isAudio ? (
+                            <div className="space-y-1">
+                              <audio src={attach.url} controls className="w-full max-w-xs" />
+                              {caption ? <p className="whitespace-pre-wrap text-xs opacity-90">{caption}</p> : null}
+                            </div>
                           ) : attach ? (
                             <p>
                               {caption ? `${caption} — ` : null}
@@ -1005,11 +1183,29 @@ function Page() {
                           <span className="capitalize">
                             {isAi ? "AI" : m.sender === "agent" ? "Agent" : m.sender}
                           </span>
+                          {!isCustomer && waStatus === "failed" ? (
+                            <span className="text-destructive">Failed</span>
+                          ) : !isCustomer && (waStatus === "read" || waStatus === "delivered" || waStatus === "sent") ? (
+                            <span
+                              className={cn(
+                                "inline-flex items-center",
+                                waStatus === "read" ? "text-sky-500" : "text-muted-foreground",
+                              )}
+                              title={waStatus}
+                            >
+                              {waStatus === "sent" ? (
+                                <Check className="size-3.5" />
+                              ) : (
+                                <CheckCheck className="size-3.5" />
+                              )}
+                            </span>
+                          ) : null}
                           {m.confidence != null ? (
                             <Pill tone="success">conf {Number(m.confidence).toFixed(2)}</Pill>
                           ) : null}
                         </div>
                       </div>
+                    </div>
                     </div>
                   );
                 })}
@@ -1067,7 +1263,7 @@ function Page() {
                 </div>
               </div>
             ) : null}
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-end gap-1.5">
               <input
                 ref={attachInputRef}
                 type="file"
@@ -1118,8 +1314,9 @@ function Page() {
                   <Package className="size-4" />
                 </Button>
               ) : null}
-              <Input
-                className="h-10 min-w-0 flex-1 text-base sm:h-9 sm:text-sm"
+              <Textarea
+                className="min-h-10 max-h-32 min-w-0 flex-1 resize-none py-2.5 text-base sm:text-sm"
+                rows={1}
                 placeholder={
                   needsTemplate
                     ? "Free-form blocked — click Template…"
@@ -1297,7 +1494,7 @@ function Page() {
         ) : (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-border bg-card">
             {!isLg ? conversationThread : null}
-          </div>
+        </div>
         )}
       </div>
 

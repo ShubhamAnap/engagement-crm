@@ -192,6 +192,25 @@ export async function sendAgentMessage(
   return data as DbMessage;
 }
 
+export async function patchMessageMetadata(
+  messageId: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  const supabase = getBrowserSupabase();
+  const { data: row, error: readError } = await supabase
+    .from("messages")
+    .select("metadata")
+    .eq("id", messageId)
+    .maybeSingle();
+  if (readError) throw readError;
+  const prev = ((row?.metadata || {}) as Record<string, unknown>) || {};
+  const { error } = await supabase
+    .from("messages")
+    .update({ metadata: { ...prev, ...patch } })
+    .eq("id", messageId);
+  if (error) throw error;
+}
+
 const ATTACH_BUCKET = "knowledge";
 
 /** Agent uploads image/PDF into a conversation (Inbox paperclip). */

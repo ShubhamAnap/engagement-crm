@@ -125,6 +125,171 @@ export async function sendWhatsAppText(toPhone: string, body: string, cfg?: What
   return json;
 }
 
+/** Meta Graph `messages[0].id` (wamid) from a successful send response. */
+export function extractWhatsAppOutboundId(json: Record<string, unknown> | null | undefined): string | null {
+  const messages = json?.messages as Array<{ id?: string }> | undefined;
+  const id = messages?.[0]?.id;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
+/**
+ * Download inbound WhatsApp media from Meta and store in public knowledge bucket
+ * so Inbox can preview/play like WhatsApp Web.
+ */
+export async function downloadAndStoreWhatsAppMedia(options: {
+  mediaId: string;
+  conversationId: string;
+  mediaKind: string;
+  fileNameHint?: string | null;
+  mimeHint?: string | null;
+  cfg?: WhatsAppChannelConfig;
+}): Promise<{ url: string; storagePath: string; mimeType: string; fileName: string } | null> {
+  const config = options.cfg || (await loadWhatsAppConfig());
+  if (!config.access_token) return null;
+
+  const metaRes = await fetch(`${GRAPH_BASE}/${options.mediaId}`, {
+    headers: { Authorization: `Bearer ${config.access_token}` },
+  });
+  const metaJson = (await metaRes.json().catch(() => ({}))) as {
+    url?: string;
+    mime_type?: string;
+    error?: { message?: string };
+  };
+  if (!metaRes.ok || !metaJson.url) {
+    console.error("WA media metadata failed", metaJson.error?.message || metaRes.status);
+    return null;
+  }
+
+  const binRes = await fetch(metaJson.url, {
+    headers: { Authorization: `Bearer ${config.access_token}` },
+  });
+  if (!binRes.ok) {
+    console.error("WA media binary download failed", binRes.status);
+    return null;
+  }
+  const buffer = Buffer.from(await binRes.arrayBuffer());
+  const mimeType =
+    (metaJson.mime_type || options.mimeHint || binRes.headers.get("content-type") || "application/octet-stream")
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+
+  const extFromMime =
+    mimeType === "image/jpeg" || mimeType === "image/jpg"
+      ? "jpg"
+      : mimeType === "image/png"
+        ? "png"
+        : mimeType === "image/webp"
+          ? "webp"
+          : mimeType === "image/gif"
+            ? "gif"
+            : mimeType === "application/pdf"
+              ? "pdf"
+              : mimeType.includes("ogg")
+                ? "ogg"
+                : mimeType.includes("mpeg") || mimeType === "audio/mp3"
+                  ? "mp3"
+                  : mimeType.includes("mp4")
+                    ? "mp4"
+                    : mimeType.includes("3gpp")
+                      ? "3gp"
+                      : options.mediaKind === "sticker"
+                        ? "webp"
+                        : options.mediaKind === "audio"
+                          ? "ogg"
+                          : options.mediaKind === "video"
+                            ? "mp4"
+                            : options.mediaKind === "image"
+                              ? "jpg"
+                              : "bin";
+
+  const rawName = (options.fileNameHint || `${options.mediaKind}.${extFromMime}`).replace(
+    /[^\w.\-()+ ]+/g,
+    "_",
+  );
+  const fileName = /\.[a-z0-9]+$/i.test(rawName) ? rawName.slice(0, 120) : `${rawName.slice(0, 100)}.${extFromMime}`;
+  const storagePath = `chat/${ORG_ID}/${options.conversationId}/inbound-${Date.now()}-${fileName}`;
+
+  const supabase = createServiceSupabase();
+  try {
+    const { ensureKnowledgeStorage } = await import("@/server/knowledge");
+    await ensureKnowledgeStorage();
+  } catch (err) {
+    console.warn("ensureKnowledgeStorage (inbound media)", err);
+  }
+
+  const { error: uploadError } = await supabase.storage.from("knowledge").upload(storagePath, buffer, {
+    contentType: mimeType,
+    upsert: false,
+  });
+  if (uploadError) {
+    console.error("WA media storage upload failed", uploadError.message);
+    return null;
+  }
+
+  const base = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+  const url = `${base.replace(/\/$/, "")}/storage/v1/object/public/knowledge/${storagePath}`;
+  return { url, storagePath, mimeType, fileName };
+}
+
+const WA_STATUS_RANK: Record<string, number> = {
+  failed: 0,
+  pending: 1,
+  sent: 2,
+  delivered: 3,
+  read: 4,
+};
+
+/**
+ * Meta delivery/read receipts — update message ticks ONLY.
+ * Must never insert messages, bump unread, preview, or last_message_at.
+ */
+async function applyWhatsAppStatusUpdates(
+  supabase: ReturnType<typeof createServiceSupabase>,
+  statuses: Array<{
+    id?: string;
+    status?: string;
+    timestamp?: string;
+    errors?: Array<{ message?: string; code?: number }>;
+  }>,
+) {
+  for (const st of statuses) {
+    const wamid = st.id;
+    const status = String(st.status || "").toLowerCase();
+    if (!wamid || !status) continue;
+    if (!["sent", "delivered", "read", "failed"].includes(status)) continue;
+
+    const { data: row } = await supabase
+      .from("messages")
+      .select("id, metadata")
+      .eq("org_id", ORG_ID)
+      .filter("metadata->>wa_message_id", "eq", wamid)
+      .limit(1)
+      .maybeSingle();
+    if (!row) continue;
+
+    const meta = ((row.metadata || {}) as Record<string, unknown>) || {};
+    const prev = String(meta.wa_status || "").toLowerCase();
+    const prevRank = WA_STATUS_RANK[prev] ?? -1;
+    const nextRank = WA_STATUS_RANK[status] ?? -1;
+    if (status !== "failed" && nextRank <= prevRank) continue;
+
+    const nextMeta: Record<string, unknown> = {
+      ...meta,
+      wa_status: status,
+      wa_status_at: st.timestamp
+        ? new Date(Number(st.timestamp) * 1000).toISOString()
+        : new Date().toISOString(),
+    };
+    if (status === "failed") {
+      nextMeta.wa_error = st.errors?.[0]?.message || "failed";
+    }
+
+    // Message row only — never touch conversations (no "chat activity" from read/seen).
+    await supabase.from("messages").update({ metadata: nextMeta }).eq("id", row.id);
+  }
+}
+
 export async function sendWhatsAppImage(options: {
   toPhone: string;
   imageUrl: string;
@@ -415,6 +580,13 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
         value?: {
           contacts?: Array<{ profile?: { name?: string }; wa_id?: string }>;
           messages?: WaInboundMsg[];
+          statuses?: Array<{
+            id?: string;
+            status?: string;
+            timestamp?: string;
+            recipient_id?: string;
+            errors?: Array<{ message?: string; code?: number }>;
+          }>;
         };
       }>;
     }>;
@@ -425,7 +597,18 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
   for (const entry of root.entry || []) {
     for (const change of entry.changes || []) {
       const value = change.value;
-      if (!value?.messages?.length) continue;
+      if (!value) continue;
+
+      // Delivery / read / seen — ticks only. Do NOT open or bump conversations.
+      if (value.statuses?.length) {
+        try {
+          await applyWhatsAppStatusUpdates(supabase, value.statuses);
+        } catch (err) {
+          console.error("WA status update failed", err);
+        }
+      }
+
+      if (!value.messages?.length) continue;
       const contactName = value.contacts?.[0]?.profile?.name;
 
       for (const msg of value.messages) {
@@ -494,7 +677,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           // Soft thanks / "thank you for update" → silent (no bot reply).
           continue;
         } else if (msgType !== "text" && WA_MEDIA_TYPES.has(msgType)) {
-          // Real media only — save + human-like ack (no bot/agent wording)
+          // Real media — download to storage, preview in Inbox, open 24h window
           const convo = await findOrCreateWhatsAppConversation(supabase, from, contactName);
           try {
             await ensureWhatsAppLeadCustomer(supabase, convo as never, from, contactName);
@@ -510,9 +693,19 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           const fileHint =
             msg.document?.filename ||
             (mediaKind === "audio" ? "voice note" : mediaKind === "image" ? "photo" : mediaKind);
-          const body = caption
-            ? `[${mediaKind}] ${caption}`
-            : `[${mediaKind}] Customer shared ${fileHint}`;
+          const previewLabel =
+            mediaKind === "image"
+              ? "📷 Photo"
+              : mediaKind === "document"
+                ? `📄 ${msg.document?.filename || "Document"}`
+                : mediaKind === "audio"
+                  ? "🎤 Voice note"
+                  : mediaKind === "video"
+                    ? "🎬 Video"
+                    : mediaKind === "sticker"
+                      ? "Sticker"
+                      : "Attachment";
+          const body = caption ? `${previewLabel}\n${caption}` : previewLabel;
           if (msg.id) {
             const { data: dup } = await supabase
               .from("messages")
@@ -523,35 +716,79 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               .maybeSingle();
             if (dup) continue;
           }
-          await supabase.from("messages").insert({
-            org_id: ORG_ID,
-            conversation_id: convo.id,
-            sender: "customer",
-            body,
-            metadata: {
-              wa_message_id: msg.id || null,
-              wa_from: from,
-              media_type: mediaKind,
-              media_id:
-                msg.image?.id ||
-                msg.document?.id ||
-                msg.audio?.id ||
-                msg.video?.id ||
-                msg.sticker?.id ||
-                null,
-              file_name: msg.document?.filename || null,
-            },
-          });
+
+          const mediaId =
+            msg.image?.id ||
+            msg.document?.id ||
+            msg.audio?.id ||
+            msg.video?.id ||
+            msg.sticker?.id ||
+            null;
+          const mimeHint =
+            msg.image?.mime_type ||
+            msg.document?.mime_type ||
+            msg.audio?.mime_type ||
+            msg.video?.mime_type ||
+            null;
+
+          let stored: Awaited<ReturnType<typeof downloadAndStoreWhatsAppMedia>> = null;
+          if (mediaId) {
+            try {
+              stored = await downloadAndStoreWhatsAppMedia({
+                mediaId,
+                conversationId: convo.id as string,
+                mediaKind,
+                fileNameHint: msg.document?.filename || fileHint,
+                mimeHint,
+                cfg,
+              });
+            } catch (err) {
+              console.error("WA media download/store failed", err);
+            }
+          }
+
+          const { data: customerMsg, error: mediaInsertErr } = await supabase
+            .from("messages")
+            .insert({
+              org_id: ORG_ID,
+              conversation_id: convo.id,
+              sender: "customer",
+              body,
+              metadata: {
+                wa_message_id: msg.id || null,
+                wa_from: from,
+                media_type: mediaKind,
+                media_id: mediaId,
+                attachment: Boolean(stored?.url),
+                file_name: stored?.fileName || msg.document?.filename || null,
+                mime_type: stored?.mimeType || mimeHint,
+                storage_path: stored?.storagePath || null,
+                url: stored?.url || null,
+              },
+            })
+            .select("id")
+            .single();
+          if (mediaInsertErr) throw new Error(mediaInsertErr.message);
+
+          const nowIso = new Date().toISOString();
           const unread = Number(convo.unread_count || 0) + 1;
           await supabase
             .from("conversations")
             .update({
-              last_message_at: new Date().toISOString(),
+              wa_last_customer_at: nowIso,
+              last_message_at: nowIso,
               preview: body.slice(0, 160),
               unread_count: unread,
-              updated_at: new Date().toISOString(),
+              updated_at: nowIso,
             })
             .eq("id", convo.id);
+
+          if (customerMsg?.id) {
+            results.push({
+              conversationId: convo.id as string,
+              messageId: customerMsg.id as string,
+            });
+          }
 
           if (mediaKind === "sticker") continue;
 
@@ -585,8 +822,10 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
                     : "Okay sir, I received your file. Please wait — I will reply shortly. You can also type the model, serial number, and problem.";
           const outboundAck =
             mediaKind === "image" && /not\s*work|fault|service|repair/i.test(caption) ? ack : mediaAck;
+          let ackWamid: string | null = null;
           try {
-            await sendWhatsAppText(from, outboundAck, cfg);
+            const ackJson = await sendWhatsAppText(from, outboundAck, cfg);
+            ackWamid = extractWhatsAppOutboundId(ackJson as Record<string, unknown>);
           } catch (err) {
             console.error("WA media ack failed", err);
           }
@@ -595,7 +834,11 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             conversation_id: convo.id,
             sender: "ai",
             body: outboundAck,
-            metadata: { media_ack: true, media_type: mediaKind },
+            metadata: {
+              media_ack: true,
+              media_type: mediaKind,
+              ...(ackWamid ? { wa_message_id: ackWamid, wa_status: "sent" } : {}),
+            },
           });
           continue;
         } else if (msgType !== "text") {
@@ -1894,6 +2137,7 @@ export const sendWhatsAppAgentReply = createServerFn({ method: "POST" })
           url: z.string().url(),
           fileName: z.string().min(1).max(200),
           mimeType: z.string().max(120).optional(),
+          caption: z.string().max(1024).optional(),
         })
         .optional(),
     }),
@@ -1948,28 +2192,33 @@ export const sendWhatsAppAgentReply = createServerFn({ method: "POST" })
       normalizeWhatsAppDigits(String(convo.widget_session_id || "").replace(/^wa:/, ""));
     if (!phone) throw new Error("WhatsApp recipient phone missing on conversation");
 
+    let waMessageId: string | null = null;
     if (data.attachment?.url) {
       const fileName = data.attachment.fileName;
       const mime = (data.attachment.mimeType || "").toLowerCase();
       const isImage =
         mime.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(fileName);
       if (isImage) {
-        await sendWhatsAppImage({
+        const json = await sendWhatsAppImage({
           toPhone: phone,
           imageUrl: data.attachment.url,
-          caption: fileName,
+          caption: data.attachment.caption || undefined,
         });
+        waMessageId = extractWhatsAppOutboundId(json as Record<string, unknown>);
       } else {
-        await sendWhatsAppDocument({
+        const json = await sendWhatsAppDocument({
           toPhone: phone,
           documentUrl: data.attachment.url,
           fileName,
+          caption: data.attachment.caption || undefined,
         });
+        waMessageId = extractWhatsAppOutboundId(json as Record<string, unknown>);
       }
     } else {
-      await sendWhatsAppText(phone, data.body);
+      const json = await sendWhatsAppText(phone, data.body);
+      waMessageId = extractWhatsAppOutboundId(json as Record<string, unknown>);
     }
-    return { ok: true, window: win, via: marketplace ? channel : "whatsapp" };
+    return { ok: true, window: win, via: marketplace ? channel : "whatsapp", waMessageId };
   });
 
 /** Inbox: recommend a catalog product as WhatsApp image + caption (Path B). */

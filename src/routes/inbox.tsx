@@ -1,4 +1,4 @@
-﻿import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -50,6 +50,7 @@ import {
   type WhatsAppWindowState,
 } from "@/lib/whatsapp-window";
 import { formatDisplayPhone } from "@/lib/phone-country";
+import { useStickToBottomScroll } from "@/lib/chat-scroll";
 import { RecommendProductDialog } from "@/components/inbox/RecommendProductDialog";
 import { SendWhatsAppTemplateDialog } from "@/components/inbox/SendWhatsAppTemplateDialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -230,8 +231,6 @@ function Page() {
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [returningToAi, setReturningToAi] = useState(false);
   const attachInputRef = useRef<HTMLInputElement>(null);
-  const messagesScrollRef = useRef<HTMLDivElement>(null);
-  const prevSelectedForScrollRef = useRef<string | null>(null);
   const [leadStatus, setLeadStatus] = useState<LeadStatus>("New");
   const [leadPriority, setLeadPriority] = useState<PriorityLevel>("Medium");
   const [layout, setLayout] = useState<Record<string, number> | undefined>(undefined);
@@ -342,22 +341,24 @@ function Page() {
     refetchInterval: 4000,
   });
 
-  // Stick to bottom like WhatsApp; if user scrolled up, don't yank them down on poll.
-  useLayoutEffect(() => {
-    const el = messagesScrollRef.current;
-    if (!el || messagesQuery.isLoading) return;
-    const switched = prevSelectedForScrollRef.current !== selectedId;
-    prevSelectedForScrollRef.current = selectedId;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const nearBottom = distanceFromBottom < 120;
-    if (!switched && !nearBottom && el.scrollTop > 0) return;
-    const jump = () => {
-      el.scrollTop = el.scrollHeight;
-    };
-    jump();
-    const t = window.requestAnimationFrame(jump);
-    return () => window.cancelAnimationFrame(t);
-  }, [selectedId, messagesQuery.data, messagesQuery.isLoading]);
+  const {
+    listRef: messagesScrollRef,
+    onScroll: onMessagesScroll,
+    pinToBottom,
+  } = useStickToBottomScroll(
+    [messagesQuery.data, messagesQuery.isLoading],
+    selectedId ?? null,
+  );
+
+  // Pin again when messages finish loading after a thread switch (flex layout may not be ready yet).
+  const prevMessagesLoadingRef = useRef(false);
+  useEffect(() => {
+    const wasLoading = prevMessagesLoadingRef.current;
+    prevMessagesLoadingRef.current = messagesQuery.isLoading;
+    if (selectedId && wasLoading && !messagesQuery.isLoading) {
+      pinToBottom();
+    }
+  }, [selectedId, messagesQuery.isLoading, pinToBottom]);
 
   const lastCustomerMessageAt = useMemo(() => {
     const msgs = messagesQuery.data ?? [];
@@ -873,6 +874,7 @@ function Page() {
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div
             ref={messagesScrollRef}
+            onScroll={onMessagesScroll}
             className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:p-4"
           >
             <div className="space-y-3">

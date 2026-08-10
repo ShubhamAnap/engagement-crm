@@ -137,7 +137,7 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
     );
   }
 
-  const historySlice = input.memoryEnabled === false ? [] : input.history.slice(-12);
+  const historySlice = input.memoryEnabled === false ? [] : input.history.slice(-24);
 
   const messages: ChatMessage[] = [
     { role: "system", content: systemParts.join("\n\n") },

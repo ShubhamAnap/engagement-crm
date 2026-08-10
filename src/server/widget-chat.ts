@@ -9,6 +9,14 @@ import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
 import { isOffTopicMessage, isAckOnlyMessage, isGreetingOnlyMessage } from "@/lib/enertech-scope";
 import {
+  isEducateOnlyAsk,
+  isRequirementConfirmAck,
+  hasRecentRequirementContext,
+  resolveActiveRequirement,
+  extractPowerHint,
+  requirementConfirmReply,
+} from "@/lib/conversation-intent";
+import {
   wantsHumanHandoff,
   isServiceIntent,
   emptyServiceTicket,
@@ -34,7 +42,6 @@ import {
   buildProductsContextForAi,
   toCarouselCards,
   loadActiveProductById,
-  isEducateOnlyAsk,
 } from "@/server/product-pack";
 import { formatProductPackBody, cleanProductDisplayName } from "@/lib/product-card";
 import { normalizeWhatsAppDigits } from "@/lib/whatsapp-window";
@@ -1047,6 +1054,63 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
         messages: await getConversationMessages(supabase, data.conversationId),
         reply: null,
         source: "fallback",
+        aiPaused: false,
+        status: convo.status,
+      };
+    }
+
+    const leadRequirement =
+      typeof (convo as { lead_id?: string }).lead_id === "string"
+        ? (
+            await supabase
+              .from("leads")
+              .select("requirement, product_label")
+              .eq("id", (convo as { lead_id: string }).lead_id)
+              .eq("org_id", ORG_ID)
+              .maybeSingle()
+          ).data
+        : null;
+    const leadReqText =
+      (leadRequirement?.requirement as string) ||
+      (leadRequirement?.product_label as string) ||
+      null;
+
+    if (
+      isRequirementConfirmAck(text) &&
+      hasRecentRequirementContext(priorHistory, leadReqText)
+    ) {
+      const requirement = resolveActiveRequirement({
+        history: priorHistory,
+        leadRequirement: leadReqText,
+      });
+      const reply = requirementConfirmReply({
+        lang: sessionLang,
+        requirement,
+        powerHint: extractPowerHint(text),
+      });
+      await supabase.from("messages").insert({
+        org_id: ORG_ID,
+        conversation_id: data.conversationId,
+        sender: "ai",
+        body: reply,
+        metadata: {
+          requirement_confirm: true,
+          requirement: requirement || null,
+          power_hint: extractPowerHint(text),
+        },
+      });
+      await supabase
+        .from("conversations")
+        .update({
+          preview: reply.slice(0, 160),
+          last_message_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", data.conversationId);
+      return {
+        messages: await getConversationMessages(supabase, data.conversationId),
+        reply,
+        source: "openai",
         aiPaused: false,
         status: convo.status,
       };

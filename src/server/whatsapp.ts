@@ -7,6 +7,14 @@ import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
 import { isOffTopicMessage, isAckOnlyMessage, isGreetingOnlyMessage } from "@/lib/enertech-scope";
 import {
+  isEducateOnlyAsk,
+  isRequirementConfirmAck,
+  hasRecentRequirementContext,
+  resolveActiveRequirement,
+  extractPowerHint,
+  requirementConfirmReply,
+} from "@/lib/conversation-intent";
+import {
   wantsHumanHandoff,
   isServiceIntent,
   emptyServiceTicket,
@@ -27,7 +35,7 @@ import {
 } from "@/lib/session-language";
 import { ensureWhatsAppLeadCustomer } from "@/server/whatsapp-crm";
 import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, wantsReferenceImages, customerAskedForMorePhotos, formatKnowledgeContext, downloadLinksFromChunks, knowledgeIsUseful } from "@/server/knowledge";
-import { resolveProductPackRequest, buildProductPackMedia, buildProductsContextForAi, isProductIntent, isEducateOnlyAsk } from "@/server/product-pack";
+import { resolveProductPackRequest, buildProductPackMedia, buildProductsContextForAi, isProductIntent } from "@/server/product-pack";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
@@ -664,15 +672,95 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             .select("sender, body, created_at")
             .eq("conversation_id", convo.id)
             .order("created_at", { ascending: true })
-            .limit(20);
+            .limit(40);
 
           const prevMeta =
             convo.metadata && typeof convo.metadata === "object"
               ? (convo.metadata as Record<string, unknown>)
               : {};
 
+          const historyRows = (history || []).map((m) => ({
+            sender: m.sender as string,
+            body: m.body as string,
+            created_at: m.created_at as string,
+          }));
+
+          // Lead requirement for memory (same phone / linked lead)
+          let leadRequirement: string | null = null;
+          try {
+            const leadId =
+              (convo as { lead_id?: string | null }).lead_id ||
+              (typeof prevMeta.lead_id === "string" ? prevMeta.lead_id : null);
+            if (leadId) {
+              const { data: lead } = await supabase
+                .from("leads")
+                .select("requirement, product_label")
+                .eq("id", leadId)
+                .eq("org_id", ORG_ID)
+                .maybeSingle();
+              leadRequirement =
+                (lead?.requirement as string) ||
+                (lead?.product_label as string) ||
+                null;
+            } else {
+              const { normalizeWhatsAppDigits } = await import("@/lib/whatsapp-window");
+              const digits = normalizeWhatsAppDigits(from);
+              if (digits) {
+                const last10 = digits.slice(-10);
+                const { data: lead } = await supabase
+                  .from("leads")
+                  .select("requirement, product_label, phone")
+                  .eq("org_id", ORG_ID)
+                  .not("phone", "is", null)
+                  .order("updated_at", { ascending: false })
+                  .limit(80);
+                const hit = (lead || []).find((row) => {
+                  const p = normalizeWhatsAppDigits(row.phone as string);
+                  return Boolean(p && (p === digits || p.endsWith(last10) || digits.endsWith(p.slice(-10))));
+                });
+                leadRequirement =
+                  (hit?.requirement as string) || (hit?.product_label as string) || null;
+              }
+            }
+          } catch (err) {
+            console.error("WA lead requirement lookup failed", err);
+          }
+
           // "ok" / "thanks" / "bye" — save customer msg only, no bot reply
           if (isAckOnlyMessage(text)) {
+            continue;
+          }
+
+          // "Yes. 30kVA" after requirement template → confirm prior context, no product dump
+          if (
+            isRequirementConfirmAck(text) &&
+            hasRecentRequirementContext(historyRows, leadRequirement)
+          ) {
+            const requirement = resolveActiveRequirement({
+              history: historyRows,
+              leadRequirement,
+            });
+            reply = requirementConfirmReply({
+              lang: sessionLang,
+              requirement,
+              powerHint: extractPowerHint(text),
+            });
+            await supabase.from("messages").insert({
+              org_id: ORG_ID,
+              conversation_id: convo.id,
+              sender: "ai",
+              body: reply,
+              metadata: {
+                requirement_confirm: true,
+                requirement: requirement || null,
+                power_hint: extractPowerHint(text),
+              },
+            });
+            try {
+              await sendWhatsAppText(from, reply, cfg);
+            } catch (err) {
+              console.error("WA requirement confirm send failed", err);
+            }
             continue;
           }
 

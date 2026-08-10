@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Area,
@@ -29,12 +29,13 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Live operations dashboard: conversations, AI resolution rate, escalations, leads and revenue for EnerTech UPS.",
+          "Live operations dashboard: conversations, AI vs human share, escalations, leads and catalog for EnerTech UPS.",
       },
       { property: "og:title", content: "Dashboard — EnerTech Engage" },
       {
         property: "og:description",
-        content: "Live operations dashboard: conversations, AI resolution rate, escalations, leads and revenue for EnerTech UPS.",
+        content:
+          "Live operations dashboard: conversations, AI vs human share, escalations, leads and catalog for EnerTech UPS.",
       },
     ],
   }),
@@ -58,6 +59,7 @@ const tooltipStyle = {
 
 function Dashboard() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { profile } = useAuth();
   const orgId = profile?.org.id;
 
@@ -117,9 +119,14 @@ function Dashboard() {
                   ]);
                 }
                 rows.push([]);
-                rows.push(["Channel", "Conversations"]);
+                rows.push(["Channel", "Share %", "Count (recent)"]);
                 for (const c of data.channelSplit ?? []) {
-                  rows.push([c.name, String(c.value)]);
+                  rows.push([c.name, String(c.value), String(c.count)]);
+                }
+                rows.push([]);
+                rows.push(["Lead source", "Count"]);
+                for (const s of data.leadsBySource ?? []) {
+                  rows.push([s.source, String(s.value)]);
                 }
                 downloadCsv(
                   `enertech-dashboard-${new Date().toISOString().slice(0, 10)}.csv`,
@@ -130,7 +137,7 @@ function Dashboard() {
                   action: {
                     label: "Reports",
                     onClick: () => {
-                      window.location.href = "/reports";
+                      void navigate({ to: "/reports" });
                     },
                   },
                 });
@@ -204,7 +211,7 @@ function Dashboard() {
             )}
           </Panel>
 
-          <Panel title="Channel Distribution" description="Share of conversations by channel">
+          <Panel title="Channel Distribution" description="Share of recent conversations by channel">
             {loading ? (
               <div className="grid h-[200px] place-items-center text-sm text-muted-foreground">Loading…</div>
             ) : (data?.totals.conversations ?? 0) === 0 ? (
@@ -222,8 +229,8 @@ function Dashboard() {
                       paddingAngle={2}
                       stroke="none"
                     >
-                      {(data?.channelSplit ?? []).map((_, i) => (
-                        <Cell key={i} fill={`var(--color-chart-${(i % 5) + 1})`} />
+                      {(data?.channelSplit ?? []).map((c, i) => (
+                        <Cell key={c.key} fill={`var(--color-chart-${(i % 5) + 1})`} />
                       ))}
                     </Pie>
                     <RTooltip contentStyle={tooltipStyle} />
@@ -231,10 +238,12 @@ function Dashboard() {
                 </ResponsiveContainer>
                 <ul className="mt-2 space-y-1.5">
                   {(data?.channelSplit ?? []).map((c, i) => (
-                    <li key={c.name} className="flex items-center gap-2 text-xs">
+                    <li key={c.key} className="flex items-center gap-2 text-xs">
                       <span className="size-2 rounded-full" style={{ background: `var(--color-chart-${(i % 5) + 1})` }} />
                       <span className="text-muted-foreground">{c.name}</span>
-                      <span className="num ml-auto font-medium">{c.value}%</span>
+                      <span className="num ml-auto font-medium tabular-nums">
+                        {c.count} · {c.value}%
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -260,7 +269,7 @@ function Dashboard() {
           ))}
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-3">
           <Panel title="Lead Funnel" description="Leads by pipeline stage">
             {loading ? (
               <div className="grid h-[240px] place-items-center text-sm text-muted-foreground">Loading…</div>
@@ -272,6 +281,39 @@ function Dashboard() {
                   <YAxis type="category" dataKey="stage" {...axis} width={88} />
                   <RTooltip contentStyle={tooltipStyle} cursor={{ fill: "var(--color-secondary)" }} />
                   <Bar dataKey="value" fill="var(--color-chart-1)" radius={[0, 6, 6, 0]} barSize={16} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </Panel>
+
+          <Panel title="Leads by Source" description="Lead count per acquisition channel">
+            {loading ? (
+              <div className="grid h-[240px] place-items-center text-sm text-muted-foreground">Loading…</div>
+            ) : (data?.leadsBySource.length ?? 0) === 0 ? (
+              <EmptyState title="No leads yet" description="Sources appear once leads are captured." />
+            ) : (
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart
+                  data={data?.leadsBySource ?? []}
+                  margin={{ left: 4, right: 8, bottom: 8 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+                  <XAxis
+                    dataKey="source"
+                    {...axis}
+                    interval={0}
+                    angle={-28}
+                    textAnchor="end"
+                    height={56}
+                    tick={{ fontSize: 10 }}
+                  />
+                  <YAxis {...axis} width={36} allowDecimals={false} />
+                  <RTooltip contentStyle={tooltipStyle} cursor={{ fill: "var(--color-secondary)" }} />
+                  <Bar dataKey="value" name="Leads" fill="var(--color-chart-3)" radius={[6, 6, 0, 0]} barSize={28}>
+                    {(data?.leadsBySource ?? []).map((row, i) => (
+                      <Cell key={row.key} fill={`var(--color-chart-${(i % 5) + 1})`} />
+                    ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -314,29 +356,35 @@ function Dashboard() {
             ) : (
               <ul className="divide-y divide-border">
                 {data!.recentConversations.map((c) => (
-                  <li key={c.id} className="flex items-center gap-3 px-4 py-3 hover:bg-secondary/50">
-                    <ChannelIcon channel={c.channel} className="shrink-0 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">
-                        {c.customer}{" "}
-                        <span className="font-normal text-muted-foreground">· {c.company}</span>
-                      </p>
-                      <p className="truncate text-xs text-muted-foreground">{c.preview}</p>
-                    </div>
-                    <Pill
-                      tone={
-                        c.status === "escalated"
-                          ? "danger"
-                          : c.status === "resolved"
-                            ? "success"
-                            : c.status === "human"
-                              ? "info"
-                              : "primary"
-                      }
+                  <li key={c.id}>
+                    <Link
+                      to="/inbox"
+                      search={{ c: c.id }}
+                      className="flex items-center gap-3 px-4 py-3 hover:bg-secondary/50"
                     >
-                      {c.status}
-                    </Pill>
-                    <span className="num w-14 shrink-0 text-right text-xs text-muted-foreground">{c.time}</span>
+                      <ChannelIcon channel={c.channel} className="shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">
+                          {c.customer}{" "}
+                          <span className="font-normal text-muted-foreground">· {c.company}</span>
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">{c.preview}</p>
+                      </div>
+                      <Pill
+                        tone={
+                          c.status === "escalated"
+                            ? "danger"
+                            : c.status === "resolved"
+                              ? "success"
+                              : c.status === "human"
+                                ? "info"
+                                : "primary"
+                        }
+                      >
+                        {c.status}
+                      </Pill>
+                      <span className="num w-14 shrink-0 text-right text-xs text-muted-foreground">{c.time}</span>
+                    </Link>
                   </li>
                 ))}
               </ul>
@@ -417,15 +465,17 @@ function Dashboard() {
             ) : (
               <ul className="divide-y divide-border">
                 {data!.recentLeads.map((l) => (
-                  <li key={l.id} className="flex items-center gap-3 px-4 py-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{l.name}</p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {l.company} · {l.product}
-                      </p>
-                    </div>
-                    <span className="num text-sm">{l.value}</span>
-                    <Pill tone={l.score >= 80 ? "success" : l.score >= 60 ? "warning" : "neutral"}>{l.score}</Pill>
+                  <li key={l.id}>
+                    <Link to="/leads" className="flex items-center gap-3 px-4 py-3 hover:bg-secondary/50">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{l.name}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {l.company} · {l.product}
+                        </p>
+                      </div>
+                      <span className="num text-sm">{l.value}</span>
+                      <Pill tone={l.score >= 80 ? "success" : l.score >= 60 ? "warning" : "neutral"}>{l.score}</Pill>
+                    </Link>
                   </li>
                 ))}
               </ul>

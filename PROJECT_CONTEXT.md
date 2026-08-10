@@ -1,7 +1,7 @@
 # EnerTech Engage — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
-> **Last updated:** 2026-08-08
+> **Last updated:** 2026-08-10
 
 ---
 
@@ -9,7 +9,7 @@
 
 Run **EnerTech Engage** as a **working enterprise AI customer engagement platform** for EnerTech UPS Pvt. Ltd., with architecture that can later become multi-tenant SaaS.
 
-**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped (hybrid retrieval, PDF text extract, channel grounding, OpenAI retries). Soft Meta signature (advisory) until App Secret is verified. Next: Phase 5 scale (optional) / ops (run migrations 029–030 if not done; re-index PDFs).
+**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Section polish in progress** — Dashboard data/UX fixes done (2026-08-10). Next: Inbox (or next module user picks); ops (migrations 029–030 if not done).
 **Approach:** Prefer stabilize and ship focused improvements; new modules only when requested.
 
 ---
@@ -301,6 +301,14 @@ Record decisions here so we don't re-debate.
 ## Session Log
 
 Brief notes from each working session — append, don't delete.
+
+### Session 2026-08-10 — Dashboard section polish
+- Exact KPI counts (products/conversations/leads/customers/status/lead stages) — products no longer capped at 50.
+- Today’s conversations: unique created-or-active today; New leads MTD exact count.
+- 7-day chart labels `Mon 10` style; channel labels for IndiaMART/TradeIndia/Brainmine + count in legend.
+- Recent chats click → `/inbox?c=<id>`; activity feed sorted by time; Export CSV includes channel counts; Reports toast uses router navigate.
+- **Leads by Source** bar chart (exact counts per channel: Website, WhatsApp, IndiaMART, Brainmine, …).
+- Files: `src/lib/dashboard-api.ts`, `src/routes/index.tsx`. Next: Inbox (or next module).
 
 ### Session 2026-08-08 — Enterprise hardening Phase 3 (CI / health / observability)
 - GitHub Actions CI: migrations gate + `tsc` + build (lint warn-only for now).

@@ -304,6 +304,22 @@ Record decisions here so we don't re-debate.
 
 Brief notes from each working session — append, don't delete.
 
+### Session 2026-08-11 — Write-back Contact match priority
+
+**Goal:** Match CRM Contact by any customer field; phone first.
+
+**Done:** Contact with resolve order: WhatsApp/phone → email → company_name → visitor/lead name. Omit Link if none match (no raw company as Link value).
+
+**Status:** Code ready — say **deploy** to commit/push.
+
+### Session 2026-08-11 — Write-back Contact by WhatsApp
+
+**Goal:** Fix LinkValidationError (`Contact with: Globe International`).
+
+**Done:** Follow up type stays WhatsApp; Contact with resolves CRM Contact by WhatsApp phone (omit if no Link match); only WhatsApp threads are written; company name never sent as Contact link.
+
+**Status:** Code ready — say **deploy** to commit/push.
+
 ### Session 2026-08-11 — Inspect write-back fields (Brainmine Follow Up)
 
 **Goal:** Fix write-back “Could not find Follow Up child table” by discovering the real API fieldname.

@@ -2147,8 +2147,9 @@ function Page() {
             <li>
               <span className="font-medium text-foreground">Write follow-ups to Brainmine</span> is a{" "}
               <strong>separate</strong> path: matches CRM id, builds a conversation summary, appends one
-              Follow Up row (type=WhatsApp, contact=name, next date=+4 days, description=summary).
-              Manual only — run once per day when ready. If write-back fails on child table name, use{" "}
+              Follow Up row (type=WhatsApp; Contact matched phone→email→company→name; next date=+4
+              days, description=summary). Only WhatsApp conversations are written. Manual only — run
+              once per day when ready. If write-back fails on child table name, use{" "}
               <span className="font-medium text-foreground">Inspect write-back fields</span>, Save
               mapping, then retry.
             </li>

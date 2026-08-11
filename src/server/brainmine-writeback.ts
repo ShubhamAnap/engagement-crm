@@ -6,8 +6,8 @@
  * when staff clicks the manual “Write follow-ups to Brainmine” button.
  *
  * Field mapping (locked with product):
- * - Follow up type → channel (WhatsApp)
- * - Contact with → customer name
+ * - Follow up type → WhatsApp (channel)
+ * - Contact with → CRM Contact Link: match phone (1st) → email → company → person name; omit if none
  * - Next Follow Up Date → push date + 4 days
  * - Description → conversation summary
  */
@@ -203,15 +203,120 @@ async function fetchCrmDoc(
   return asDoc(json);
 }
 
+/** Digits only, prefer last 10 for IN mobile match. */
+function phoneDigits(raw: string | null | undefined): string {
+  const d = String(raw || "").replace(/\D/g, "");
+  if (d.length >= 10) return d.slice(-10);
+  return d;
+}
+
+/**
+ * Contact with is a Link field in Brainmine — value must be an existing Contact name.
+ * Match priority: WhatsApp/phone → email → company → person name (visitor / lead).
+ */
+async function findContactByFilter(
+  cfg: BrainmineChannelConfig,
+  filters: unknown[],
+): Promise<string | null> {
+  try {
+    const json = await brainmineHttpJson(
+      cfg,
+      `/api/resource/Contact?limit_page_length=5&fields=${encodeURIComponent(
+        JSON.stringify([
+          "name",
+          "first_name",
+          "last_name",
+          "mobile_no",
+          "phone",
+          "email_id",
+          "company_name",
+        ]),
+      )}&filters=${encodeURIComponent(JSON.stringify(filters))}`,
+      { method: "GET" },
+    );
+    const hit = extractRows(json)[0];
+    if (hit && typeof hit.name === "string" && hit.name.trim()) {
+      return hit.name.trim();
+    }
+  } catch {
+    /* API user may lack Contact read — try next matcher */
+  }
+  return null;
+}
+
+async function resolveWhatsAppContactLink(
+  cfg: BrainmineChannelConfig,
+  options: {
+    phone?: string | null;
+    email?: string | null;
+    company?: string | null;
+    visitorName?: string | null;
+    leadName?: string | null;
+  },
+): Promise<{ contactName: string; matchedBy: string } | null> {
+  const phone = phoneDigits(options.phone);
+  const email = String(options.email || "")
+    .trim()
+    .toLowerCase();
+  const company = String(options.company || "").trim();
+  const visitor = String(options.visitorName || "").trim();
+  const leadName = String(options.leadName || "").trim();
+
+  // 1) Phone (highest priority) — WhatsApp / mobile / phone
+  if (phone.length >= 8) {
+    for (const field of ["mobile_no", "phone"] as const) {
+      const name = await findContactByFilter(cfg, [[field, "like", `%${phone}%`]]);
+      if (name) return { contactName: name, matchedBy: `phone:${field}` };
+    }
+  }
+
+  // 2) Email
+  if (email.includes("@")) {
+    const name = await findContactByFilter(cfg, [["email_id", "=", email]]);
+    if (name) return { contactName: name, matchedBy: "email" };
+    const nameLike = await findContactByFilter(cfg, [["email_id", "like", `%${email}%`]]);
+    if (nameLike) return { contactName: nameLike, matchedBy: "email" };
+  }
+
+  // 3) Company name (Contact.company_name — not the Contact Link name itself)
+  if (company.length >= 2) {
+    const name = await findContactByFilter(cfg, [["company_name", "=", company]]);
+    if (name) return { contactName: name, matchedBy: "company" };
+    const nameLike = await findContactByFilter(cfg, [
+      ["company_name", "like", `%${company.slice(0, 40)}%`],
+    ]);
+    if (nameLike) return { contactName: nameLike, matchedBy: "company" };
+  }
+
+  // 4) Person names — WhatsApp visitor, then lead contact name
+  for (const [label, person] of [
+    ["visitor", visitor],
+    ["lead_name", leadName],
+  ] as const) {
+    if (!person || person.length < 2) continue;
+    // Exact Contact name (Frappe Link uses name)
+    const byName = await findContactByFilter(cfg, [["name", "=", person]]);
+    if (byName) return { contactName: byName, matchedBy: label };
+    const byFirst = await findContactByFilter(cfg, [["first_name", "=", person]]);
+    if (byFirst) return { contactName: byFirst, matchedBy: label };
+    // Partial on full name when CRM stores "First Last"
+    const byLike = await findContactByFilter(cfg, [["name", "like", `%${person.slice(0, 40)}%`]]);
+    if (byLike) return { contactName: byLike, matchedBy: label };
+  }
+
+  return null;
+}
+
 async function appendFollowUpRow(options: {
   cfg: BrainmineChannelConfig;
   docName: string;
   map: WritebackMap;
-  contactName: string;
+  /** CRM Contact Link name — omit when null (avoids LinkValidationError). */
+  contactLink: string | null;
   summary: string;
   followUpType: string;
 }): Promise<{ table: string }> {
-  const { cfg, docName, map, contactName, summary, followUpType } = options;
+  const { cfg, docName, map, contactLink, summary, followUpType } = options;
   const doc = await fetchCrmDoc(cfg, docName);
   const table = detectFollowUpTable(doc, map.follow_up_table);
   if (!table) {
@@ -225,10 +330,14 @@ async function appendFollowUpRow(options: {
   const nextDate = ymdPlusDays(FOLLOW_UP_DAYS);
   const row: Record<string, unknown> = {
     [map.type_field]: followUpType,
-    [map.contact_field]: contactName,
     [map.next_date_field]: nextDate,
     [map.description_field]: summary,
   };
+  // Only set Contact with when we have a valid CRM Contact (Link). Value "WhatsApp"
+  // is the Follow up *type*, not the Contact link.
+  if (contactLink) {
+    row[map.contact_field] = contactLink;
+  }
   existing.push(row);
 
   const payload = { ...doc, [table]: existing };
@@ -271,7 +380,7 @@ export async function runBrainmineFollowUpWriteback(): Promise<WritebackRunResul
 
   const { data: leads, error: leadErr } = await supabase
     .from("leads")
-    .select("id, name, phone, email, source, external_ref, metadata, next_follow_up_at")
+    .select("id, name, company, phone, email, source, external_ref, metadata, next_follow_up_at")
     .eq("org_id", ORG_ID)
     .eq("source", "brainmine")
     .order("last_activity_at", { ascending: false })
@@ -311,14 +420,14 @@ export async function runBrainmineFollowUpWriteback(): Promise<WritebackRunResul
 
     const { data: convos } = await supabase
       .from("conversations")
-      .select("id, channel, visitor_name, preview, last_message_at")
+      .select("id, channel, visitor_name, visitor_phone, preview, last_message_at")
       .eq("org_id", ORG_ID)
       .eq("lead_id", lead.id)
       .order("last_message_at", { ascending: false })
-      .limit(5);
+      .limit(8);
 
-    const preferred =
-      (convos || []).find((c) => c.channel === "whatsapp") || (convos || [])[0] || null;
+    // Contact by WhatsApp — prefer WA thread; skip leads with no WhatsApp conversation
+    const preferred = (convos || []).find((c) => c.channel === "whatsapp") || null;
     if (!preferred) {
       skipped += 1;
       continue;
@@ -359,22 +468,34 @@ export async function runBrainmineFollowUpWriteback(): Promise<WritebackRunResul
       }
     }
 
-    const contactName =
-      String(preferred.visitor_name || lead.name || "").trim() || "Customer";
-    const followUpType =
-      preferred.channel === "whatsapp" || preferred.channel === "website"
-        ? map.type_value_whatsapp
-        : map.type_value_whatsapp;
+    const waPhone = preferred.visitor_phone || lead.phone || null;
+    const matched = await resolveWhatsAppContactLink(cfg, {
+      phone: waPhone,
+      email: lead.email,
+      company: lead.company,
+      visitorName: preferred.visitor_name,
+      leadName: lead.name,
+    });
+    const contactLink = matched?.contactName || null;
+    // Follow up type = WhatsApp. Contact with = CRM Contact (phone → email → company → name).
+    const followUpType = map.type_value_whatsapp;
+    const description = contactLink
+      ? summary
+      : `WhatsApp · ${preferred.visitor_name || lead.name || "Customer"}: ${summary}`;
 
     try {
       await appendFollowUpRow({
         cfg,
         docName: brainmineId,
         map,
-        contactName,
-        summary,
+        contactLink,
+        summary: description,
         followUpType,
       });
+      if (matched) {
+        meta.brainmine_followup_contact = matched.contactName;
+        meta.brainmine_followup_contact_matched_by = matched.matchedBy;
+      }
       meta.brainmine_followup_written_at = ranAt;
       meta.brainmine_followup_summary_hash = summary.slice(0, 120);
       meta.brainmine_followup_next_date = ymdPlusDays(FOLLOW_UP_DAYS);

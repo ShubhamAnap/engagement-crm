@@ -33,6 +33,9 @@ export type SessionUser = {
   phone?: string | null;
   jobTitle?: string | null;
   avatarUrl?: string | null;
+  /** Allowed sidebar sections. Admins are treated as full access in helpers. */
+  permissions: string[];
+  isActive: boolean;
   org: {
     id: string;
     name: string;

@@ -18,6 +18,7 @@ import {
   uploadMyAvatar,
   uploadOrgLogo,
 } from "@/lib/profile-api";
+import { TeamSettingsPanel } from "@/components/settings/TeamSettingsPanel";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -40,7 +41,10 @@ function Page() {
   const { profile, refreshProfile, loading, session } = useAuth();
   const search = Route.useSearch();
   const defaultTab =
-    search.tab === "company" || search.tab === "security" || search.tab === "channels"
+    search.tab === "company" ||
+    search.tab === "security" ||
+    search.tab === "channels" ||
+    search.tab === "team"
       ? search.tab
       : "profile";
 
@@ -203,6 +207,7 @@ function Page() {
               <TabsTrigger value="company">Company</TabsTrigger>
               <TabsTrigger value="security">Security</TabsTrigger>
               <TabsTrigger value="channels">Channels</TabsTrigger>
+              {isAdmin ? <TabsTrigger value="team">Team</TabsTrigger> : null}
             </TabsList>
 
             <TabsContent value="profile" className="mt-4 space-y-4">
@@ -496,6 +501,12 @@ function Page() {
                 </Button>
               </Panel>
             </TabsContent>
+
+            {isAdmin ? (
+              <TabsContent value="team" className="mt-4 space-y-4">
+                <TeamSettingsPanel />
+              </TabsContent>
+            ) : null}
           </Tabs>
         )}
       </div>

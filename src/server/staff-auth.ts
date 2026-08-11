@@ -12,6 +12,8 @@ export type StaffProfile = {
   org_id: string;
   role: string;
   email: string;
+  is_active?: boolean;
+  permissions?: unknown;
 };
 
 export type StaffAuth = {
@@ -71,11 +73,12 @@ export async function requireStaffUser(): Promise<StaffAuth> {
 
   const { data: profile, error: profileError } = await service
     .from("profiles")
-    .select("id, org_id, role, email")
+    .select("id, org_id, role, email, is_active, permissions")
     .eq("id", user.id)
     .maybeSingle();
 
   if (profileError || !profile?.org_id) unauthorized("No organization profile");
+  if (profile.is_active === false) unauthorized("Account disabled");
 
   return {
     user,

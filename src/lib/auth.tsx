@@ -12,6 +12,11 @@ import { getBrowserSupabase } from "@/lib/supabase";
 import { AuthContext, type AuthState } from "@/lib/auth-context";
 import { syncStaffAccessCookie } from "@/lib/staff-access-cookie";
 import { initialsFromName, type Profile, type SessionUser } from "@/lib/types";
+import {
+  DEFAULT_NEW_USER_PERMISSIONS,
+  effectivePermissions,
+  normalizePermissions,
+} from "@/lib/permissions";
 
 function contrastingForeground(hex: string): string {
   const raw = hex.replace("#", "");
@@ -28,7 +33,7 @@ async function fetchSessionUser(userId: string): Promise<SessionUser | null> {
   const baseSelect =
     "id, email, full_name, role, phone, job_title, avatar_url, org_id, organizations(id, name, short_name, plan)";
   const brandedSelect =
-    "id, email, full_name, role, phone, job_title, avatar_url, org_id, organizations(id, name, short_name, plan, logo_url, brand_primary)";
+    "id, email, full_name, role, phone, job_title, avatar_url, org_id, permissions, is_active, organizations(id, name, short_name, plan, logo_url, brand_primary)";
 
   let data: Record<string, unknown> | null = null;
   let error: { message?: string } | null = null;
@@ -36,7 +41,7 @@ async function fetchSessionUser(userId: string): Promise<SessionUser | null> {
   const full = await supabase.from("profiles").select(brandedSelect).eq("id", userId).maybeSingle();
 
   if (full.error) {
-    // Missing branding columns (migration 015 not run) or schema cache — fall back
+    // Missing branding/permissions columns — fall back
     const fallback = await supabase.from("profiles").select(baseSelect).eq("id", userId).maybeSingle();
     data = fallback.data as Record<string, unknown> | null;
     error = fallback.error;
@@ -60,15 +65,23 @@ async function fetchSessionUser(userId: string): Promise<SessionUser | null> {
 
   if (!org) return null;
 
+  const role = data.role as SessionUser["role"];
+  const permissions = effectivePermissions({
+    role,
+    permissions: data.permissions ?? DEFAULT_NEW_USER_PERMISSIONS,
+  });
+
   return {
     id: data.id as string,
     email: data.email as string,
     fullName: data.full_name as string,
-    role: data.role as SessionUser["role"],
+    role,
     initials: initialsFromName(data.full_name as string),
     phone: (data.phone as string | null) ?? null,
     jobTitle: (data.job_title as string | null) ?? null,
     avatarUrl: (data.avatar_url as string | null) ?? null,
+    permissions: normalizePermissions(permissions),
+    isActive: data.is_active !== false,
     org: {
       id: org.id,
       name: org.name,

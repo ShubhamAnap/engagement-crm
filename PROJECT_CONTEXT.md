@@ -9,7 +9,7 @@
 
 Run **EnerTech Engage** as a **working enterprise AI customer engagement platform** for EnerTech UPS Pvt. Ltd., with architecture that can later become multi-tenant SaaS.
 
-**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Section polish:** Dashboard + Inbox + AI Chat Support + Human Support (2026-08-10). **Knowledge Base A+B+C** (re-index UI, tighter photo intent, Email/Meta photos, collection purpose, DOCX) — run Supabase SQL `032_knowledge_collection_purpose.sql` if not applied. **Ops:** run `029` → `030` → `031` → `032` if needed; confirm Realtime on `messages`/`conversations`; set public `APP_URL` / `VITE_APP_URL` for photo links.
+**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Team permissions A+B+C** (Settings → Team: create users, section tick-marks, disable, reset password, copy access) — run Supabase SQL `033_team_permissions.sql`. **Knowledge Base A+B+C** — run `032` if needed. **Ops:** `029`→`033` as needed; public `APP_URL` for photo links.
 **Approach:** Prefer stabilize and ship focused improvements; new modules only when requested.
 
 ---
@@ -301,6 +301,19 @@ Record decisions here so we don't re-debate.
 ## Session Log
 
 Brief notes from each working session — append, don't delete.
+
+### Session 2026-08-11 — Team users + section privileges A+B+C
+
+**Goal:** Main Admin creates users from Settings and tick-marks which sections they can open.
+
+**Shipped:**
+- Migration `033_team_permissions.sql` — `profiles.permissions` jsonb + `is_active`
+- Settings → **Team** tab (Admin only): table, create user, edit ticks, disable/enable, reset password, copy access
+- Default new user: **Dashboard + Inbox** only
+- Sidebar hides + route guard blocks unticked sections
+- Admins always full access; disabled accounts signed out
+
+**Ops:** Run `033_team_permissions.sql` in Supabase before using Team UI.
 
 ### Session 2026-08-10 — Knowledge Base A+B+C
 

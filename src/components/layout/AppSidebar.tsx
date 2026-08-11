@@ -27,47 +27,48 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/lib/auth";
 import { countWaitingHandoffs, ENERTECH_ORG_ID } from "@/lib/chat-api";
+import { canAccessPath, type AppSectionKey } from "@/lib/permissions";
 
-type Item = { to: string; label: string; icon: typeof Inbox; badge?: string };
+type Item = { to: string; label: string; icon: typeof Inbox; badge?: string; section?: AppSectionKey };
 
 const groupsBase: { label: string; items: Item[] }[] = [
   {
     label: "Operate",
     items: [
-      { to: "/", label: "Dashboard", icon: LayoutDashboard },
-      { to: "/command-center", label: "AI Command Center", icon: Activity },
-      { to: "/inbox", label: "Inbox", icon: Inbox },
-      { to: "/ai-chat", label: "AI Chat Support", icon: MessagesSquare },
-      { to: "/human-support", label: "Human Support", icon: Headphones },
+      { to: "/", label: "Dashboard", icon: LayoutDashboard, section: "dashboard" },
+      { to: "/command-center", label: "AI Command Center", icon: Activity, section: "command-center" },
+      { to: "/inbox", label: "Inbox", icon: Inbox, section: "inbox" },
+      { to: "/ai-chat", label: "AI Chat Support", icon: MessagesSquare, section: "ai-chat" },
+      { to: "/human-support", label: "Human Support", icon: Headphones, section: "human-support" },
     ],
   },
   {
     label: "Intelligence",
     items: [
-      { to: "/agents", label: "AI Agents", icon: Bot },
-      { to: "/tools", label: "Tools", icon: Cpu },
-      { to: "/formulas", label: "Formulas", icon: Calculator },
-      { to: "/knowledge", label: "Knowledge Base", icon: BookOpen },
-      { to: "/automation", label: "Automation", icon: Workflow },
-      { to: "/broadcasting", label: "Broadcasting", icon: Megaphone },
+      { to: "/agents", label: "AI Agents", icon: Bot, section: "agents" },
+      { to: "/tools", label: "Tools", icon: Cpu, section: "tools" },
+      { to: "/formulas", label: "Formulas", icon: Calculator, section: "formulas" },
+      { to: "/knowledge", label: "Knowledge Base", icon: BookOpen, section: "knowledge" },
+      { to: "/automation", label: "Automation", icon: Workflow, section: "automation" },
+      { to: "/broadcasting", label: "Broadcasting", icon: Megaphone, section: "broadcasting" },
     ],
   },
   {
     label: "Commerce",
     items: [
-      { to: "/products", label: "Products", icon: Boxes },
-      { to: "/customers", label: "Customers", icon: Users },
-      { to: "/leads", label: "Leads", icon: Zap },
-      { to: "/pipeline", label: "Pipeline", icon: KanbanSquare },
+      { to: "/products", label: "Products", icon: Boxes, section: "products" },
+      { to: "/customers", label: "Customers", icon: Users, section: "customers" },
+      { to: "/leads", label: "Leads", icon: Zap, section: "leads" },
+      { to: "/pipeline", label: "Pipeline", icon: KanbanSquare, section: "pipeline" },
     ],
   },
   {
     label: "Insight",
     items: [
-      { to: "/analytics", label: "Analytics", icon: BarChart3 },
-      { to: "/reports", label: "Reports", icon: FileBarChart },
-      { to: "/channels", label: "Channels", icon: Radio },
-      { to: "/settings", label: "Settings", icon: Settings },
+      { to: "/analytics", label: "Analytics", icon: BarChart3, section: "analytics" },
+      { to: "/reports", label: "Reports", icon: FileBarChart, section: "reports" },
+      { to: "/channels", label: "Channels", icon: Radio, section: "channels" },
+      { to: "/settings", label: "Settings", icon: Settings, section: "settings" },
     ],
   },
 ];
@@ -98,17 +99,23 @@ export function AppSidebar({
   });
   const waitingCount = waitingQuery.data ?? 0;
 
-  const groups = groupsBase.map((group) => {
-    if (group.label !== "Operate") return group;
-    return {
-      ...group,
-      items: group.items.map((item) =>
-        item.to === "/human-support"
-          ? { ...item, badge: waitingCount > 0 ? String(waitingCount) : undefined }
-          : item,
-      ),
-    };
-  });
+  const groups = groupsBase
+    .map((group) => {
+      const items = group.items
+        .map((item) =>
+          item.to === "/human-support"
+            ? { ...item, badge: waitingCount > 0 ? String(waitingCount) : undefined }
+            : item,
+        )
+        .filter((item) => {
+          if (!profile) return false;
+          if (profile.role === "Admin") return true;
+          if (!item.section) return true;
+          return canAccessPath(profile.role, profile.permissions, item.to);
+        });
+      return { ...group, items };
+    })
+    .filter((group) => group.items.length > 0);
 
   return (
     <aside

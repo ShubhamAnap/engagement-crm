@@ -23,6 +23,8 @@ import { TopBar } from "@/components/layout/TopBar";
 import { AutomationApprovalBanner } from "@/components/automation/AutomationApprovalBanner";
 import { ChatWidget } from "@/components/ChatWidget";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { canAccessPath } from "@/lib/permissions";
+import { toast } from "sonner";
 
 function NotFoundComponent() {
   return (
@@ -172,7 +174,7 @@ function RootComponent() {
 function AuthenticatedShell() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
-  const { session, loading } = useAuth();
+  const { session, loading, profile, signOut } = useAuth();
   const [mounted, setMounted] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -193,6 +195,26 @@ function AuthenticatedShell() {
       void navigate({ to: "/login" });
     }
   }, [loading, session, isPublic, navigate]);
+
+  useEffect(() => {
+    if (loading || !session || !profile || isPublic) return;
+    if (profile.isActive === false) {
+      toast.error("This account is disabled. Contact your admin.");
+      void signOut().then(() => navigate({ to: "/login" }));
+      return;
+    }
+    if (!canAccessPath(profile.role, profile.permissions, pathname)) {
+      const fallback = canAccessPath(profile.role, profile.permissions, "/")
+        ? "/"
+        : canAccessPath(profile.role, profile.permissions, "/inbox")
+          ? "/inbox"
+          : "/";
+      if (pathname !== fallback) {
+        toast.message("You do not have access to that page");
+        void navigate({ to: fallback });
+      }
+    }
+  }, [loading, session, profile, pathname, isPublic, navigate, signOut]);
 
   // Close mobile drawer after route changes
   useEffect(() => {

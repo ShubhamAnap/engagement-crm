@@ -9,7 +9,7 @@
 
 Run **EnerTech Engage** as a **working enterprise AI customer engagement platform** for EnerTech UPS Pvt. Ltd., with architecture that can later become multi-tenant SaaS.
 
-**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Team permissions A+B+C** — run `033`. **Knowledge Base A+B+C** — run `032` if needed. **Agents A+B + Tools A+B** ready (routing clarity, Admin-only, Inspector `tools_used`) — deploy when asked. **Ops:** `029`→`033` as needed; public `APP_URL` for photo links.
+**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Team permissions** — run `033`. **Knowledge Base A+B+C** — run `032` if needed. **Agents A+B + Tools A+B** deployed (`a3118f7`). **Leads A+B** ready (paged sheet, privileges, safe delete) — deploy when asked. **Ops:** `029`→`033` as needed; public `APP_URL` for photo links.
 **Approach:** Prefer stabilize and ship focused improvements; new modules only when requested.
 
 ---
@@ -256,7 +256,7 @@ Embed on EnerTech website — live AI chat, lead capture (name/email/phone requi
 | Knowledge Base | `/knowledge` | Supabase + Storage | Live collections + upload/index (pgvector RAG) |
 | Products | `/products` | Supabase + Storage | CRUD + card image + catalogue PDF (**short link** `/c/{SKU}`) |
 | Customers | `/customers` | Supabase | List/create/update/delete |
-| Leads | `/leads` | Supabase | **Master sheet** + bulk import CSV (template, skip duplicates, max 500) |
+| Leads | `/leads` | Supabase | Master sheet: **paged** filters, CRM toggle, Add/Edit privileges, safe delete-by-source |
 | Pipeline | `/pipeline` | Supabase | Live Kanban from `leads` + drag/select stage updates |
 | Analytics | `/analytics` | Supabase | Live Insights: range filter + charts |
 | Automation | `/automation` | Supabase | Live A+B+C: Wait, If/Else, conditions, follow-up cron, WA/email/notify, canvas |
@@ -303,6 +303,17 @@ Record decisions here so we don't re-debate.
 ## Session Log
 
 Brief notes from each working session — append, don't delete.
+
+### Session 2026-08-11 — Leads A+B (master sheet polish)
+
+**Goal:** Ops-ready master sheet without breaking CRM sync ↔ Automation columns/triggers.
+
+**A:** Server paged list (`listLeadsPage` 50/page + exact total); filters (sales person, priority, follow-up due); CRM columns toggle; Priority + Follow-up in grid; Channels/Pipeline links; CSV Engage Ref vs CRM ID fix; working TablePagination.
+**B:** `leads_create` = Add/Edit/import/bulk assign+status; typed confirm + DB count for delete-by-source; import progress + optional skip automations on CSV only.
+
+**Unchanged:** CRM field names, `lead_created` / `lead_status_changed`, Pipeline `updateLeadStatus`, Channels sync.
+
+**Status:** Code ready — say **deploy** to commit/push.
 
 ### Session 2026-08-11 — Agents A+B then Tools A+B
 

@@ -259,27 +259,75 @@ export function Toolbar({
   );
 }
 
-export function TablePagination({ total, shown }: { total: number; shown: number }) {
+export function TablePagination({
+  total,
+  shown,
+  page,
+  pageSize,
+  onPageChange,
+}: {
+  total: number;
+  shown: number;
+  page?: number;
+  pageSize?: number;
+  onPageChange?: (page: number) => void;
+}) {
+  const controlled =
+    typeof page === "number" && typeof pageSize === "number" && typeof onPageChange === "function";
+  const totalPages = controlled ? Math.max(1, Math.ceil(total / Math.max(1, pageSize))) : 1;
+  const current = controlled ? Math.min(Math.max(1, page), totalPages) : 1;
+  const pages = controlled
+    ? Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+        const start = Math.max(1, Math.min(current - 2, totalPages - 4));
+        return start + i;
+      }).filter((p) => p >= 1 && p <= totalPages)
+    : [1];
+
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-2.5 text-xs text-muted-foreground">
       <span>
         Showing <span className="num text-foreground">{shown}</span> of{" "}
         <span className="num text-foreground">{total}</span> records
+        {controlled && totalPages > 1 ? (
+          <span>
+            {" "}
+            · page <span className="num text-foreground">{current}</span> /{" "}
+            <span className="num text-foreground">{totalPages}</span>
+          </span>
+        ) : null}
       </span>
       <div className="flex items-center gap-1">
-        <Button variant="outline" size="icon" className="size-8" aria-label="Previous page" disabled>
+        <Button
+          variant="outline"
+          size="icon"
+          className="size-8"
+          aria-label="Previous page"
+          disabled={!controlled || current <= 1}
+          onClick={() => controlled && onPageChange(current - 1)}
+        >
           <ChevronLeft className="size-4" />
         </Button>
-        <Button variant="secondary" size="icon" className="size-8" aria-label="Page 1">
-          1
-        </Button>
-        <Button variant="ghost" size="icon" className="size-8" aria-label="Page 2" disabled title="Pagination coming soon">
-          2
-        </Button>
-        <Button variant="ghost" size="icon" className="size-8" aria-label="Page 3" disabled title="Pagination coming soon">
-          3
-        </Button>
-        <Button variant="outline" size="icon" className="size-8" aria-label="Next page" disabled title="Pagination coming soon">
+        {pages.map((p) => (
+          <Button
+            key={p}
+            variant={p === current ? "secondary" : "ghost"}
+            size="icon"
+            className="size-8"
+            aria-label={`Page ${p}`}
+            disabled={!controlled}
+            onClick={() => controlled && onPageChange(p)}
+          >
+            {p}
+          </Button>
+        ))}
+        <Button
+          variant="outline"
+          size="icon"
+          className="size-8"
+          aria-label="Next page"
+          disabled={!controlled || current >= totalPages}
+          onClick={() => controlled && onPageChange(current + 1)}
+        >
           <ChevronRight className="size-4" />
         </Button>
       </div>

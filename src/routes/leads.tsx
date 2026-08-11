@@ -1,5 +1,5 @@
-﻿import { useMemo, useRef, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Pencil, Plus, Trash2, Upload, UserPlus } from "lucide-react";
 import { toast } from "sonner";
@@ -49,13 +49,17 @@ import {
   bulkAssignLeads,
   bulkDeleteLeads,
   bulkUpdateLeadStatus,
+  countLeadsBySource,
   createLead,
   deleteLead,
   deleteLeadsBySource,
   downloadLeadsCsv,
-  listLeads,
+  LEADS_PAGE_SIZE,
+  listLeadFacets,
+  listLeadsPage,
   listOrgSalesPeople,
   updateLead,
+  type LeadFollowUpFilter,
   type LeadRow,
 } from "@/lib/leads-api";
 import {
@@ -174,17 +178,24 @@ function Page() {
   const queryClient = useQueryClient();
   const { profile } = useAuth();
   const orgId = profile?.org.id;
-  const canCreate = canLeadsCreate(profile?.role, profile?.permissions);
+  const canEdit = canLeadsCreate(profile?.role, profile?.permissions);
   const canDelete = canLeadsDelete(profile?.role, profile?.permissions);
   const [search, setSearch] = useState("");
+  const [searchDebounced, setSearchDebounced] = useState("");
   const [statusFilter, setStatusFilter] = useState<"All" | LeadStatus>("All");
   const [sourceFilter, setSourceFilter] = useState<"All" | ChannelType>("All");
   const [crmSourceFilter, setCrmSourceFilter] = useState<string>("All");
+  const [salesFilter, setSalesFilter] = useState<string>("All");
+  const [priorityFilter, setPriorityFilter] = useState<"All" | PriorityLevel>("All");
+  const [followUpFilter, setFollowUpFilter] = useState<LeadFollowUpFilter>("all");
+  const [page, setPage] = useState(1);
+  const [showCrmCols, setShowCrmCols] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<LeadRow | null>(null);
   const [leadToDelete, setLeadToDelete] = useState<LeadRow | null>(null);
   const [deleteBySourceOpen, setDeleteBySourceOpen] = useState(false);
   const [deleteSource, setDeleteSource] = useState<ChannelType | "">("");
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deleteSelectedOpen, setDeleteSelectedOpen] = useState(false);
   const [form, setForm] = useState<LeadFormState>(defaultForm);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -194,12 +205,70 @@ function Page() {
   const [importOpen, setImportOpen] = useState(false);
   const [importFileName, setImportFileName] = useState<string | null>(null);
   const [importCsvText, setImportCsvText] = useState<string | null>(null);
+  const [importFireAutomations, setImportFireAutomations] = useState(true);
+  const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
   const importInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearchDebounced(search.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [search]);
+
+  useEffect(() => {
+    setPage(1);
+    setSelectedIds(new Set());
+  }, [
+    searchDebounced,
+    statusFilter,
+    sourceFilter,
+    crmSourceFilter,
+    salesFilter,
+    priorityFilter,
+    followUpFilter,
+  ]);
+
+  const listFilters = useMemo(
+    () => ({
+      search: searchDebounced,
+      status: statusFilter,
+      source: sourceFilter,
+      crmSource: crmSourceFilter,
+      salesPerson: salesFilter,
+      priority: priorityFilter,
+      followUp: followUpFilter,
+      page,
+      pageSize: LEADS_PAGE_SIZE,
+    }),
+    [
+      searchDebounced,
+      statusFilter,
+      sourceFilter,
+      crmSourceFilter,
+      salesFilter,
+      priorityFilter,
+      followUpFilter,
+      page,
+    ],
+  );
+
   const leadsQuery = useQuery({
-    queryKey: ["leads", orgId],
+    queryKey: ["leads", orgId, listFilters],
     enabled: Boolean(orgId),
-    queryFn: () => listLeads(orgId!),
+    queryFn: () => listLeadsPage(orgId!, listFilters),
+  });
+
+  const facetsQuery = useQuery({
+    queryKey: ["leads-facets", orgId],
+    enabled: Boolean(orgId),
+    queryFn: () => listLeadFacets(orgId!),
+  });
+
+  const deleteSourceCountQuery = useQuery({
+    queryKey: ["leads-count-source", orgId, deleteSource],
+    enabled: Boolean(orgId && deleteSource && deleteBySourceOpen),
+    queryFn: () => countLeadsBySource(orgId!, deleteSource as ChannelType),
   });
 
   const peopleQuery = useQuery({
@@ -207,6 +276,17 @@ function Page() {
     enabled: Boolean(orgId),
     queryFn: () => listOrgSalesPeople(orgId!),
   });
+
+  const pageRows = leadsQuery.data?.rows ?? [];
+  const totalLeads = leadsQuery.data?.total ?? 0;
+  const facets = facetsQuery.data;
+
+  const invalidateLeads = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["leads", orgId] }),
+      queryClient.invalidateQueries({ queryKey: ["leads-facets", orgId] }),
+    ]);
+  };
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -235,7 +315,7 @@ function Page() {
       return editingLead ? updateLead(editingLead.id, payload) : createLead(payload);
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["leads", orgId] });
+      await invalidateLeads();
       toast.success(editingLead ? "Lead updated" : "Lead added to master");
       setDialogOpen(false);
       setEditingLead(null);
@@ -249,7 +329,7 @@ function Page() {
   const deleteMutation = useMutation({
     mutationFn: async (leadId: string) => deleteLead(leadId),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["leads", orgId] });
+      await invalidateLeads();
       toast.success("Lead deleted");
       setLeadToDelete(null);
       setSelectedIds((prev) => {
@@ -267,15 +347,21 @@ function Page() {
     mutationFn: async () => {
       if (!orgId) throw new Error("Your profile is still loading");
       if (!deleteSource) throw new Error("Choose a source");
+      const label =
+        sourceOptions.find((o) => o.value === deleteSource)?.label || deleteSource;
+      if (deleteConfirmText.trim().toLowerCase() !== String(label).toLowerCase()) {
+        throw new Error(`Type "${label}" to confirm`);
+      }
       return deleteLeadsBySource(orgId, deleteSource);
     },
     onSuccess: async (count) => {
-      await queryClient.invalidateQueries({ queryKey: ["leads", orgId] });
+      await invalidateLeads();
       const label =
         sourceOptions.find((o) => o.value === deleteSource)?.label || deleteSource;
       toast.success(`Deleted ${count} lead${count === 1 ? "" : "s"} from ${label}`);
       setDeleteBySourceOpen(false);
       setDeleteSource("");
+      setDeleteConfirmText("");
       setSelectedIds(new Set());
     },
     onError: (error) =>
@@ -290,7 +376,7 @@ function Page() {
       return bulkDeleteLeads(orgId, ids);
     },
     onSuccess: async (count) => {
-      await queryClient.invalidateQueries({ queryKey: ["leads", orgId] });
+      await invalidateLeads();
       toast.success(`Deleted ${count} lead${count === 1 ? "" : "s"}`);
       setDeleteSelectedOpen(false);
       setSelectedIds(new Set());
@@ -301,6 +387,7 @@ function Page() {
 
   const assignMutation = useMutation({
     mutationFn: async () => {
+      if (!canEdit) throw new Error("You do not have permission to edit leads");
       const ids = [...selectedIds];
       if (ids.length === 0) throw new Error("Select at least one lead");
       const person = (peopleQuery.data ?? []).find((p) => p.id === bulkOwnerId);
@@ -312,7 +399,7 @@ function Page() {
       });
     },
     onSuccess: async (count) => {
-      await queryClient.invalidateQueries({ queryKey: ["leads", orgId] });
+      await invalidateLeads();
       toast.success(`Assigned ${count} lead${count === 1 ? "" : "s"}`);
       setAssignOpen(false);
       setBulkOwnerId("");
@@ -324,13 +411,14 @@ function Page() {
 
   const bulkStatusMutation = useMutation({
     mutationFn: async () => {
+      if (!canEdit) throw new Error("You do not have permission to edit leads");
       const ids = [...selectedIds];
       if (ids.length === 0) throw new Error("Select at least one lead");
       if (!bulkStatus) throw new Error("Choose a status");
       return bulkUpdateLeadStatus({ leadIds: ids, status: bulkStatus });
     },
     onSuccess: async (count) => {
-      await queryClient.invalidateQueries({ queryKey: ["leads", orgId] });
+      await invalidateLeads();
       toast.success(`Updated status on ${count} lead${count === 1 ? "" : "s"}`);
       setBulkStatus("");
       setSelectedIds(new Set());
@@ -342,22 +430,27 @@ function Page() {
   const importMutation = useMutation({
     mutationFn: async (csvText: string) => {
       if (!orgId) throw new Error("Your profile is still loading");
+      setImportProgress({ done: 0, total: 0 });
       return importLeadsFromCsv({
         orgId,
         csvText,
         ownerId: profile?.id ?? null,
+        fireAutomations: importFireAutomations,
+        onProgress: (done, total) => setImportProgress({ done, total }),
       });
     },
     onSuccess: async (result) => {
-      await queryClient.invalidateQueries({ queryKey: ["leads", orgId] });
+      await invalidateLeads();
       setImportOpen(false);
       setImportFileName(null);
       setImportCsvText(null);
+      setImportProgress(null);
       if (importInputRef.current) importInputRef.current.value = "";
       const parts = [
         `${result.imported} imported`,
         result.skippedDuplicate ? `${result.skippedDuplicate} skipped (duplicate)` : null,
         result.skippedInvalid ? `${result.skippedInvalid} skipped (invalid)` : null,
+        importFireAutomations ? null : "automations skipped",
       ].filter(Boolean);
       toast.success(parts.join(" · "));
       if (result.errors.length > 0) {
@@ -366,8 +459,10 @@ function Page() {
         );
       }
     },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "Import failed"),
+    onError: (error) => {
+      setImportProgress(null);
+      toast.error(error instanceof Error ? error.message : "Import failed");
+    },
   });
 
   const onImportFile = (file: File | null) => {
@@ -389,64 +484,15 @@ function Page() {
     reader.readAsText(file);
   };
 
-  const filteredLeads = useMemo(() => {
-    let items = leadsQuery.data ?? [];
-    if (statusFilter !== "All") {
-      items = items.filter((l) => l.status === statusFilter);
-    }
-    if (sourceFilter !== "All") {
-      items = items.filter((l) => (l.source || "website") === sourceFilter);
-    }
-    if (crmSourceFilter !== "All") {
-      items = items.filter((l) => (l.crm_source || "") === crmSourceFilter);
-    }
-    const q = search.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((lead) =>
-      [
-        lead.name,
-        lead.company,
-        lead.email,
-        lead.phone,
-        lead.requirement,
-        lead.product_label,
-        lead.sales_person,
-        lead.location,
-        lead.notes,
-        lead.external_ref,
-        lead.source,
-        lead.crm_source,
-        ...(lead.tags || []),
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(q)),
-    );
-  }, [leadsQuery.data, search, statusFilter, sourceFilter, crmSourceFilter]);
-
-  const deleteSourceCount = useMemo(() => {
-    if (!deleteSource) return 0;
-    return (leadsQuery.data ?? []).filter((l) => (l.source || "website") === deleteSource)
-      .length;
-  }, [leadsQuery.data, deleteSource]);
-
+  const deleteSourceCount = deleteSourceCountQuery.data ?? 0;
   const sourceCounts = useMemo(() => {
     const map = new Map<string, number>();
-    for (const lead of leadsQuery.data ?? []) {
-      const key = lead.source || "website";
-      map.set(key, (map.get(key) || 0) + 1);
-    }
+    for (const row of facets?.sources ?? []) map.set(row.value, row.count);
     return map;
-  }, [leadsQuery.data]);
+  }, [facets]);
 
-  const crmSourceOptions = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const lead of leadsQuery.data ?? []) {
-      const key = (lead.crm_source || "").trim();
-      if (!key) continue;
-      map.set(key, (map.get(key) || 0) + 1);
-    }
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [leadsQuery.data]);
+  const crmSourceOptions = facets?.crmSources ?? [];
+  const salesPersonOptions = facets?.salesPeople ?? [];
 
   function formatCrmDate(iso: string | null | undefined) {
     if (!iso) return "—";
@@ -455,17 +501,35 @@ function Page() {
     return d.toLocaleDateString();
   }
 
+  function formatFollowUp(iso: string | null | undefined) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  function priorityTone(p: PriorityLevel): "danger" | "warning" | "neutral" {
+    if (p === "High") return "danger";
+    if (p === "Low") return "neutral";
+    return "warning";
+  }
+
   const allFilteredSelected =
-    filteredLeads.length > 0 && filteredLeads.every((l) => selectedIds.has(l.id));
-  const someFilteredSelected = filteredLeads.some((l) => selectedIds.has(l.id));
+    pageRows.length > 0 && pageRows.every((l) => selectedIds.has(l.id));
+  const someFilteredSelected = pageRows.some((l) => selectedIds.has(l.id));
 
   const toggleSelectAllFiltered = (checked: boolean) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (checked) {
-        for (const lead of filteredLeads) next.add(lead.id);
+        for (const lead of pageRows) next.add(lead.id);
       } else {
-        for (const lead of filteredLeads) next.delete(lead.id);
+        for (const lead of pageRows) next.delete(lead.id);
       }
       return next;
     });
@@ -481,12 +545,11 @@ function Page() {
   };
 
   const selectedLeads = useMemo(() => {
-    const all = leadsQuery.data ?? [];
-    return all.filter((l) => selectedIds.has(l.id));
-  }, [leadsQuery.data, selectedIds]);
+    return pageRows.filter((l) => selectedIds.has(l.id));
+  }, [pageRows, selectedIds]);
 
   const exportSelectedOrFiltered = () => {
-    const rows = selectedLeads.length > 0 ? selectedLeads : filteredLeads;
+    const rows = selectedLeads.length > 0 ? selectedLeads : pageRows;
     if (rows.length === 0) {
       toast.message("Nothing to export");
       return;
@@ -494,12 +557,16 @@ function Page() {
     downloadLeadsCsv(rows);
     toast.success(
       `Exported ${rows.length} lead${rows.length === 1 ? "" : "s"}${
-        selectedLeads.length > 0 ? " (selected)" : " (current filter)"
+        selectedLeads.length > 0 ? " (selected)" : " (this page)"
       }`,
     );
   };
 
   const openCreate = () => {
+    if (!canEdit) {
+      toast.error("You do not have permission to add leads");
+      return;
+    }
     setEditingLead(null);
     setForm({
       ...defaultForm,
@@ -510,12 +577,25 @@ function Page() {
   };
 
   const openEdit = (lead: LeadRow) => {
+    if (!canEdit) {
+      toast.error("You do not have permission to edit leads");
+      return;
+    }
     setEditingLead(lead);
     setForm(formFromLead(lead));
     setDialogOpen(true);
   };
 
-  const columns = [
+  const hasActiveFilters =
+    Boolean(searchDebounced) ||
+    statusFilter !== "All" ||
+    sourceFilter !== "All" ||
+    crmSourceFilter !== "All" ||
+    salesFilter !== "All" ||
+    priorityFilter !== "All" ||
+    followUpFilter !== "all";
+
+  const baseColumns = [
     "Select",
     "Company",
     "Name",
@@ -523,30 +603,59 @@ function Page() {
     "Phone",
     "Location",
     "Source",
-    "CRM Source",
-    "CRM ID",
-    "CRM Created",
-    "CRM Modified",
     "Requirement",
     "Sales Person",
     "Status",
+    "Priority",
+    "Follow-up",
     "Note",
     "Tags",
     "Actions",
   ];
+  const columns = showCrmCols
+    ? [
+        "Select",
+        "Company",
+        "Name",
+        "Email",
+        "Phone",
+        "Location",
+        "Source",
+        "CRM Source",
+        "CRM ID",
+        "Engage Ref",
+        "CRM Created",
+        "CRM Modified",
+        "Requirement",
+        "Sales Person",
+        "Status",
+        "Priority",
+        "Follow-up",
+        "Note",
+        "Tags",
+        "Actions",
+      ]
+    : baseColumns;
 
   return (
     <>
       <PageHeader
         title="Leads — Master"
-        description="Single master sheet for every enquiry. Filter by source, select rows to assign/delete, or delete all leads from one source (Brainmine, IndiaMART, …)."
+        description="Single master sheet for every enquiry. Filter, page, assign, or delete — CRM sync stays on Channels; Pipeline uses the same status."
         meta={
-          <Pill tone="neutral">
-            {(leadsQuery.data ?? []).length} leads
-          </Pill>
+          <div className="flex flex-wrap gap-2">
+            <Pill tone="neutral">{totalLeads} leads</Pill>
+            {!canEdit ? <Pill tone="warning">View / limited</Pill> : null}
+          </div>
         }
         actions={
           <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" asChild>
+              <Link to="/channels">Channels (sync)</Link>
+            </Button>
+            <Button size="sm" variant="outline" asChild>
+              <Link to="/pipeline">Pipeline</Link>
+            </Button>
             {canDelete ? (
               <Button
                 size="sm"
@@ -554,6 +663,7 @@ function Page() {
                 className="gap-1.5 text-destructive hover:text-destructive"
                 onClick={() => {
                   setDeleteSource("");
+                  setDeleteConfirmText("");
                   setDeleteBySourceOpen(true);
                 }}
               >
@@ -563,12 +673,12 @@ function Page() {
             <Button size="sm" variant="outline" className="gap-1.5" onClick={exportSelectedOrFiltered}>
               <Download className="size-4" /> Export CSV
             </Button>
-            {canCreate ? (
+            {canEdit ? (
               <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setImportOpen(true)}>
                 <Upload className="size-4" /> Bulk import
               </Button>
             ) : null}
-            {canCreate ? (
+            {canEdit ? (
               <Button size="sm" className="gap-1.5" onClick={openCreate}>
                 <Plus className="size-4" /> Add lead
               </Button>
@@ -579,7 +689,7 @@ function Page() {
       <div className="space-y-4 p-6">
         <Panel bodyClassName="p-0">
           <Toolbar
-            placeholder="Search company, name, phone, requirement, tags…"
+            placeholder="Search company, name, phone, requirement…"
             value={search}
             onChange={setSearch}
             right={
@@ -588,7 +698,7 @@ function Page() {
                   value={sourceFilter}
                   onValueChange={(v) => setSourceFilter(v as "All" | ChannelType)}
                 >
-                  <SelectTrigger className="h-8 w-[160px]">
+                  <SelectTrigger className="h-8 w-[150px]">
                     <SelectValue placeholder="Source" />
                   </SelectTrigger>
                   <SelectContent>
@@ -604,14 +714,27 @@ function Page() {
                   </SelectContent>
                 </Select>
                 <Select value={crmSourceFilter} onValueChange={setCrmSourceFilter}>
-                  <SelectTrigger className="h-8 w-[170px]">
+                  <SelectTrigger className="h-8 w-[150px]">
                     <SelectValue placeholder="CRM source" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="All">All CRM sources</SelectItem>
-                    {crmSourceOptions.map(([value, n]) => (
-                      <SelectItem key={value} value={value}>
-                        {value} ({n})
+                    {crmSourceOptions.map((row) => (
+                      <SelectItem key={row.value} value={row.value}>
+                        {row.value} ({row.count})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={salesFilter} onValueChange={setSalesFilter}>
+                  <SelectTrigger className="h-8 w-[150px]">
+                    <SelectValue placeholder="Sales person" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All sales people</SelectItem>
+                    {salesPersonOptions.map((name) => (
+                      <SelectItem key={name} value={name}>
+                        {name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -620,7 +743,7 @@ function Page() {
                   value={statusFilter}
                   onValueChange={(v) => setStatusFilter(v as "All" | LeadStatus)}
                 >
-                  <SelectTrigger className="h-8 w-[150px]">
+                  <SelectTrigger className="h-8 w-[130px]">
                     <SelectValue placeholder="Status" />
                   </SelectTrigger>
                   <SelectContent>
@@ -632,6 +755,43 @@ function Page() {
                     ))}
                   </SelectContent>
                 </Select>
+                <Select
+                  value={priorityFilter}
+                  onValueChange={(v) => setPriorityFilter(v as "All" | PriorityLevel)}
+                >
+                  <SelectTrigger className="h-8 w-[120px]">
+                    <SelectValue placeholder="Priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All priorities</SelectItem>
+                    {priorityOptions.map((p) => (
+                      <SelectItem key={p} value={p}>
+                        {p}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={followUpFilter}
+                  onValueChange={(v) => setFollowUpFilter(v as LeadFollowUpFilter)}
+                >
+                  <SelectTrigger className="h-8 w-[140px]">
+                    <SelectValue placeholder="Follow-up" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Any follow-up</SelectItem>
+                    <SelectItem value="overdue">Overdue</SelectItem>
+                    <SelectItem value="today">Due today</SelectItem>
+                    <SelectItem value="upcoming">Upcoming</SelectItem>
+                  </SelectContent>
+                </Select>
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Checkbox
+                    checked={showCrmCols}
+                    onCheckedChange={(v) => setShowCrmCols(v === true)}
+                  />
+                  CRM columns
+                </label>
               </div>
             }
           />
@@ -641,37 +801,41 @@ function Page() {
               <span className="text-xs font-medium text-foreground">
                 {selectedIds.size} selected
               </span>
-              <Button
-                size="sm"
-                variant="secondary"
-                className="gap-1.5"
-                onClick={() => setAssignOpen(true)}
-              >
-                <UserPlus className="size-3.5" /> Assign sales person
-              </Button>
-              <Select
-                value={bulkStatus || undefined}
-                onValueChange={(v: LeadStatus) => setBulkStatus(v)}
-              >
-                <SelectTrigger className="h-8 w-[140px]">
-                  <SelectValue placeholder="Set status" />
-                </SelectTrigger>
-                <SelectContent>
-                  {statusOptions.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!bulkStatus || bulkStatusMutation.isPending}
-                onClick={() => bulkStatusMutation.mutate()}
-              >
-                {bulkStatusMutation.isPending ? "Updating…" : "Apply status"}
-              </Button>
+              {canEdit ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="gap-1.5"
+                    onClick={() => setAssignOpen(true)}
+                  >
+                    <UserPlus className="size-3.5" /> Assign sales person
+                  </Button>
+                  <Select
+                    value={bulkStatus || undefined}
+                    onValueChange={(v: LeadStatus) => setBulkStatus(v)}
+                  >
+                    <SelectTrigger className="h-8 w-[140px]">
+                      <SelectValue placeholder="Set status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {statusOptions.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!bulkStatus || bulkStatusMutation.isPending}
+                    onClick={() => bulkStatusMutation.mutate()}
+                  >
+                    {bulkStatusMutation.isPending ? "Updating…" : "Apply status"}
+                  </Button>
+                </>
+              ) : null}
               <Button
                 size="sm"
                 variant="outline"
@@ -701,18 +865,21 @@ function Page() {
 
           {leadsQuery.isLoading ? (
             <div className="p-6 text-sm text-muted-foreground">Loading master leads…</div>
-          ) : filteredLeads.length === 0 ? (
+          ) : pageRows.length === 0 ? (
             <div className="p-4">
               <EmptyState
-                title={
-                  search || statusFilter !== "All" || sourceFilter !== "All" || crmSourceFilter !== "All"
-                    ? "No matching leads"
-                    : "Master table is empty"
-                }
+                title={hasActiveFilters ? "No matching leads" : "Master table is empty"}
                 description={
-                  search || statusFilter !== "All" || sourceFilter !== "All" || crmSourceFilter !== "All"
+                  hasActiveFilters
                     ? "Try a different search or filter."
                     : "Add a lead, or sync from IndiaMART / TradeIndia / Brainmine / website chat — they land here."
+                }
+                action={
+                  !hasActiveFilters ? (
+                    <Button size="sm" variant="outline" asChild>
+                      <Link to="/channels">Open Channels to sync</Link>
+                    </Button>
+                  ) : undefined
                 }
               />
             </div>
@@ -734,7 +901,7 @@ function Page() {
                                     : false
                               }
                               onCheckedChange={(v) => toggleSelectAllFiltered(v === true)}
-                              aria-label="Select all filtered leads"
+                              aria-label="Select all on this page"
                             />
                           ) : (
                             h
@@ -744,7 +911,9 @@ function Page() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {filteredLeads.map((lead) => (
+                    {pageRows.map((lead) => {
+                      const isEngageRef = String(lead.external_ref || "").startsWith("LD-");
+                      return (
                       <tr
                         key={lead.id}
                         className={
@@ -782,18 +951,25 @@ function Page() {
                             <span className="text-xs capitalize">{lead.source || "—"}</span>
                           </div>
                         </td>
-                        <td className="max-w-[120px] truncate px-3 py-2.5 text-xs text-muted-foreground">
-                          {lead.crm_source || "—"}
-                        </td>
-                        <td className="max-w-[140px] truncate px-3 py-2.5 font-mono text-[11px] text-muted-foreground">
-                          {lead.external_ref || "—"}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-xs text-muted-foreground">
-                          {formatCrmDate(lead.crm_created_at)}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-xs text-muted-foreground">
-                          {formatCrmDate(lead.crm_modified_at)}
-                        </td>
+                        {showCrmCols ? (
+                          <>
+                            <td className="max-w-[120px] truncate px-3 py-2.5 text-xs text-muted-foreground">
+                              {lead.crm_source || "—"}
+                            </td>
+                            <td className="max-w-[140px] truncate px-3 py-2.5 font-mono text-[11px] text-muted-foreground">
+                              {isEngageRef ? "—" : lead.external_ref || "—"}
+                            </td>
+                            <td className="max-w-[100px] truncate px-3 py-2.5 font-mono text-[11px] text-muted-foreground">
+                              {isEngageRef ? lead.external_ref : "—"}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2.5 text-xs text-muted-foreground">
+                              {formatCrmDate(lead.crm_created_at)}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2.5 text-xs text-muted-foreground">
+                              {formatCrmDate(lead.crm_modified_at)}
+                            </td>
+                          </>
+                        ) : null}
                         <td className="max-w-[180px] truncate px-3 py-2.5">
                           {lead.requirement || lead.product_label || "—"}
                         </td>
@@ -802,6 +978,12 @@ function Page() {
                         </td>
                         <td className="px-3 py-2.5">
                           <Pill tone={statusTone(lead.status)}>{lead.status}</Pill>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <Pill tone={priorityTone(lead.priority)}>{lead.priority}</Pill>
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-xs text-muted-foreground">
+                          {formatFollowUp(lead.next_follow_up_at)}
                         </td>
                         <td className="max-w-[160px] truncate px-3 py-2.5 text-muted-foreground">
                           {lead.notes || "—"}
@@ -821,9 +1003,11 @@ function Page() {
                         </td>
                         <td className="px-3 py-2.5">
                           <div className="flex gap-1.5">
-                            <Button size="sm" variant="outline" onClick={() => openEdit(lead)}>
-                              <Pencil className="size-3.5" />
-                            </Button>
+                            {canEdit ? (
+                              <Button size="sm" variant="outline" onClick={() => openEdit(lead)}>
+                                <Pencil className="size-3.5" />
+                              </Button>
+                            ) : null}
                             {canDelete ? (
                               <Button
                                 size="sm"
@@ -837,21 +1021,29 @@ function Page() {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    );
+                    })}
                   </tbody>
                 </table>
               </div>
-              <TablePagination total={filteredLeads.length} shown={filteredLeads.length} />
+              <TablePagination
+                total={totalLeads}
+                shown={pageRows.length}
+                page={page}
+                pageSize={LEADS_PAGE_SIZE}
+                onPageChange={setPage}
+              />
             </>
           )}
         </Panel>
 
         <p className="text-xs text-muted-foreground">
-          Tip: use Bulk import for CSV (template download). Select rows for assign / status. Export uses
-          selected rows, or the current filter if nothing is selected. Run{" "}
-          <code className="rounded bg-secondary px-1">010_leads_master.sql</code> and{" "}
-          <code className="rounded bg-secondary px-1">023_leads_crm_fields.sql</code> in Supabase if CRM
-          columns are missing. Re-sync Brainmine to fill CRM Source / dates / ID.
+          Tip: Bulk import uses the CSV template. Export uses selected rows, or this page if none
+          selected. Sync CRM leads from{" "}
+          <Link to="/channels" className="underline underline-offset-2">
+            Channels
+          </Link>
+          . Status changes still fire Automation the same way as before.
         </p>
       </div>
 
@@ -898,6 +1090,25 @@ function Page() {
                 <p className="text-xs text-muted-foreground">Selected: {importFileName}</p>
               ) : null}
             </div>
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                checked={importFireAutomations}
+                onCheckedChange={(v) => setImportFireAutomations(v === true)}
+                className="mt-0.5"
+              />
+              <span>
+                Fire <strong>lead_created</strong> automations for imported rows
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  Keep on for normal ops. Turn off for historical backfill so WA/email campaigns don’t
+                  fire. CRM sync from Channels is unchanged.
+                </span>
+              </span>
+            </label>
+            {importProgress ? (
+              <p className="text-xs text-muted-foreground">
+                Progress: {importProgress.done} / {importProgress.total || "…"}
+              </p>
+            ) : null}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setImportOpen(false)}>
@@ -1148,7 +1359,10 @@ function Page() {
             <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={saveMutation.isPending}>
               Cancel
             </Button>
-            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+            <Button
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending || !canEdit}
+            >
               {saveMutation.isPending ? "Saving…" : editingLead ? "Update" : "Add to master"}
             </Button>
           </DialogFooter>
@@ -1213,6 +1427,7 @@ function Page() {
           if (!open) {
             setDeleteBySourceOpen(false);
             setDeleteSource("");
+            setDeleteConfirmText("");
           }
         }}
       >
@@ -1221,7 +1436,8 @@ function Page() {
             <DialogTitle>Delete leads by source</DialogTitle>
             <DialogDescription>
               Remove every lead from one channel source (e.g. Brainmine, IndiaMART). Permanent —
-              conversations stay, but the lead link is cleared.
+              conversations stay, but the lead link is cleared. Count comes from the database, not
+              just this page.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-1">
@@ -1229,7 +1445,10 @@ function Page() {
               <Label>Source</Label>
               <Select
                 value={deleteSource || undefined}
-                onValueChange={(v: ChannelType) => setDeleteSource(v)}
+                onValueChange={(v: ChannelType) => {
+                  setDeleteSource(v);
+                  setDeleteConfirmText("");
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Choose source…" />
@@ -1238,8 +1457,9 @@ function Page() {
                   {sourceOptions.map((option) => {
                     const n = sourceCounts.get(option.value) || 0;
                     return (
-                      <SelectItem key={option.value} value={option.value} disabled={n === 0}>
-                        {option.label} ({n})
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                        {n > 0 ? ` (${n})` : ""}
                       </SelectItem>
                     );
                   })}
@@ -1248,13 +1468,36 @@ function Page() {
             </div>
             {deleteSource ? (
               <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                Will permanently delete <strong>{deleteSourceCount}</strong> lead
-                {deleteSourceCount === 1 ? "" : "s"} with source{" "}
-                <strong>
-                  {sourceOptions.find((o) => o.value === deleteSource)?.label || deleteSource}
-                </strong>
-                .
+                {deleteSourceCountQuery.isLoading
+                  ? "Counting leads in database…"
+                  : (
+                    <>
+                      Will permanently delete <strong>{deleteSourceCount}</strong> lead
+                      {deleteSourceCount === 1 ? "" : "s"} with source{" "}
+                      <strong>
+                        {sourceOptions.find((o) => o.value === deleteSource)?.label || deleteSource}
+                      </strong>
+                      .
+                    </>
+                  )}
               </p>
+            ) : null}
+            {deleteSource ? (
+              <div className="space-y-2">
+                <Label>
+                  Type{" "}
+                  <strong>
+                    {sourceOptions.find((o) => o.value === deleteSource)?.label || deleteSource}
+                  </strong>{" "}
+                  to confirm
+                </Label>
+                <Input
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder="Source label"
+                  autoComplete="off"
+                />
+              </div>
             ) : null}
           </div>
           <DialogFooter>
@@ -1264,13 +1507,23 @@ function Page() {
               onClick={() => {
                 setDeleteBySourceOpen(false);
                 setDeleteSource("");
+                setDeleteConfirmText("");
               }}
             >
               Cancel
             </Button>
             <Button
               variant="destructive"
-              disabled={!deleteSource || deleteSourceCount === 0 || deleteBySourceMutation.isPending}
+              disabled={
+                !deleteSource ||
+                deleteSourceCount === 0 ||
+                deleteSourceCountQuery.isLoading ||
+                deleteBySourceMutation.isPending ||
+                deleteConfirmText.trim().toLowerCase() !==
+                  (
+                    sourceOptions.find((o) => o.value === deleteSource)?.label || deleteSource
+                  ).toLowerCase()
+              }
               onClick={() => deleteBySourceMutation.mutate()}
             >
               {deleteBySourceMutation.isPending

@@ -139,7 +139,7 @@ function PermissionChecklist({
                           disabled={disabled || !leadsOpen}
                           onCheckedChange={(v) => toggleAction("leads_create", v === true)}
                         />
-                        <span>Add lead</span>
+                        <span>Add / Edit / bulk assign &amp; status</span>
                       </label>
                       <label className="flex cursor-pointer items-center gap-2 text-sm">
                         <Checkbox

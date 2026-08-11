@@ -28,6 +28,35 @@ export type LeadRow = DbLead & {
   owner_name?: string | null;
 };
 
+export type LeadFollowUpFilter = "all" | "overdue" | "today" | "upcoming";
+
+export type LeadListFilters = {
+  search?: string;
+  status?: LeadStatus | "All";
+  source?: ChannelType | "All";
+  crmSource?: string;
+  salesPerson?: string;
+  priority?: PriorityLevel | "All";
+  followUp?: LeadFollowUpFilter;
+};
+
+export type LeadListResult = {
+  rows: LeadRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+export type LeadFacets = {
+  sources: Array<{ value: string; count: number }>;
+  crmSources: Array<{ value: string; count: number }>;
+  salesPeople: string[];
+};
+
+export const LEADS_PAGE_SIZE = 50;
+/** Pipeline / Kanban still loads a large sheet (not the paged master UI). */
+export const LEADS_PIPELINE_LIMIT = 2000;
+
 function parseTags(raw: string | string[] | undefined | null): string[] {
   if (Array.isArray(raw)) {
     return raw.map((t) => t.trim()).filter(Boolean);
@@ -88,7 +117,7 @@ function normalizeLead(row: Record<string, unknown>): LeadRow {
   };
 }
 
-/** Enforce Team tick-marks for lead create/delete (Admin bypass). */
+/** Enforce Team tick-marks (Admin bypass). create = Add/Edit/import/bulk assign+status. */
 async function assertLeadAction(action: "create" | "delete"): Promise<void> {
   const supabase = getBrowserSupabase();
   const { data: authData, error: authError } = await supabase.auth.getUser();
@@ -106,7 +135,7 @@ async function assertLeadAction(action: "create" | "delete"): Promise<void> {
   const permissions = profile.permissions;
   if (action === "create") {
     if (!canLeadsCreate(role, permissions)) {
-      throw new Error("You do not have permission to add leads");
+      throw new Error("You do not have permission to add or edit leads");
     }
     return;
   }
@@ -115,26 +144,149 @@ async function assertLeadAction(action: "create" | "delete"): Promise<void> {
   }
 }
 
-export async function listLeads(orgId: string): Promise<LeadRow[]> {
+function sanitizeSearch(raw: string): string {
+  return raw.replace(/[%_,.()]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
+function applyLeadFilters(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: any,
+  orgId: string,
+  options: LeadListFilters,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): any {
+  let q = query.eq("org_id", orgId);
+  if (options.status && options.status !== "All") q = q.eq("status", options.status);
+  if (options.source && options.source !== "All") q = q.eq("source", options.source);
+  if (options.crmSource && options.crmSource !== "All") {
+    q = q.eq("crm_source", options.crmSource);
+  }
+  if (options.priority && options.priority !== "All") q = q.eq("priority", options.priority);
+  if (options.salesPerson && options.salesPerson !== "All") {
+    q = q.eq("sales_person", options.salesPerson);
+  }
+
+  const now = new Date();
+  if (options.followUp === "overdue") {
+    q = q.not("next_follow_up_at", "is", null).lt("next_follow_up_at", now.toISOString());
+  } else if (options.followUp === "today") {
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(now);
+    end.setHours(23, 59, 59, 999);
+    q = q
+      .gte("next_follow_up_at", start.toISOString())
+      .lte("next_follow_up_at", end.toISOString());
+  } else if (options.followUp === "upcoming") {
+    q = q.gt("next_follow_up_at", now.toISOString());
+  }
+
+  const search = sanitizeSearch(options.search || "");
+  if (search) {
+    const like = `%${search}%`;
+    q = q.or(
+      [
+        `name.ilike.${like}`,
+        `company.ilike.${like}`,
+        `email.ilike.${like}`,
+        `phone.ilike.${like}`,
+        `requirement.ilike.${like}`,
+        `product_label.ilike.${like}`,
+        `sales_person.ilike.${like}`,
+        `location.ilike.${like}`,
+        `notes.ilike.${like}`,
+        `external_ref.ilike.${like}`,
+        `crm_source.ilike.${like}`,
+      ].join(","),
+    );
+  }
+  return q;
+}
+
+/** Paged master-sheet query with server-side filters + exact total. */
+export async function listLeadsPage(
+  orgId: string,
+  options: LeadListFilters & { page?: number; pageSize?: number } = {},
+): Promise<LeadListResult> {
+  const page = Math.max(1, options.page ?? 1);
+  const pageSize = Math.min(200, Math.max(10, options.pageSize ?? LEADS_PAGE_SIZE));
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  const supabase = getBrowserSupabase();
+  const select = "*, owner:profiles!leads_owner_id_fkey(full_name)";
+
+  let query = applyLeadFilters(
+    supabase.from("leads").select(select, { count: "exact" }),
+    orgId,
+    options,
+  );
+  query = query.order("created_at", { ascending: false }).range(from, to);
+
+  const { data, error, count } = await query;
+  if (error) {
+    // Fallback if FK hint fails on older schemas
+    let fallback = applyLeadFilters(
+      supabase.from("leads").select("*", { count: "exact" }),
+      orgId,
+      options,
+    );
+    fallback = fallback.order("created_at", { ascending: false }).range(from, to);
+    const res = await fallback;
+    if (res.error) throw res.error;
+    return {
+      rows: (res.data ?? []).map((row: Record<string, unknown>) => normalizeLead(row)),
+      total: res.count ?? 0,
+      page,
+      pageSize,
+    };
+  }
+
+  return {
+    rows: (data ?? []).map((row: Record<string, unknown>) => normalizeLead(row)),
+    total: count ?? 0,
+    page,
+    pageSize,
+  };
+}
+
+/** Facet values for filters (sourced from DB, not the current page only). */
+export async function listLeadFacets(orgId: string): Promise<LeadFacets> {
   const supabase = getBrowserSupabase();
   const { data, error } = await supabase
     .from("leads")
-    .select("*, owner:profiles!leads_owner_id_fkey(full_name)")
+    .select("source, crm_source, sales_person")
     .eq("org_id", orgId)
-    .order("created_at", { ascending: false })
-    .limit(500);
-  if (error) {
-    // Fallback if FK hint fails on older schemas
-    const fallback = await supabase
-      .from("leads")
-      .select("*")
-      .eq("org_id", orgId)
-      .order("created_at", { ascending: false })
-      .limit(500);
-    if (fallback.error) throw fallback.error;
-    return (fallback.data ?? []).map((row) => normalizeLead(row as Record<string, unknown>));
+    .limit(5000);
+  if (error) throw error;
+
+  const sourceMap = new Map<string, number>();
+  const crmMap = new Map<string, number>();
+  const salesSet = new Set<string>();
+  for (const row of data ?? []) {
+    const src = String(row.source || "website");
+    sourceMap.set(src, (sourceMap.get(src) || 0) + 1);
+    const crm = String(row.crm_source || "").trim();
+    if (crm) crmMap.set(crm, (crmMap.get(crm) || 0) + 1);
+    const sp = String(row.sales_person || "").trim();
+    if (sp) salesSet.add(sp);
   }
-  return (data ?? []).map((row) => normalizeLead(row as Record<string, unknown>));
+
+  return {
+    sources: [...sourceMap.entries()]
+      .map(([value, count]) => ({ value, count }))
+      .sort((a, b) => a.value.localeCompare(b.value)),
+    crmSources: [...crmMap.entries()]
+      .map(([value, count]) => ({ value, count }))
+      .sort((a, b) => a.value.localeCompare(b.value)),
+    salesPeople: [...salesSet].sort((a, b) => a.localeCompare(b)),
+  };
+}
+
+/** Full-ish list for Pipeline Kanban (not paged master UI). */
+export async function listLeads(orgId: string): Promise<LeadRow[]> {
+  const result = await listLeadsPage(orgId, { page: 1, pageSize: LEADS_PIPELINE_LIMIT });
+  return result.rows;
 }
 
 export async function listOrgSalesPeople(
@@ -153,28 +305,35 @@ export async function listOrgSalesPeople(
   }));
 }
 
-export async function createLead(input: LeadInput): Promise<DbLead> {
+export async function createLead(
+  input: LeadInput,
+  options?: { fireAutomation?: boolean },
+): Promise<DbLead> {
   await assertLeadAction("create");
   const supabase = getBrowserSupabase();
   const { data, error } = await supabase.from("leads").insert(buildLeadPayload(input, true)).select("*").single();
   if (error) throw error;
   const lead = data as DbLead;
-  try {
-    const { fireAutomationTrigger } = await import("@/lib/automations-api");
-    await fireAutomationTrigger({
-      data: {
-        trigger: "lead_created",
-        leadId: lead.id,
-        source: lead.source || undefined,
-      },
-    });
-  } catch (err) {
-    console.error("lead_created automation", err);
+  const fire = options?.fireAutomation !== false;
+  if (fire) {
+    try {
+      const { fireAutomationTrigger } = await import("@/lib/automations-api");
+      await fireAutomationTrigger({
+        data: {
+          trigger: "lead_created",
+          leadId: lead.id,
+          source: lead.source || undefined,
+        },
+      });
+    } catch (err) {
+      console.error("lead_created automation", err);
+    }
   }
   return lead;
 }
 
 export async function updateLead(leadId: string, input: LeadInput): Promise<DbLead> {
+  await assertLeadAction("create");
   const supabase = getBrowserSupabase();
   // Preserve status-change automation when status changes
   const { data: prev } = await supabase.from("leads").select("status").eq("id", leadId).maybeSingle();
@@ -203,6 +362,7 @@ export async function updateLead(leadId: string, input: LeadInput): Promise<DbLe
   return lead;
 }
 
+/** Used by Pipeline — not gated by leads_create (Pipeline section access). */
 export async function updateLeadStatus(leadId: string, status: LeadStatus): Promise<DbLead> {
   const supabase = getBrowserSupabase();
   const { data, error } = await supabase
@@ -308,6 +468,7 @@ export async function bulkAssignLeads(options: {
   salesPerson: string;
 }): Promise<number> {
   if (options.leadIds.length === 0) return 0;
+  await assertLeadAction("create");
   const supabase = getBrowserSupabase();
   const now = new Date().toISOString();
   const { error, count } = await supabase
@@ -331,6 +492,7 @@ export async function bulkUpdateLeadStatus(options: {
   status: LeadStatus;
 }): Promise<number> {
   if (options.leadIds.length === 0) return 0;
+  await assertLeadAction("create");
   let updated = 0;
   for (const id of options.leadIds) {
     await updateLeadStatus(id, options.status);
@@ -366,11 +528,13 @@ export function buildLeadsCsv(leads: LeadRow[]): string {
     "Tags",
     "Next Follow-up",
     "Created At",
-    "External Ref",
+    "Engage Ref",
     "ID",
   ];
   const lines = [headers.join(",")];
   for (const lead of leads) {
+    // CRM ID = external_ref when source is CRM; Engage Ref kept for LD-… style refs only once
+    const isEngageRef = String(lead.external_ref || "").startsWith("LD-");
     lines.push(
       [
         lead.company,
@@ -380,7 +544,7 @@ export function buildLeadsCsv(leads: LeadRow[]): string {
         lead.location,
         lead.source,
         lead.crm_source,
-        lead.external_ref,
+        isEngageRef ? "" : lead.external_ref,
         lead.crm_created_at,
         lead.crm_modified_at,
         lead.requirement || lead.product_label,
@@ -391,7 +555,7 @@ export function buildLeadsCsv(leads: LeadRow[]): string {
         (lead.tags || []).join("; "),
         lead.next_follow_up_at,
         lead.created_at,
-        lead.external_ref,
+        isEngageRef ? lead.external_ref : "",
         lead.id,
       ]
         .map(csvEscape)

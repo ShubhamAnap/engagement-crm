@@ -215,7 +215,7 @@ export function permissionSummary(permissions: PermissionKey[]): string {
     .join(", ")
     .concat(sections.length > 4 ? ` +${sections.length - 4}` : "");
   const extras: string[] = [];
-  if (permissions.includes("leads_create")) extras.push("Add leads");
+  if (permissions.includes("leads_create")) extras.push("Add/Edit leads");
   if (permissions.includes("leads_delete")) extras.push("Delete leads");
   if (extras.length) text += ` · ${extras.join(", ")}`;
   return text;

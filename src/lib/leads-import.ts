@@ -195,6 +195,9 @@ export async function importLeadsFromCsv(options: {
   orgId: string;
   csvText: string;
   ownerId?: string | null;
+  /** Default true — CRM sync is unaffected; this only applies to CSV import. */
+  fireAutomations?: boolean;
+  onProgress?: (done: number, total: number) => void;
 }): Promise<LeadImportResult> {
   const table = parseCsvText(options.csvText);
   if (table.length < 2) {
@@ -292,7 +295,7 @@ export async function importLeadsFromCsv(options: {
     };
 
     try {
-      await createLead(input);
+      await createLead(input, { fireAutomation: options.fireAutomations !== false });
       imported += 1;
       if (email) existingEmails.add(email);
       if (phone) existingPhones.add(phone);
@@ -300,9 +303,10 @@ export async function importLeadsFromCsv(options: {
       skippedInvalid += 1;
       errors.push(`Row ${rowNum}: ${err instanceof Error ? err.message : "import failed"}`);
     }
+    options.onProgress?.(i + 1, dataRows.length);
   }
 
-  return { imported, skippedDuplicate, skippedInvalid, errors: errors.slice(0, 20) };
+  return { imported, skippedDuplicate, skippedInvalid, errors: errors.slice(0, 40) };
 }
 
 export { MAX_IMPORT_ROWS };

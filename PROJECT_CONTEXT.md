@@ -304,6 +304,14 @@ Record decisions here so we don't re-debate.
 
 Brief notes from each working session — append, don't delete.
 
+### Session 2026-08-11 — Inspect write-back fields (Brainmine Follow Up)
+
+**Goal:** Fix write-back “Could not find Follow Up child table” by discovering the real API fieldname.
+
+**Done:** Channels button **Inspect write-back fields** (sample Opportunity child tables + DocField/Custom Field Table meta) + **Save mapping** into `channels.config.writeback`. Empty-table detection falls back to configured table name on PUT.
+
+**Status:** Code ready — say **deploy** to commit/push.
+
 ### Session 2026-08-11 — Leads edit: follow-up summary + clickable cells
 
 **Goal:** Edit next follow-up date, follow-up summary, and notes from the master sheet.

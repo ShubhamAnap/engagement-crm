@@ -12,6 +12,7 @@
  * - Description → conversation summary
  */
 import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import {
   brainmineConfigReady,
@@ -46,11 +47,67 @@ const DEFAULT_MAP: WritebackMap = {
 const TABLE_CANDIDATES = [
   "follow_up_details",
   "follow_up_activity",
+  "follow_up_activity_table",
+  "custom_follow_up_details",
+  "custom_follow_up_activity",
+  "custom_follow_up_activity_table",
   "followups",
   "follow_ups",
-  "custom_follow_up_details",
   "follow_up",
 ];
+
+function scoreFollowUpTableName(key: string): number {
+  const k = key.toLowerCase();
+  let score = 0;
+  if (/follow/.test(k)) score += 5;
+  if (/activit/.test(k)) score += 2;
+  if (/detail/.test(k)) score += 1;
+  if (/custom_/.test(k)) score += 1;
+  return score;
+}
+
+function scoreColumnKey(key: string): { role: keyof WritebackMap | null; score: number } {
+  const k = key.toLowerCase();
+  if (/follow.?up.?type|type/.test(k) && /follow|type/.test(k)) {
+    if (/type/.test(k)) return { role: "type_field", score: /follow/.test(k) ? 8 : 3 };
+  }
+  if (/contact/.test(k)) return { role: "contact_field", score: 8 };
+  if (/next/.test(k) && /date|follow/.test(k)) return { role: "next_date_field", score: 8 };
+  if (/follow.?up.?date/.test(k)) return { role: "next_date_field", score: 7 };
+  if (/desc/.test(k)) return { role: "description_field", score: 8 };
+  if (/^type$/.test(k)) return { role: "type_field", score: 4 };
+  return { role: null, score: 0 };
+}
+
+function detectFollowUpTable(doc: Record<string, unknown>, preferred: string): string | null {
+  if (Array.isArray(doc[preferred])) return preferred;
+  for (const key of TABLE_CANDIDATES) {
+    if (Array.isArray(doc[key])) return key;
+  }
+  const scored: Array<{ key: string; score: number }> = [];
+  for (const [key, value] of Object.entries(doc)) {
+    if (!Array.isArray(value)) continue;
+    const nameScore = scoreFollowUpTableName(key);
+    if (nameScore < 5) continue;
+    const first = value[0];
+    let colScore = 0;
+    if (first && typeof first === "object" && !Array.isArray(first)) {
+      for (const col of Object.keys(first as Record<string, unknown>)) {
+        colScore += scoreColumnKey(col).score;
+      }
+    }
+    scored.push({ key, score: nameScore + colScore });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  if (scored[0]?.score) return scored[0].key;
+
+  // Empty child tables: Frappe often omits them from GET — preferred / candidates still usable on PUT
+  if (Object.prototype.hasOwnProperty.call(doc, preferred)) return preferred;
+  for (const key of TABLE_CANDIDATES) {
+    if (Object.prototype.hasOwnProperty.call(doc, key)) return key;
+  }
+  return preferred || null;
+}
 
 function resolveWritebackMap(cfg: BrainmineChannelConfig): WritebackMap {
   const w = cfg.writeback || {};
@@ -101,25 +158,6 @@ function asDoc(json: unknown): Record<string, unknown> {
     return json as Record<string, unknown>;
   }
   throw new Error("Brainmine document response was empty");
-}
-
-function detectFollowUpTable(doc: Record<string, unknown>, preferred: string): string | null {
-  if (Array.isArray(doc[preferred])) return preferred;
-  for (const key of TABLE_CANDIDATES) {
-    if (Array.isArray(doc[key])) return key;
-  }
-  for (const [key, value] of Object.entries(doc)) {
-    if (!Array.isArray(value) || value.length === 0) continue;
-    if (!/follow/i.test(key)) continue;
-    const first = value[0];
-    if (first && typeof first === "object") return key;
-  }
-  // Empty child table still usable if name matches
-  if (Object.prototype.hasOwnProperty.call(doc, preferred)) return preferred;
-  for (const key of TABLE_CANDIDATES) {
-    if (Object.prototype.hasOwnProperty.call(doc, key)) return key;
-  }
-  return null;
 }
 
 function buildConversationSummary(
@@ -179,8 +217,7 @@ async function appendFollowUpRow(options: {
   if (!table) {
     throw new Error(
       `Could not find Follow Up child table on CRM doc ${docName}. ` +
-        `Expected one of: ${[map.follow_up_table, ...TABLE_CANDIDATES].join(", ")}. ` +
-        `Ask Brainmine for the child table fieldname, then we can set channels.config.writeback.follow_up_table.`,
+        `Run “Inspect write-back fields” on Channels to discover the table fieldname, then Save mapping.`,
     );
   }
 
@@ -450,3 +487,329 @@ export const refreshLeadFollowUpSummaries = createServerFn({ method: "POST" }).h
   }
   return { updated };
 });
+
+function doctypeFromPath(path: string): string {
+  const parts = path.split("/").filter(Boolean);
+  const idx = parts.findIndex((p) => p === "resource");
+  const raw = idx >= 0 ? parts[idx + 1] : parts[parts.length - 1];
+  return decodeURIComponent(raw || "Lead");
+}
+
+function extractRows(json: unknown): Record<string, unknown>[] {
+  const data = getByPath(json, "data");
+  if (Array.isArray(data)) return data as Record<string, unknown>[];
+  if (Array.isArray(json)) return json as Record<string, unknown>[];
+  return [];
+}
+
+function previewCell(v: unknown, max = 80): string {
+  if (v == null) return "";
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+    const s = String(v);
+    return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+  }
+  try {
+    const s = JSON.stringify(v);
+    return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+  } catch {
+    return "[object]";
+  }
+}
+
+function inferMapFromColumns(columns: string[]): WritebackMap {
+  const map = { ...DEFAULT_MAP };
+  const picks: Partial<Record<keyof WritebackMap, { key: string; score: number }>> = {};
+  for (const col of columns) {
+    const { role, score } = scoreColumnKey(col);
+    if (!role || role === "follow_up_table" || role === "type_value_whatsapp") continue;
+    const prev = picks[role];
+    if (!prev || score > prev.score) picks[role] = { key: col, score };
+  }
+  if (picks.type_field) map.type_field = picks.type_field.key;
+  if (picks.contact_field) map.contact_field = picks.contact_field.key;
+  if (picks.next_date_field) map.next_date_field = picks.next_date_field.key;
+  if (picks.description_field) map.description_field = picks.description_field.key;
+  return map;
+}
+
+/**
+ * Read-only discovery for Follow Up write-back: child tables on sample CRM doc +
+ * DocField/Custom Field Table fields. Use Save mapping after picking the right table.
+ */
+export const inspectBrainmineWritebackFields = createServerFn({ method: "POST" }).handler(
+  async () => {
+    const cfg = await loadBrainmineConfig();
+    if (!brainmineConfigReady(cfg)) {
+      throw new Error("Configure Brainmine API base URL and API key under Channels first.");
+    }
+    const path = leadsPath(cfg);
+    const doctype = doctypeFromPath(path);
+    const currentMap = resolveWritebackMap(cfg);
+
+    // Prefer a Brainmine lead id we already synced (Opportunity names like CRM-OPP-…)
+    const supabase = createServiceSupabase();
+    const { data: localLeads } = await supabase
+      .from("leads")
+      .select("name, metadata, external_ref")
+      .eq("org_id", ORG_ID)
+      .eq("source", "brainmine")
+      .order("updated_at", { ascending: false })
+      .limit(8);
+
+    const candidateIds: string[] = [];
+    for (const lead of localLeads || []) {
+      const meta =
+        lead.metadata && typeof lead.metadata === "object" && !Array.isArray(lead.metadata)
+          ? (lead.metadata as Record<string, unknown>)
+          : {};
+      const bmId =
+        (typeof meta.brainmine_id === "string" && meta.brainmine_id) ||
+        (typeof lead.external_ref === "string" && lead.external_ref) ||
+        "";
+      if (bmId && !candidateIds.includes(bmId)) candidateIds.push(bmId);
+    }
+
+    // Also list latest CRM docs
+    try {
+      const listJson = await brainmineHttpJson(
+        cfg,
+        `${path}?limit_page_length=5&order_by=${encodeURIComponent("modified desc")}&fields=${encodeURIComponent(JSON.stringify(["name"]))}`,
+        { method: "GET" },
+      );
+      for (const row of extractRows(listJson)) {
+        const id = typeof row.name === "string" ? row.name : "";
+        if (id && !candidateIds.includes(id)) candidateIds.push(id);
+      }
+    } catch {
+      /* list optional if we have local ids */
+    }
+
+    if (!candidateIds.length) {
+      throw new Error("No Brainmine CRM documents found to inspect. Sync at least one lead first.");
+    }
+
+    type ChildTableInfo = {
+      key: string;
+      rowCount: number;
+      columns: string[];
+      sampleRowPreview: string;
+      score: number;
+      presentOnDoc: boolean;
+    };
+
+    let sampleId = candidateIds[0];
+    let sampleDoc: Record<string, unknown> = {};
+    let childTables: ChildTableInfo[] = [];
+    let bestScore = -1;
+
+    for (const id of candidateIds.slice(0, 6)) {
+      try {
+        const doc = await fetchCrmDoc(cfg, id);
+        const tables: ChildTableInfo[] = [];
+        for (const [key, value] of Object.entries(doc)) {
+          if (key.startsWith("_")) continue;
+          if (!Array.isArray(value)) continue;
+          const rows = value as unknown[];
+          const first =
+            rows.find((r) => r && typeof r === "object" && !Array.isArray(r)) || null;
+          const columns =
+            first && typeof first === "object"
+              ? Object.keys(first as Record<string, unknown>).filter((k) => !k.startsWith("_"))
+              : [];
+          const nameScore = scoreFollowUpTableName(key);
+          let colScore = 0;
+          for (const col of columns) colScore += scoreColumnKey(col).score;
+          tables.push({
+            key,
+            rowCount: rows.length,
+            columns,
+            sampleRowPreview: first ? previewCell(first, 200) : "(empty table)",
+            score: nameScore + colScore,
+            presentOnDoc: true,
+          });
+        }
+        const top = [...tables].sort((a, b) => b.score - a.score)[0];
+        const topScore = top?.score ?? 0;
+        if (topScore > bestScore || !Object.keys(sampleDoc).length) {
+          bestScore = topScore;
+          sampleId = id;
+          sampleDoc = doc;
+          childTables = tables.sort((a, b) => b.score - a.score);
+          if (topScore >= 10) break;
+        }
+      } catch {
+        /* try next id */
+      }
+    }
+
+    if (!Object.keys(sampleDoc).length) {
+      throw new Error(`Could not load CRM document ${candidateIds[0]} for write-back inspect.`);
+    }
+
+    // DocField / Custom Field — Table fields (Follow Up Activity Table, etc.)
+    type MetaTable = {
+      fieldname: string;
+      label: string;
+      fieldtype: string;
+      options: string;
+      source: "doctype" | "custom";
+      looksLikeFollowUp: boolean;
+    };
+    const metaTables: MetaTable[] = [];
+    let metaError: string | null = null;
+
+    const pushMeta = (
+      rows: Record<string, unknown>[],
+      source: "doctype" | "custom",
+    ) => {
+      for (const r of rows) {
+        const fieldtype = String(r.fieldtype || "");
+        if (!/table/i.test(fieldtype)) continue;
+        const fieldname = String(r.fieldname || "");
+        const label = String(r.label || "");
+        if (!fieldname) continue;
+        const looksLikeFollowUp =
+          /follow/i.test(fieldname) || /follow/i.test(label) || /activit/i.test(label);
+        metaTables.push({
+          fieldname,
+          label,
+          fieldtype,
+          options: String(r.options || ""),
+          source,
+          looksLikeFollowUp,
+        });
+      }
+    };
+
+    try {
+      const metaJson = await brainmineHttpJson(
+        cfg,
+        `/api/resource/DocField?limit_page_length=500&fields=${encodeURIComponent(
+          JSON.stringify(["fieldname", "label", "fieldtype", "options"]),
+        )}&filters=${encodeURIComponent(JSON.stringify([["parent", "=", doctype]]))}`,
+        { method: "GET" },
+      );
+      pushMeta(extractRows(metaJson), "doctype");
+    } catch (err) {
+      metaError = err instanceof Error ? err.message : "DocField meta unavailable";
+    }
+
+    try {
+      const customJson = await brainmineHttpJson(
+        cfg,
+        `/api/resource/Custom%20Field?limit_page_length=200&fields=${encodeURIComponent(
+          JSON.stringify(["fieldname", "label", "fieldtype", "options", "dt"]),
+        )}&filters=${encodeURIComponent(JSON.stringify([["dt", "=", doctype]]))}`,
+        { method: "GET" },
+      );
+      pushMeta(extractRows(customJson), "custom");
+    } catch (err) {
+      if (!metaError) {
+        metaError = err instanceof Error ? err.message : "Custom Field meta unavailable";
+      }
+    }
+
+    const followMeta = metaTables
+      .filter((m) => m.looksLikeFollowUp)
+      .sort((a, b) => a.fieldname.localeCompare(b.fieldname));
+
+    // Recommended table: best child on sample, else first follow meta field
+    const bestChild = childTables.find((t) => t.score >= 5) || childTables[0] || null;
+    const recommendedTable =
+      bestChild?.key ||
+      followMeta[0]?.fieldname ||
+      currentMap.follow_up_table;
+
+    const recommendedColumns =
+      bestChild?.columns?.length
+        ? bestChild.columns
+        : [];
+    const recommendedMap: WritebackMap = {
+      ...inferMapFromColumns(recommendedColumns),
+      follow_up_table: recommendedTable,
+      type_value_whatsapp: currentMap.type_value_whatsapp,
+    };
+
+    // All top-level keys for debugging (like lead inspect)
+    const allKeys = Object.keys(sampleDoc)
+      .filter((k) => !k.startsWith("_"))
+      .sort((a, b) => a.localeCompare(b))
+      .map((key) => {
+        const value = sampleDoc[key];
+        const isArray = Array.isArray(value);
+        return {
+          key,
+          kind: isArray ? "child_table" : typeof value,
+          preview: isArray
+            ? `array(${(value as unknown[]).length})`
+            : previewCell(value, 100),
+        };
+      });
+
+    let diagnosis: string;
+    if (bestChild && bestChild.score >= 8) {
+      diagnosis = `Likely Follow Up table on sample: “${bestChild.key}” (${bestChild.rowCount} row(s)). Save mapping, then re-run Write follow-ups.`;
+    } else if (followMeta.length) {
+      diagnosis = `Sample doc has no follow-up rows in the API response (empty child tables are often omitted). Meta suggests table fieldname “${followMeta[0].fieldname}” (${followMeta[0].label || "no label"}). Save that mapping and retry write-back.`;
+    } else if (childTables.length) {
+      diagnosis =
+        "No strong Follow Up match. Pick a child table below that matches Brainmine’s Follow Up Activity Table, Save mapping, then retry.";
+    } else {
+      diagnosis =
+        "No child tables returned on the sample document and no Follow-related Table fields in DocType meta. Ask Brainmine for the exact child table fieldname (API fieldname, not the UI label), or grant the API user permission to read that table.";
+    }
+
+    return {
+      sampleId,
+      doctype,
+      leadsPath: path,
+      currentMap,
+      recommendedMap,
+      diagnosis,
+      hint: "Write-back is separate from lead sync. Save the Follow Up child table fieldname here, then use Write follow-ups to Brainmine.",
+      childTables,
+      followUpMetaTables: followMeta,
+      allMetaTables: metaTables,
+      metaError,
+      allKeys,
+    };
+  },
+);
+
+export const saveBrainmineWritebackMap = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      follow_up_table: z.string().min(1).max(120),
+      type_field: z.string().min(1).max(120).optional(),
+      contact_field: z.string().min(1).max(120).optional(),
+      next_date_field: z.string().min(1).max(120).optional(),
+      description_field: z.string().min(1).max(120).optional(),
+      type_value_whatsapp: z.string().min(1).max(80).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const cfg = await loadBrainmineConfig();
+    if (!brainmineConfigReady(cfg)) {
+      throw new Error("Configure Brainmine credentials first.");
+    }
+    const supabase = createServiceSupabase();
+    const nextCfg: BrainmineChannelConfig = {
+      ...cfg,
+      writeback: {
+        ...(cfg.writeback || {}),
+        follow_up_table: data.follow_up_table.trim(),
+        type_field: (data.type_field || DEFAULT_MAP.type_field).trim(),
+        contact_field: (data.contact_field || DEFAULT_MAP.contact_field).trim(),
+        next_date_field: (data.next_date_field || DEFAULT_MAP.next_date_field).trim(),
+        description_field: (data.description_field || DEFAULT_MAP.description_field).trim(),
+        type_value_whatsapp: (data.type_value_whatsapp || DEFAULT_MAP.type_value_whatsapp).trim(),
+      },
+    };
+    const { error } = await supabase
+      .from("channels")
+      .update({ config: nextCfg, updated_at: new Date().toISOString() })
+      .eq("org_id", ORG_ID)
+      .eq("type", "brainmine");
+    if (error) throw new Error(error.message);
+    return { ok: true as const, writeback: nextCfg.writeback };
+  });

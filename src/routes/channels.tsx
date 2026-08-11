@@ -90,7 +90,7 @@ import {
   saveBrainmineChannelConfig,
   syncBrainmineLeads,
 } from "@/server/brainmine";
-import { writeBrainmineFollowUpsNow } from "@/server/brainmine-writeback";
+import { writeBrainmineFollowUpsNow, inspectBrainmineWritebackFields, saveBrainmineWritebackMap } from "@/server/brainmine-writeback";
 import type { ChannelStatus } from "@/lib/db-types";
 import type { BrainmineAuthStyle, BrainmineIntervalUnit } from "@/server/brainmine";
 
@@ -181,6 +181,15 @@ function Page() {
   const [bmInspectResult, setBmInspectResult] = useState<Awaited<
     ReturnType<typeof inspectBrainmineLeadFields>
   > | null>(null);
+  const [bmWritebackInspectOpen, setBmWritebackInspectOpen] = useState(false);
+  const [bmWritebackInspectResult, setBmWritebackInspectResult] = useState<Awaited<
+    ReturnType<typeof inspectBrainmineWritebackFields>
+  > | null>(null);
+  const [wbTable, setWbTable] = useState("");
+  const [wbTypeField, setWbTypeField] = useState("follow_up_type");
+  const [wbContactField, setWbContactField] = useState("contact_with");
+  const [wbNextDateField, setWbNextDateField] = useState("next_follow_up_date");
+  const [wbDescField, setWbDescField] = useState("description");
   const [websiteOriginsText, setWebsiteOriginsText] = useState("");
   const [websiteOriginsLoaded, setWebsiteOriginsLoaded] = useState(false);
 
@@ -955,6 +964,43 @@ function Page() {
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Could not inspect Brainmine fields"),
+  });
+
+  const inspectWbMutation = useMutation({
+    mutationFn: () => inspectBrainmineWritebackFields(),
+    onSuccess: (result) => {
+      setBmWritebackInspectResult(result);
+      const rec = result.recommendedMap;
+      setWbTable(rec.follow_up_table);
+      setWbTypeField(rec.type_field);
+      setWbContactField(rec.contact_field);
+      setWbNextDateField(rec.next_date_field);
+      setWbDescField(rec.description_field);
+      setBmWritebackInspectOpen(true);
+      toast.success(`Write-back inspect: sample ${result.sampleId}`);
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not inspect write-back fields"),
+  });
+
+  const saveWbMapMutation = useMutation({
+    mutationFn: () =>
+      saveBrainmineWritebackMap({
+        data: {
+          follow_up_table: wbTable.trim(),
+          type_field: wbTypeField.trim(),
+          contact_field: wbContactField.trim(),
+          next_date_field: wbNextDateField.trim(),
+          description_field: wbDescField.trim(),
+        },
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["brainmine-setup"] });
+      toast.success("Follow-up write-back mapping saved — try Write follow-ups again");
+      setBmWritebackInspectOpen(false);
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not save write-back mapping"),
   });
 
   const writebackBmMutation = useMutation({
@@ -2102,7 +2148,9 @@ function Page() {
               <span className="font-medium text-foreground">Write follow-ups to Brainmine</span> is a{" "}
               <strong>separate</strong> path: matches CRM id, builds a conversation summary, appends one
               Follow Up row (type=WhatsApp, contact=name, next date=+4 days, description=summary).
-              Manual only — run once per day when ready.
+              Manual only — run once per day when ready. If write-back fails on child table name, use{" "}
+              <span className="font-medium text-foreground">Inspect write-back fields</span>, Save
+              mapping, then retry.
             </li>
           </ol>
           <div className="flex flex-wrap items-center gap-2">
@@ -2147,6 +2195,15 @@ function Page() {
               onClick={() => inspectBmMutation.mutate()}
             >
               {inspectBmMutation.isPending ? "Inspecting…" : "Inspect CRM fields"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!bmSetupQuery.data?.configured || inspectWbMutation.isPending}
+              onClick={() => inspectWbMutation.mutate()}
+              title="Discover Follow Up child table fieldnames for write-back"
+            >
+              {inspectWbMutation.isPending ? "Inspecting…" : "Inspect write-back fields"}
             </Button>
             <Button size="sm" variant="outline" asChild>
               <Link to="/leads">Open leads</Link>
@@ -3117,6 +3174,184 @@ function Page() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setBmInspectOpen(false)}>
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bmWritebackInspectOpen} onOpenChange={setBmWritebackInspectOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Inspect write-back fields</DialogTitle>
+            <DialogDescription>
+              Discover the Follow Up Activity child table fieldname on Brainmine (separate from lead
+              sync Requirement mapping).
+            </DialogDescription>
+          </DialogHeader>
+          {!bmWritebackInspectResult ? (
+            <p className="text-sm text-muted-foreground">No inspection result yet.</p>
+          ) : (
+            <div className="space-y-4 text-sm">
+              <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-foreground">
+                {bmWritebackInspectResult.diagnosis}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Sample: <code>{bmWritebackInspectResult.sampleId}</code> · DocType{" "}
+                <code>{bmWritebackInspectResult.doctype}</code>
+              </p>
+              <p className="text-xs text-muted-foreground">{bmWritebackInspectResult.hint}</p>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label>Follow-up table fieldname</Label>
+                  <Input
+                    value={wbTable}
+                    onChange={(e) => setWbTable(e.target.value)}
+                    placeholder="e.g. custom_follow_up_activity_table"
+                    className="font-mono text-xs"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Type field</Label>
+                  <Input
+                    value={wbTypeField}
+                    onChange={(e) => setWbTypeField(e.target.value)}
+                    className="font-mono text-xs"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Contact field</Label>
+                  <Input
+                    value={wbContactField}
+                    onChange={(e) => setWbContactField(e.target.value)}
+                    className="font-mono text-xs"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Next date field</Label>
+                  <Input
+                    value={wbNextDateField}
+                    onChange={(e) => setWbNextDateField(e.target.value)}
+                    className="font-mono text-xs"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Description field</Label>
+                  <Input
+                    value={wbDescField}
+                    onChange={(e) => setWbDescField(e.target.value)}
+                    className="font-mono text-xs"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-1.5 font-medium text-foreground">
+                  Follow-related Table fields (DocType meta)
+                </p>
+                {bmWritebackInspectResult.followUpMetaTables.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    {bmWritebackInspectResult.metaError
+                      ? `Meta error: ${bmWritebackInspectResult.metaError}`
+                      : "None matched “follow” in fieldname/label. Check all child tables below."}
+                  </p>
+                ) : (
+                  <ul className="max-h-40 space-y-1.5 overflow-y-auto rounded-md border border-border p-2">
+                    {bmWritebackInspectResult.followUpMetaTables.map((f) => (
+                      <li key={`${f.source}-${f.fieldname}`} className="flex flex-wrap items-center gap-2 text-xs">
+                        <code className="font-semibold text-foreground">{f.fieldname}</code>
+                        <span className="text-muted-foreground">
+                          {f.label || "—"} · {f.source}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="h-7"
+                          onClick={() => setWbTable(f.fieldname)}
+                        >
+                          Use table
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div>
+                <p className="mb-1.5 font-medium text-foreground">
+                  Child tables on sample document
+                </p>
+                {bmWritebackInspectResult.childTables.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No arrays returned (empty Follow Up tables are often omitted by the API).
+                  </p>
+                ) : (
+                  <ul className="max-h-48 space-y-2 overflow-y-auto rounded-md border border-border p-2">
+                    {bmWritebackInspectResult.childTables.map((t) => (
+                      <li key={t.key} className="text-xs">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <code className="font-semibold text-foreground">{t.key}</code>
+                          <span className="text-muted-foreground">
+                            {t.rowCount} row(s) · score {t.score}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="h-7"
+                            onClick={() => {
+                              setWbTable(t.key);
+                              if (t.columns.length) {
+                                const inferred = t.columns;
+                                const typeCol =
+                                  inferred.find((c) => /type/i.test(c)) || wbTypeField;
+                                const contactCol =
+                                  inferred.find((c) => /contact/i.test(c)) || wbContactField;
+                                const dateCol =
+                                  inferred.find((c) => /date/i.test(c)) || wbNextDateField;
+                                const descCol =
+                                  inferred.find((c) => /desc/i.test(c)) || wbDescField;
+                                setWbTypeField(typeCol);
+                                setWbContactField(contactCol);
+                                setWbNextDateField(dateCol);
+                                setWbDescField(descCol);
+                              }
+                            }}
+                          >
+                            Use table
+                          </Button>
+                        </div>
+                        {t.columns.length ? (
+                          <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+                            columns: {t.columns.join(", ")}
+                          </p>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div>
+                <p className="mb-1.5 font-medium text-foreground">All keys on sample</p>
+                <ul className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border p-2 font-mono text-[11px]">
+                  {bmWritebackInspectResult.allKeys.map((f) => (
+                    <li key={f.key} className="text-muted-foreground">
+                      <span className="text-foreground">{f.key}</span> · {f.kind} = {f.preview}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setBmWritebackInspectOpen(false)}>
+              Close
+            </Button>
+            <Button
+              disabled={!wbTable.trim() || saveWbMapMutation.isPending}
+              onClick={() => saveWbMapMutation.mutate()}
+            >
+              {saveWbMapMutation.isPending ? "Saving…" : "Save mapping"}
             </Button>
           </DialogFooter>
         </DialogContent>

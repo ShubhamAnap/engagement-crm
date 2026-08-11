@@ -90,6 +90,7 @@ import {
   saveBrainmineChannelConfig,
   syncBrainmineLeads,
 } from "@/server/brainmine";
+import { writeBrainmineFollowUpsNow } from "@/server/brainmine-writeback";
 import type { ChannelStatus } from "@/lib/db-types";
 import type { BrainmineAuthStyle, BrainmineIntervalUnit } from "@/server/brainmine";
 
@@ -954,6 +955,22 @@ function Page() {
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Could not inspect Brainmine fields"),
+  });
+
+  const writebackBmMutation = useMutation({
+    mutationFn: () => writeBrainmineFollowUpsNow(),
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["brainmine-setup"] });
+      await queryClient.invalidateQueries({ queryKey: ["leads"] });
+      toast.success(
+        `Brainmine write-back: ${result.written} written · ${result.skipped} skipped · ${result.failed} failed`,
+      );
+      if (result.errors.length) {
+        toast.message("Some write-backs failed", { description: result.errors[0] });
+      }
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Brainmine write-back failed"),
   });
 
   const ensureBmMutation = useMutation({
@@ -2058,8 +2075,8 @@ function Page() {
         </Panel>
 
         <Panel
-          title="Brainmine CRM+ (lead sync)"
-          description="Read-only pull from your existing Brainmine CRM into the master Leads sheet for follow-up and remarketing."
+          title="Brainmine CRM+ (lead sync + follow-up write-back)"
+          description="Pull leads from Brainmine into Engage. Separately, manually write conversation follow-ups back to Brainmine Follow Up table."
         >
           <ol className="mb-3 list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
             <li>Ask Brainmine for API base URL + API key (and secret if ERPNext-style token auth).</li>
@@ -2078,8 +2095,14 @@ function Page() {
               <Link className="text-primary underline" to="/leads">
                 /leads
               </Link>{" "}
-              with source <span className="font-medium text-foreground">brainmine</span>. Engage stays
-              read-only — we never write back to Brainmine.
+              with source <span className="font-medium text-foreground">brainmine</span>. Lead{" "}
+              <strong>sync stays read-only</strong>.
+            </li>
+            <li>
+              <span className="font-medium text-foreground">Write follow-ups to Brainmine</span> is a{" "}
+              <strong>separate</strong> path: matches CRM id, builds a conversation summary, appends one
+              Follow Up row (type=WhatsApp, contact=name, next date=+4 days, description=summary).
+              Manual only — run once per day when ready.
             </li>
           </ol>
           <div className="flex flex-wrap items-center gap-2">
@@ -2106,6 +2129,19 @@ function Page() {
             </Button>
             <Button
               size="sm"
+              variant="default"
+              disabled={
+                !bmSetupQuery.data?.configured ||
+                writebackBmMutation.isPending ||
+                syncBmMutation.isPending
+              }
+              onClick={() => writebackBmMutation.mutate()}
+              title="Append conversation summaries to Brainmine Follow Up table (does not change lead sync)"
+            >
+              {writebackBmMutation.isPending ? "Writing…" : "Write follow-ups to Brainmine"}
+            </Button>
+            <Button
+              size="sm"
               variant="outline"
               disabled={!bmSetupQuery.data?.configured || inspectBmMutation.isPending}
               onClick={() => inspectBmMutation.mutate()}
@@ -2126,6 +2162,17 @@ function Page() {
                 : "Channel card ready — click Configure Brainmine."
               : "Brainmine card missing. Click Create Brainmine card (requires migration 011 + 011b)."}
           </p>
+          {bmSetupQuery.data?.lastWritebackAt || bmSetupQuery.data?.lastWritebackResult ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Last follow-up write-back:{" "}
+              {bmSetupQuery.data.lastWritebackAt
+                ? new Date(bmSetupQuery.data.lastWritebackAt).toLocaleString()
+                : "—"}
+              {bmSetupQuery.data.lastWritebackResult
+                ? ` · ${bmSetupQuery.data.lastWritebackResult}`
+                : ""}
+            </p>
+          ) : null}
 
           <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">

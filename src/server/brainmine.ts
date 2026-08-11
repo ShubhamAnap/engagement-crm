@@ -75,6 +75,21 @@ export type BrainmineChannelConfig = {
   /** Short status: ok / skipped / error summary */
   last_auto_sync_result?: string;
   last_auto_sync_error?: string;
+  last_writeback_at?: string;
+  last_writeback_result?: string;
+  /**
+   * Optional write-back mapping for Follow Up Activity child table.
+   * Separate from lead sync — only used by brainmine-writeback.
+   */
+  writeback?: {
+    follow_up_table?: string;
+    type_field?: string;
+    contact_field?: string;
+    next_date_field?: string;
+    description_field?: string;
+    /** Value sent for WhatsApp channel (CRM dropdown label) */
+    type_value_whatsapp?: string;
+  };
 };
 
 const DEFAULT_SYNC_LIMIT = 30;
@@ -504,6 +519,47 @@ function buildAuthHeaders(cfg: BrainmineChannelConfig): Record<string, string> {
     return { "X-API-Key": key };
   }
   return {};
+}
+
+/**
+ * Shared Brainmine HTTP (GET/PUT/POST). Used by sync (GET) and write-back (PUT/POST).
+ * Sync paths still only call GET; write-back lives in brainmine-writeback.ts.
+ */
+export async function brainmineHttpJson(
+  cfg: BrainmineChannelConfig,
+  pathAndQuery: string,
+  options?: { method?: "GET" | "PUT" | "POST"; body?: unknown },
+): Promise<unknown> {
+  const method = options?.method || "GET";
+  const base = cfg.api_base_url!.replace(/\/$/, "");
+  const path = pathAndQuery.startsWith("/") ? pathAndQuery : `/${pathAndQuery}`;
+  const url = new URL(`${base}${path}`);
+  if (cfg.auth_style === "query") {
+    url.searchParams.set(cfg.query_key_param || "api_key", sanitizeCred(cfg.api_key));
+  }
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    ...buildAuthHeaders(cfg),
+  };
+  if (method !== "GET") {
+    headers["Content-Type"] = "application/json";
+  }
+  const res = await fetch(url.toString(), {
+    method,
+    headers,
+    body: method === "GET" || options?.body == null ? undefined : JSON.stringify(options.body),
+  });
+  const text = await res.text();
+  let json: unknown = {};
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`Brainmine returned non-JSON (${res.status}): ${text.slice(0, 200)}`);
+  }
+  if (!res.ok) {
+    throw new Error(formatBrainmineApiError(json, res.status, text));
+  }
+  return json;
 }
 
 function leadListFields(isOpp: boolean): string[] {
@@ -1385,6 +1441,8 @@ export const getBrainmineSetup = createServerFn({ method: "GET" }).handler(async
     lastAutoSyncError: cfg.last_auto_sync_error || null,
     nextAutoSyncDueAt: nextBrainmineAutoSyncDueAt(cfg),
     autoSyncDescription: describeBrainmineAutoSync(cfg),
+    lastWritebackAt: cfg.last_writeback_at || null,
+    lastWritebackResult: cfg.last_writeback_result || null,
   };
 });
 

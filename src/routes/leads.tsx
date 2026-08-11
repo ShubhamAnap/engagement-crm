@@ -513,6 +513,13 @@ function Page() {
     });
   }
 
+  function followUpSummaryText(lead: LeadRow): string {
+    const meta = lead.metadata;
+    if (!meta || typeof meta !== "object" || Array.isArray(meta)) return "";
+    const raw = (meta as Record<string, unknown>).follow_up_summary;
+    return typeof raw === "string" ? raw.trim() : "";
+  }
+
   function priorityTone(p: PriorityLevel): "danger" | "warning" | "neutral" {
     if (p === "High") return "danger";
     if (p === "Low") return "neutral";
@@ -607,7 +614,8 @@ function Page() {
     "Sales Person",
     "Status",
     "Priority",
-    "Follow-up",
+    "Next follow-up",
+    "Follow-up summary",
     "Note",
     "Tags",
     "Actions",
@@ -630,7 +638,8 @@ function Page() {
         "Sales Person",
         "Status",
         "Priority",
-        "Follow-up",
+        "Next follow-up",
+        "Follow-up summary",
         "Note",
         "Tags",
         "Actions",
@@ -984,6 +993,17 @@ function Page() {
                         </td>
                         <td className="whitespace-nowrap px-3 py-2.5 text-xs text-muted-foreground">
                           {formatFollowUp(lead.next_follow_up_at)}
+                        </td>
+                        <td className="max-w-[220px] px-3 py-2.5 text-xs text-muted-foreground">
+                          {(() => {
+                            const summary = followUpSummaryText(lead);
+                            if (!summary) return "—";
+                            return (
+                              <span className="line-clamp-2 whitespace-normal" title={summary}>
+                                {summary}
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td className="max-w-[160px] truncate px-3 py-2.5 text-muted-foreground">
                           {lead.notes || "—"}

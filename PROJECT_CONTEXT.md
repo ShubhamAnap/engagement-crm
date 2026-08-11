@@ -304,6 +304,20 @@ Record decisions here so we don't re-debate.
 
 Brief notes from each working session — append, don't delete.
 
+### Session 2026-08-11 — Brainmine follow-up write-back + Leads summary column
+
+**Goal:** Write conversation follow-ups back to Brainmine CRM without touching lead sync; show summary on Leads.
+
+**Done:**
+- Separate write-back path (`src/server/brainmine-writeback.ts`) — manual **Write follow-ups to Brainmine** on Channels; does not call sync/ingest.
+- Field map: type=WhatsApp, contact=name, next date=+4 days, description=conversation summary; match by `brainmine_id`.
+- Stores `metadata.follow_up_summary` (+ write stamps); Leads grid: **Next follow-up** date + **Follow-up summary** (`line-clamp-2`).
+- Lead edit preserves existing metadata (so summary / CRM ids are not wiped).
+
+**Out of v1:** Cron auto write-back; changing sync ingest.
+
+**Status:** Code ready — say **deploy** to commit/push.
+
 ### Session 2026-08-11 — Website chatbot Widget A+B
 
 **Goal:** Stabilize embed + in-app chat without touching welcome WA / CRM→Automation wiring.

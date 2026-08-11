@@ -68,11 +68,15 @@ function parseTags(raw: string | string[] | undefined | null): string[] {
     .filter(Boolean);
 }
 
-function buildLeadPayload(input: LeadInput, includeRef: boolean) {
+function buildLeadPayload(input: LeadInput, includeRef: boolean, existingMeta?: Record<string, unknown> | null) {
   const now = new Date().toISOString();
   const requirement = (input.requirement ?? input.productLabel)?.trim() || null;
   const notes = input.notes?.trim() || null;
   const tags = parseTags(input.tags);
+  const prev =
+    existingMeta && typeof existingMeta === "object" && !Array.isArray(existingMeta)
+      ? { ...existingMeta }
+      : {};
   return {
     org_id: input.orgId,
     owner_id: input.ownerId ?? null,
@@ -94,6 +98,7 @@ function buildLeadPayload(input: LeadInput, includeRef: boolean) {
     last_activity_at: now,
     next_follow_up_at: input.nextFollowUpAt || null,
     metadata: {
+      ...prev,
       notes,
     },
   };
@@ -335,11 +340,19 @@ export async function createLead(
 export async function updateLead(leadId: string, input: LeadInput): Promise<DbLead> {
   await assertLeadAction("create");
   const supabase = getBrowserSupabase();
-  // Preserve status-change automation when status changes
-  const { data: prev } = await supabase.from("leads").select("status").eq("id", leadId).maybeSingle();
+  // Preserve status-change automation when status changes; keep CRM metadata (follow-up summary, brainmine ids)
+  const { data: prev } = await supabase
+    .from("leads")
+    .select("status, metadata")
+    .eq("id", leadId)
+    .maybeSingle();
+  const existingMeta =
+    prev?.metadata && typeof prev.metadata === "object" && !Array.isArray(prev.metadata)
+      ? (prev.metadata as Record<string, unknown>)
+      : null;
   const { data, error } = await supabase
     .from("leads")
-    .update(buildLeadPayload(input, false))
+    .update(buildLeadPayload(input, false, existingMeta))
     .eq("id", leadId)
     .select("*")
     .single();

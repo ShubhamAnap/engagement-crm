@@ -510,6 +510,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
         downloadCount: downloadLinks.length,
         memoryEnabled: agentCfg.memoryEnabled,
         productsUseful: isProductIntent(text) && Boolean(productsContext?.trim()),
+        toolsUsed: generated.toolsUsed,
       });
     }
     if (agentCfg.agentId) {

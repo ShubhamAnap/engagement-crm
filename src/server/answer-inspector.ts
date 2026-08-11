@@ -20,6 +20,7 @@ export type AnswerInspectorPayload = {
     reply_source: "openai" | "fallback";
     grounded: boolean;
     download_count: number;
+    tools_used: string[];
   };
 };
 
@@ -74,12 +75,14 @@ export function buildAnswerInspector(input: {
   memoryEnabled?: boolean;
   /** True only when Products catalogue meaningfully grounded the answer (not a generic dump). */
   productsUseful?: boolean;
+  toolsUsed?: string[];
 }): AnswerInspectorPayload {
   const sources = uniqueSources(input.chunks);
   const kbUseful = sources.length > 0;
   const productsUseful = Boolean(input.productsUseful);
   const grounded = kbUseful || productsUseful;
   const confidence = confidenceFrom(input.chunks, input.replySource, productsUseful);
+  const toolsUsed = [...new Set((input.toolsUsed || []).filter(Boolean))];
   const reasoning: string[] = [
     `Classified channel as ${input.channel || "website"}.`,
     input.specialistKey
@@ -98,6 +101,9 @@ export function buildAnswerInspector(input: {
     input.downloadCount
       ? `Attached ${input.downloadCount} catalogue/download link(s).`
       : "No catalogue downloads attached.",
+    toolsUsed.length
+      ? `Tools used: ${toolsUsed.join(", ")}.`
+      : "No AI tools invoked for this reply.",
   ];
 
   const memory = input.memoryEnabled === false
@@ -118,6 +124,7 @@ export function buildAnswerInspector(input: {
       reply_source: input.replySource,
       grounded,
       download_count: input.downloadCount || 0,
+      tools_used: toolsUsed,
     },
   };
 }

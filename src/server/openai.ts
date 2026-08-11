@@ -62,18 +62,21 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
   reply: string;
   source: "openai" | "fallback";
   model: string;
+  toolsUsed: string[];
 }> {
   const apiKey = process.env.OPENAI_API_KEY;
   const model = input.model || process.env.OPENAI_MODEL || "gpt-4o-mini";
   const agentLabel = input.agentName || "EnerBot";
   const toolKeys = (input.toolKeys || []).filter(Boolean);
   const tools: OpenAiToolDef[] = openAiToolDefinitions(toolKeys);
+  const toolsUsed: string[] = [];
 
   if (!apiKey) {
     return {
       reply: buildPlaceholderAiReply(input.latestUserMessage),
       source: "fallback",
       model,
+      toolsUsed,
     };
   }
 
@@ -231,6 +234,7 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
             continue;
           }
           const result = await runAiTool(name, call.function.arguments || "{}");
+          if (!toolsUsed.includes(name)) toolsUsed.push(name);
           messages.push({
             role: "tool",
             tool_call_id: call.id,
@@ -251,13 +255,13 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
     const { rewriteStorageUrlsInText } = await import("@/server/shorten-urls");
     // Channel handlers (WhatsApp / website) run sanitizeAssistantFileLinks to attach verified links.
     const shortened = await rewriteStorageUrlsInText(reply);
-    return { reply: shortened, source: "openai" as const, model };
+    return { reply: shortened, source: "openai" as const, model, toolsUsed };
   } catch (error) {
     console.error("OpenAI request failed", error);
     let fallback = buildPlaceholderAiReply(input.latestUserMessage);
     const { rewriteStorageUrlsInText } = await import("@/server/shorten-urls");
     fallback = await rewriteStorageUrlsInText(fallback);
-    return { reply: fallback, source: "fallback" as const, model };
+    return { reply: fallback, source: "fallback" as const, model, toolsUsed };
   } finally {
     clearTimeout(timer);
   }

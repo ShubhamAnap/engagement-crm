@@ -24,6 +24,8 @@ export type AiAnswerRow = {
   memory: string;
   model: string;
   grounded: boolean;
+  /** Tool keys invoked for this reply (from metadata.tools_used). */
+  toolsUsed: string[];
   /** Customer message immediately before this AI reply (if found). */
   customerQuestion: string | null;
 };
@@ -106,6 +108,9 @@ function parseInspector(msg: DbMessage): Omit<
           : "Limited grounding — general guidance path.",
         `Confidence ${confidence.toFixed(2)}.`,
       ];
+  const toolsUsed = Array.isArray(meta.tools_used)
+    ? [...new Set(meta.tools_used.map(String).filter(Boolean))]
+    : [];
   return {
     confidence,
     sources,
@@ -114,6 +119,7 @@ function parseInspector(msg: DbMessage): Omit<
     memory: typeof meta.memory === "string" ? meta.memory : "Session memory from conversation history.",
     model: typeof meta.model === "string" ? meta.model : "gpt-4o-mini",
     grounded: isGroundedMessage(msg),
+    toolsUsed,
   };
 }
 

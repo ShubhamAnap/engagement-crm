@@ -1,7 +1,7 @@
 import { createServiceSupabase } from "@/lib/supabase";
 import type { DbAgent } from "@/lib/db-types";
 import { defaultPromptForKey, effectiveSystemPrompt } from "@/lib/agent-prompts";
-import { isServiceIntent } from "@/lib/conversation-guards";
+import { previewSpecialistKey } from "@/lib/agent-routing";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -32,33 +32,6 @@ const MASTER_ORCHESTRATION = [
   "For product asks: share ONLY Name, Price, Features, Photo, and Catalogue. Never SKU, stock, category, or other metadata. If price is missing from context, give a short commercial next step — do not interrogate.",
   "Keep the conversation going. Engage and help. Short answers (Pune, Resident, 3kw, Hybrid) are follow-ups — acknowledge and continue with products.",
 ].join(" ");
-
-/**
- * Specialist domain from the latest message (not the master).
- * Returns null when the master should handle alone.
- */
-function pickSpecialistKey(channel?: string | null, message?: string): string | null {
-  const ch = (channel || "").toLowerCase();
-  const text = (message || "").toLowerCase();
-
-  if (ch === "email" && /warrant|rma|claim|quot|batter|runtime|install|technical|schematic/.test(text) === false) {
-    if (!text.trim()) return "email";
-  }
-
-  if (/warrant|rma|\bclaim\b/.test(text)) return "warranty";
-  if (/batter(y|ies)|runtime|backup\s*min|\bah\b|kwh/.test(text)) return "battery";
-  if (/quot(e|ation)|price\s*list|commercial\s*offer|proforma/.test(text)) return "quotation";
-  if (/follow[\s-]?up|nurture|remind/.test(text)) return "followup";
-  if (isServiceIntent(text)) return "service";
-  if (/schematic|firmware|diagnostic|wiring|three[\s-]?phase|install(ation)?\b/.test(text)) {
-    return "technical";
-  }
-  if (/buy|price|cost|discount|demo|dealer|distributor|\bkva\b|online\s*ups|ups\s*for|which\s*(ups|product)/.test(text)) {
-    return "sales";
-  }
-  if (ch === "email") return "email";
-  return null;
-}
 
 function isMasterAgent(agent: DbAgent): boolean {
   const cfg = (agent.config || {}) as { is_master?: boolean };
@@ -125,7 +98,7 @@ export async function resolveAgentStack(options: {
   const orgId = options.orgId || ORG_ID;
   const master = await loadMasterAgent(orgId);
 
-  const specialistKey = pickSpecialistKey(options.channel, options.message);
+  const specialistKey = previewSpecialistKey(options.channel, options.message);
   if (!specialistKey) {
     return { master, specialist: null };
   }

@@ -1783,6 +1783,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       downloadCount: downloadLinks.length,
       memoryEnabled: agentCfg.memoryEnabled,
       productsUseful: isProductIntent(text) && Boolean(productsContext?.trim()),
+      toolsUsed: ai.toolsUsed,
     });
 
     const { error: aiErr } = await supabase.from("messages").insert({

@@ -389,6 +389,15 @@ function Page() {
                         {selected.grounded ? "Grounded" : "Ungrounded"}
                       </Pill>
                       <Pill tone="info">{selected.channel}</Pill>
+                      {selected.toolsUsed.length ? (
+                        selected.toolsUsed.map((t) => (
+                          <Pill key={t} tone="success">
+                            Tool: {t}
+                          </Pill>
+                        ))
+                      ) : (
+                        <Pill tone="neutral">No tools used</Pill>
+                      )}
                     </div>
                   </Panel>
                   <Panel title="Suggested next action">

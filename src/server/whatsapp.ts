@@ -1451,7 +1451,8 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
               downloadCount: downloadLinks.length,
               memoryEnabled: agentCfg.memoryEnabled,
-            productsUseful: isProductIntent(text) && Boolean(productsContext?.trim()),
+              productsUseful: isProductIntent(text) && Boolean(productsContext?.trim()),
+              toolsUsed: generated.toolsUsed,
             });
             (inspector.metadata as Record<string, unknown>).product_kb_fallback = true;
             await supabase.from("messages").insert({
@@ -1871,6 +1872,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             downloadCount: downloadLinks.length,
             memoryEnabled: agentCfg.memoryEnabled,
             productsUseful: isProductIntent(text) && Boolean(productsContext?.trim()),
+            toolsUsed: generated.toolsUsed,
           });
           if (agentCfg.agentId) {
             await supabase

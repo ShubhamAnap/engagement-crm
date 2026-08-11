@@ -578,6 +578,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
         downloadCount: downloadLinks.length,
         memoryEnabled: agentCfg.memoryEnabled,
         productsUseful: isProductIntent(text) && Boolean(productsContext?.trim()),
+        toolsUsed: generated.toolsUsed,
       });
       if (agentCfg.agentId) {
         await supabase

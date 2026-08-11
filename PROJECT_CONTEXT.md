@@ -1,7 +1,7 @@
 # EnerTech Engage — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
-> **Last updated:** 2026-08-10
+> **Last updated:** 2026-08-11
 
 ---
 
@@ -9,7 +9,7 @@
 
 Run **EnerTech Engage** as a **working enterprise AI customer engagement platform** for EnerTech UPS Pvt. Ltd., with architecture that can later become multi-tenant SaaS.
 
-**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Team permissions A+B+C** (Settings → Team: create users, section tick-marks, disable, reset password, copy access) — run Supabase SQL `033_team_permissions.sql`. **Knowledge Base A+B+C** — run `032` if needed. **Ops:** `029`→`033` as needed; public `APP_URL` for photo links.
+**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Team permissions A+B+C** — run `033`. **Knowledge Base A+B+C** — run `032` if needed. **Agents A+B + Tools A+B** ready (routing clarity, Admin-only, Inspector `tools_used`) — deploy when asked. **Ops:** `029`→`033` as needed; public `APP_URL` for photo links.
 **Approach:** Prefer stabilize and ship focused improvements; new modules only when requested.
 
 ---
@@ -250,9 +250,9 @@ Embed on EnerTech website — live AI chat, lead capture (name/email/phone requi
 | Dashboard | `/` | Supabase | Live KPIs + charts |
 | AI Command Center | `/command-center` | Supabase | Live sessions: pause/takeover/timeline |
 | Inbox | `/inbox` | Supabase | Live + **mobile list→thread**; WA 24h; templates; Recommend product |
-| AI Chat Support | `/ai-chat` | Supabase | Live Answer Inspector (confidence, sources, reasoning) |
-| AI Agents | `/agents` | Supabase | Live: model/prompt/memory/status; keyword routing; **per-agent allowed tools** |
-| Tools | `/tools` | Supabase | Global AI tools catalog (Calculator, Web search); enable/disable; agents opt in |
+| AI Chat Support | `/ai-chat` | Supabase | Live Answer Inspector + **tools used** pills |
+| AI Agents | `/agents` | Supabase | Master + specialists; test classify; Admin-only save; effective tools |
+| Tools | `/tools` | Supabase | Global enable + API-key hints + agents-using-tool; Admin-only; stale allow-list clean |
 | Knowledge Base | `/knowledge` | Supabase + Storage | Live collections + upload/index (pgvector RAG) |
 | Products | `/products` | Supabase + Storage | CRUD + card image + catalogue PDF (**short link** `/c/{SKU}`) |
 | Customers | `/customers` | Supabase | List/create/update/delete |
@@ -294,6 +294,8 @@ Record decisions here so we don't re-debate.
 | 2026-07-30 | Knowledge RAG = **pgvector + OpenAI embeddings** | No Pinecone for v1; catalogue PDFs via Storage download links |
 | TBD | Vector DB scale-out | Stay on pgvector unless search volume outgrows Postgres |
 | 2026-08-03 | AI Tools = global `/tools` + per-agent allow-list | Agents only get tools that are enabled globally AND ticked on the agent (`config.allowed_tools`) |
+| 2026-08-11 | Runtime tools = Master ∪ specialist ∩ global | Chat unions Master + active specialist allow-lists, then intersects with globally enabled tools |
+| 2026-08-11 | Agents/Tools mutations Admin-only | Configure/save agent + enable tools restricted to Admin; others view-only |
 | 2026-08-04 | Website widget origin allowlist | Empty `config.allowed_origins` blocks off-app embeds; subdomains/paths auto; app/localhost/Render always allowed |
 
 ---
@@ -301,6 +303,19 @@ Record decisions here so we don't re-debate.
 ## Session Log
 
 Brief notes from each working session — append, don't delete.
+
+### Session 2026-08-11 — Agents A+B then Tools A+B
+
+**Goal:** Long-term clarity on Master/specialists + honest tool ops (before deploy).
+
+**Agents A:** Architecture panel; Follow-up chat ≠ Automation daily campaign; Admin-only save/toggle; shared `src/lib/agent-routing.ts`.
+**Agents B:** Confirm before pausing Master; effective tools (Master ∪ specialist ∩ global); test-classify box; Degraded → Active|Paused UX.
+**Tools A:** Runtime/API-key hints; agents using each tool; stale allow-list warn + optional strip on disable.
+**Tools B:** OpenAI returns `toolsUsed` → Inspector `metadata.tools_used` + AI Chat pills; Admin-only tool toggle.
+
+**Files:** `agents.tsx`, `tools.tsx`, `tools-api.ts`, `agent-routing.ts`, `openai.ts`, `answer-inspector.ts`, channel reply paths, `ai-chat*`.
+
+**Status:** Code ready — say **deploy** to commit/push Render.
 
 ### Session 2026-08-11 — Leads Add / Delete privileges
 

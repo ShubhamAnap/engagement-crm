@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Building2, Mail, MapPin, Mic, Phone, RefreshCw, Send, User, X } from "lucide-react";
+import { Building2, Mail, MapPin, Mic, Paperclip, Phone, RefreshCw, Send, User, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import {
   createSpeechRecognition,
   ensureMicrophonePermission,
@@ -16,6 +17,7 @@ import {
   widgetLookupVisitor,
   widgetSendMessage,
   widgetSelectProduct,
+  widgetUploadAttachment,
 } from "@/server/widget-chat";
 import { ChatDownloadLinks, ChatReferenceImages, cleanChatExtrasCaption } from "@/components/ChatReferenceImages";
 import { ChatProductCarousel, extractProductCarousel, type ChatProductCard } from "@/components/ChatProductCarousel";
@@ -27,6 +29,12 @@ import {
   formatPhoneCountryOption,
   splitInternationalPhone,
 } from "@/lib/phone-country";
+import {
+  EMPTY_WIDGET_PROFILE,
+  isWidgetProfileComplete,
+  widgetProfileIncompleteMessage,
+  type WidgetVisitorProfile,
+} from "@/lib/widget-visitor-profile";
 
 const SESSION_KEY = "enertech-embed-session";
 const PROFILE_KEY = "enertech-embed-profile";
@@ -50,29 +58,15 @@ type UiMsg = {
   downloads?: DownloadLink[];
   products?: ChatProductCard[];
 };
-type VisitorProfile = {
-  name: string;
-  email: string;
-  phone: string;
-  phoneCountryCode: string;
-  company: string;
-  location: string;
-};
+type VisitorProfile = WidgetVisitorProfile;
 
 const welcome: UiMsg = {
   id: "welcome",
   from: "bot",
-  text: "Hi 👋 I'm EnerBot from EnerTech UPS. Ask about products, runtime, service, or request a quotation.",
+  text: "Hi 👋 Welcome to EnerTech UPS. Ask about products, runtime, service, or request a quotation.",
 };
 
-const emptyProfile: VisitorProfile = {
-  name: "",
-  email: "",
-  phone: "",
-  phoneCountryCode: DEFAULT_PHONE_COUNTRY,
-  company: "",
-  location: "",
-};
+const emptyProfile: VisitorProfile = { ...EMPTY_WIDGET_PROFILE };
 
 function profilePhoneE164(profile: VisitorProfile) {
   return composeInternationalPhone(profile.phoneCountryCode || DEFAULT_PHONE_COUNTRY, profile.phone);
@@ -138,12 +132,7 @@ function persistProfile(profile: VisitorProfile) {
 }
 
 function isProfileComplete(profile: VisitorProfile) {
-  return Boolean(
-    profile.name.trim() &&
-      profile.email.trim() &&
-      profilePhoneE164(profile).length >= 10 &&
-      profile.location.trim(),
-  );
+  return isWidgetProfileComplete(profile);
 }
 
 function hasIdentity(profile: VisitorProfile) {
@@ -235,12 +224,12 @@ function EmbedChat() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [typing, setTyping] = useState(false);
-  const [humanMode, setHumanMode] = useState(false);
   const [profile, setProfile] = useState<VisitorProfile>(stored);
   const [editingContact, setEditingContact] = useState(!isProfileComplete(stored));
   const [listening, setListening] = useState(false);
   const [micHint, setMicHint] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const profileRef = useRef(profile);
   const lookedUpRef = useRef("");
   const busyRef = useRef(false);
@@ -382,14 +371,12 @@ function EmbedChat() {
     const nextId = convo.id as string;
     setConversationId(nextId);
     conversationIdRef.current = nextId;
-    if (convo.status === "human" || convo.status === "escalated") setHumanMode(true);
 
     if (prevId !== nextId) {
       const history = (await widgetListMessages({
         data: { key, pageOrigin, conversationId: nextId },
       })) as ServerMessage[];
       setMsgs(applyHistory(history));
-      setHumanMode(history.some((m) => m.sender === "agent") || convo.status === "human" || convo.status === "escalated");
     }
     return nextId;
   }
@@ -397,7 +384,6 @@ function EmbedChat() {
   async function beginFreshConversation() {
     rotateSessionId();
     lookedUpRef.current = "";
-    setHumanMode(false);
     // Keep known contact for returning visitor; only clear chat thread.
     const keep = isProfileComplete(profileRef.current) ? profileRef.current : emptyProfile;
     setProfile(keep);
@@ -424,7 +410,6 @@ function EmbedChat() {
       setConversationId(null);
       conversationIdRef.current = null;
       setMsgs([welcome]);
-      setHumanMode(false);
       return;
     }
     const convoId = await syncConversationProfile(initial);
@@ -433,7 +418,6 @@ function EmbedChat() {
       data: { key, pageOrigin, conversationId: convoId },
     })) as ServerMessage[];
     setMsgs(applyHistory(history));
-    setHumanMode(history.some((m) => m.sender === "agent"));
   }
 
   useEffect(() => {
@@ -469,7 +453,6 @@ function EmbedChat() {
           data: { key, pageOrigin, conversationId },
         })) as ServerMessage[];
         setMsgs(applyHistory(history));
-        if (history.some((m) => m.sender === "agent")) setHumanMode(true);
       } catch (err) {
         console.error(err);
       }
@@ -510,7 +493,7 @@ function EmbedChat() {
 
   async function saveContactAndContinue() {
     if (!isProfileComplete(profile)) {
-      setError("Please fill Name, Email, Phone, and Location to continue.");
+      setError(widgetProfileIncompleteMessage(profile));
       return;
     }
     setBusy(true);
@@ -530,6 +513,15 @@ function EmbedChat() {
 
   async function startNewConversation() {
     if (!key || busy) return;
+    if (
+      conversationId &&
+      msgs.some((m) => m.id !== "welcome") &&
+      !confirm(
+        "Start a new chat? Your earlier messages stay with EnerTech. This opens a fresh conversation in this browser.",
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     try {
       await beginFreshConversation();
@@ -546,7 +538,7 @@ function EmbedChat() {
     if (!text.trim() || busy || !key) return;
     if (!isProfileComplete(profile)) {
       setEditingContact(true);
-      setError("Please share your name, email, phone, and location so we can help you.");
+      setError(widgetProfileIncompleteMessage(profile));
       return;
     }
     setBusy(true);
@@ -566,7 +558,6 @@ function EmbedChat() {
         data: { key, pageOrigin, conversationId: convoId, body: userText },
       });
       setMsgs(applyHistory(result.messages as unknown as ServerMessage[]));
-      if (result.aiPaused || result.status === "human" || result.status === "escalated") setHumanMode(true);
       setEditingContact(false);
       setError(null);
     } catch (err) {
@@ -578,11 +569,60 @@ function EmbedChat() {
     }
   }
 
+  async function uploadFile(file: File) {
+    if (busy || !key) return;
+    if (!isProfileComplete(profile)) {
+      setEditingContact(true);
+      setError(widgetProfileIncompleteMessage(profile));
+      return;
+    }
+
+    setBusy(true);
+    setTyping(true);
+    pinToBottom();
+    try {
+      persistProfile(profile);
+      let convoId = conversationId;
+      if (!convoId) convoId = await syncConversationProfile(profile);
+      else await syncConversationProfile(profile);
+      if (!convoId) throw new Error("Conversation not ready");
+
+      const buffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      let binary = "";
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+      }
+      const base64 = btoa(binary);
+
+      const result = await widgetUploadAttachment({
+        data: {
+          key,
+          pageOrigin,
+          conversationId: convoId,
+          fileName: file.name,
+          mimeType: file.type || undefined,
+          base64,
+        },
+      });
+      setMsgs(applyHistory(result.messages as unknown as ServerMessage[]));
+      toast.success("File shared with EnerTech");
+      setError(null);
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setTyping(false);
+      setBusy(false);
+    }
+  }
+
   async function needThisProduct(productId: string) {
     if (!productId || busy || !key) return;
     if (!isProfileComplete(profile)) {
       setEditingContact(true);
-      setError("Please share your name, email, phone, and location so we can help you.");
+      setError(widgetProfileIncompleteMessage(profile));
       return;
     }
     setBusy(true);
@@ -598,7 +638,6 @@ function EmbedChat() {
         data: { key, pageOrigin, conversationId: convoId, productId },
       });
       setMsgs(applyHistory(result.messages as unknown as ServerMessage[]));
-      if (result.aiPaused || result.status === "human" || result.status === "escalated") setHumanMode(true);
       setEditingContact(false);
       setError(null);
     } catch (err) {
@@ -644,7 +683,7 @@ function EmbedChat() {
       return <div className="min-h-screen bg-transparent" />;
     }
     return (
-      <div className="flex min-h-screen items-end justify-end bg-transparent p-3">
+      <div className="flex min-h-screen items-end justify-end bg-transparent p-3" style={{ padding: "max(0.75rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) max(0.75rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left))" }}>
         <Button
           onClick={() => setOpen(true)}
           className="h-[72px] w-[72px] flex-col gap-0.5 rounded-full border-2 border-white px-2 text-white shadow-lg hover:opacity-95"
@@ -659,7 +698,15 @@ function EmbedChat() {
   }
 
   return (
-    <div className="flex min-h-screen items-stretch justify-center bg-transparent p-0 sm:items-end sm:justify-end sm:p-3">
+    <div
+      className="flex min-h-screen items-stretch justify-center bg-transparent p-0 sm:items-end sm:justify-end sm:p-3"
+      style={{
+        paddingTop: "env(safe-area-inset-top)",
+        paddingRight: "max(0px, env(safe-area-inset-right))",
+        paddingBottom: "env(safe-area-inset-bottom)",
+        paddingLeft: "max(0px, env(safe-area-inset-left))",
+      }}
+    >
       <div
         className="flex h-[100dvh] w-full flex-col overflow-hidden border shadow-2xl sm:h-[640px] sm:w-[384px] sm:rounded-xl"
         style={{ borderColor: BRAND, backgroundColor: INK, color: BRAND }}
@@ -771,7 +818,7 @@ function EmbedChat() {
                 <Input
                   value={profile.location}
                   onChange={(e) => setProfile((s) => ({ ...s, location: e.target.value }))}
-                  placeholder="Location *"
+                  placeholder="Location (optional)"
                   className="h-9 border pl-8 text-xs"
                   style={{ borderColor: `${BRAND}44`, color: BRAND }}
                 />
@@ -835,14 +882,9 @@ function EmbedChat() {
                     style={
                       m.from === "user"
                         ? { backgroundColor: BRAND, color: INK }
-                        : m.kind === "agent"
-                          ? { backgroundColor: "#E8ECF8", color: BRAND, border: `1px solid ${BRAND}33` }
-                          : { backgroundColor: INK, color: BRAND, border: `1px solid ${BRAND}22` }
+                        : { backgroundColor: INK, color: BRAND, border: `1px solid ${BRAND}22` }
                     }
                   >
-                    {m.kind === "agent" ? (
-                      <p className="mb-0 px-3 pt-2 text-[10px] font-medium opacity-70">Support team</p>
-                    ) : null}
                     {(() => {
                       const caption = cleanChatExtrasCaption(m.text, {
                         hasImages: Boolean(m.images?.length),
@@ -877,7 +919,7 @@ function EmbedChat() {
               ))}
               {typing && (
                 <div className="flex items-center gap-2 text-xs" style={{ color: `${BRAND}99` }}>
-                  typing...
+                  EnerTech is typing…
                 </div>
               )}
               <div ref={endRef} />
@@ -897,6 +939,29 @@ function EmbedChat() {
                 void send(draft);
               }}
             >
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-8 shrink-0"
+                style={{ color: BRAND }}
+                aria-label="Attach file"
+                disabled={busy || listening || !key}
+                onClick={() => fileRef.current?.click()}
+              >
+                <Paperclip className="size-4" />
+              </Button>
+              <input
+                ref={fileRef}
+                type="file"
+                className="hidden"
+                accept="image/*,.pdf,application/pdf"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) void uploadFile(file);
+                }}
+              />
               <Button
                 type="button"
                 variant="ghost"

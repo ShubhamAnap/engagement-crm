@@ -1209,7 +1209,7 @@ function Page() {
                 />
               </div>
             ) : (
-              <ul className="divide-y divide-border">
+            <ul className="divide-y divide-border">
                 {filtered.map((a) => {
                   const active = selected?.id === a.id;
                   return (
@@ -1243,10 +1243,10 @@ function Page() {
                           <Pill tone="neutral">Auto</Pill>
                         )}
                       </div>
-                    </li>
+                </li>
                   );
                 })}
-              </ul>
+            </ul>
             )}
           </Panel>
 
@@ -1294,7 +1294,7 @@ function Page() {
                     actions={selected.actions || []}
                   />
                   <p className="mt-3 mb-2 text-xs uppercase text-muted-foreground">Action list</p>
-                  <div className="space-y-1.5">
+            <div className="space-y-1.5">
                     {(selected.actions || []).map((step, i) => (
                       <div key={`${step.type}-${i}`}>
                         <div className="rounded-lg border border-border bg-secondary/40 px-3 py-2.5 text-sm">
@@ -1305,14 +1305,14 @@ function Page() {
                             <ArrowDown className="size-4 text-muted-foreground" />
                           </div>
                         ) : null}
-                      </div>
-                    ))}
-                  </div>
+                </div>
+              ))}
+            </div>
                 </>
               ) : (
                 <p className="text-sm text-muted-foreground">No workflow selected.</p>
               )}
-            </Panel>
+          </Panel>
 
             <Panel title="Recent runs" bodyClassName="p-0">
               {!selected ? (
@@ -1340,7 +1340,7 @@ function Page() {
                             {formatRelativeTime(r.created_at) ||
                               new Date(r.created_at).toLocaleString()}
                           </span>
-                        </div>
+        </div>
                         {r.error ? (
                           <p className="text-xs text-destructive">{r.error}</p>
                         ) : null}
@@ -1359,7 +1359,7 @@ function Page() {
                 </ul>
               )}
             </Panel>
-          </div>
+      </div>
         </div>
 
         <SalesPersonDirectoryPanel orgId={orgId} />

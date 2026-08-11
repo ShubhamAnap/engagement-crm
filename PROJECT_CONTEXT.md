@@ -9,7 +9,7 @@
 
 Run **EnerTech Engage** as a **working enterprise AI customer engagement platform** for EnerTech UPS Pvt. Ltd., with architecture that can later become multi-tenant SaaS.
 
-**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Team permissions** — run `033`. **Knowledge Base A+B+C** — run `032` if needed. **Agents A+B + Tools A+B** deployed (`a3118f7`). **Leads A+B** ready (paged sheet, privileges, safe delete) — deploy when asked. **Ops:** `029`→`033` as needed; public `APP_URL` for photo links.
+**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Team permissions** — run `033`. **Knowledge Base A+B+C** — run `032` if needed. **Agents/Tools** + **Leads A+B** deployed. **Website Widget A+B** ready (is_enabled, embed attach, EnerTech typing) — deploy when asked. **Ops:** `029`→`033` as needed; public `APP_URL` for photo links.
 **Approach:** Prefer stabilize and ship focused improvements; new modules only when requested.
 
 ---
@@ -303,6 +303,17 @@ Record decisions here so we don't re-debate.
 ## Session Log
 
 Brief notes from each working session — append, don't delete.
+
+### Session 2026-08-11 — Website chatbot Widget A+B
+
+**Goal:** Stabilize embed + in-app chat without touching welcome WA / CRM→Automation wiring.
+
+**A:** Website `is_enabled` gate; filter visitor messages on all returns; embed paperclip parity; Channels key/allowlist + `website_visitor_captured` ≠ `lead_created` notes; widget-demo checklist.
+**B:** Shared profile helper (location optional); EnerTech-only typing (no AI/human labels or Request human); new-chat confirm; mobile safe-area; welcome copy = EnerTech.
+
+**Unchanged:** `syncConversationIdentity`, welcome trigger, contact phone/email gate for Inbox, no `lead_created` on widget lead insert.
+
+**Status:** Code ready — say **deploy** to commit/push.
 
 ### Session 2026-08-11 — Leads A+B (master sheet polish)
 

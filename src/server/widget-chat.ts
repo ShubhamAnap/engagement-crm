@@ -87,11 +87,17 @@ async function assertWidgetPageOrigin(pageOrigin: string | null | undefined) {
   const supabase = createServiceSupabase();
   const { data: channel, error } = await supabase
     .from("channels")
-    .select("config")
+    .select("config, is_enabled")
     .eq("org_id", ORG_ID)
     .eq("type", "website")
     .maybeSingle();
   if (error) throw new Error(error.message);
+
+  if (channel && channel.is_enabled === false) {
+    throw new Error(
+      "Website chat is currently turned off. Please try again later or contact EnerTech.",
+    );
+  }
 
   const raw = channel?.config && typeof channel.config === "object" ? channel.config : {};
   const list = Array.isArray((raw as { allowed_origins?: unknown }).allowed_origins)
@@ -115,7 +121,7 @@ async function assertWidgetPageOrigin(pageOrigin: string | null | undefined) {
     })
   ) {
     throw new Error(
-      "This website is not allowed to use the EnerTech chat widget. Ask EnerTech to add your domain under Channels ? Website.",
+      "This website is not allowed to use the EnerTech chat widget. Ask EnerTech to add your domain under Channels → Website.",
     );
   }
 }
@@ -1831,7 +1837,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
 
     if (error) throw new Error(error.message);
     return {
-      messages: messages ?? [],
+      messages: (messages ?? []).filter((m) => isCustomerFacingChatMessage(m)),
       reply,
       source,
       aiPaused: false,
@@ -2065,7 +2071,7 @@ export const widgetUploadAttachment = createServerFn({ method: "POST" })
     let reply: string | null = null;
     if (!aiPaused) {
       reply =
-        "Thanks ? I received your file. Our team can review it in the inbox. Tell me what you need help with, or ask to talk to a human.";
+        "Thanks — I received your file. Tell me what you need help with and EnerTech will continue from here.";
       await supabase.from("messages").insert({
         org_id: ORG_ID,
         conversation_id: data.conversationId,
@@ -2093,13 +2099,13 @@ export const widgetUploadAttachment = createServerFn({ method: "POST" })
       .select("*")
       .eq("conversation_id", data.conversationId)
       .order("created_at", { ascending: true });
-    if (error) throw new Error(error.message);
 
+    if (error) throw new Error(error.message);
     return {
-      messages: messages ?? [],
+      messages: (messages ?? []).filter((m) => isCustomerFacingChatMessage(m)),
       reply,
       url,
-      status: convo.status,
       aiPaused,
+      status: convo.status,
     };
   });

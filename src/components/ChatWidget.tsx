@@ -29,6 +29,12 @@ import {
   formatPhoneCountryOption,
   splitInternationalPhone,
 } from "@/lib/phone-country";
+import {
+  EMPTY_WIDGET_PROFILE,
+  isWidgetProfileComplete,
+  widgetProfileIncompleteMessage,
+  type WidgetVisitorProfile,
+} from "@/lib/widget-visitor-profile";
 
 type ServerMessage = {
   id: string;
@@ -47,15 +53,7 @@ type UiMsg = {
   downloads?: DownloadLink[];
   products?: ChatProductCard[];
 };
-type VisitorProfile = {
-  name: string;
-  email: string;
-  /** National number only (no country dial). */
-  phone: string;
-  phoneCountryCode: string;
-  company: string;
-  location: string;
-};
+type VisitorProfile = WidgetVisitorProfile;
 
 const SESSION_KEY = "enertech-widget-session";
 const PROFILE_KEY = "enertech-widget-profile";
@@ -65,16 +63,9 @@ const suggested = ["Which UPS suits a 3 kVA load?", "Battery runtime calculator"
 const welcome: UiMsg = {
   id: "welcome",
   from: "bot",
-  text: "Hi 👋 I'm EnerBot from EnerTech UPS. Ask about products, runtime, service, or request a quotation.",
+  text: "Hi 👋 Welcome to EnerTech UPS. Ask about products, runtime, service, or request a quotation.",
 };
-const emptyProfile: VisitorProfile = {
-  name: "",
-  email: "",
-  phone: "",
-  phoneCountryCode: DEFAULT_PHONE_COUNTRY,
-  company: "",
-  location: "",
-};
+const emptyProfile: VisitorProfile = { ...EMPTY_WIDGET_PROFILE };
 
 function profilePhoneE164(profile: VisitorProfile) {
   return composeInternationalPhone(profile.phoneCountryCode || DEFAULT_PHONE_COUNTRY, profile.phone);
@@ -132,12 +123,7 @@ function persistProfile(profile: VisitorProfile) {
 }
 
 function isProfileComplete(profile: VisitorProfile) {
-  return Boolean(
-    profile.name.trim() &&
-      profile.email.trim() &&
-      profilePhoneE164(profile).length >= 10 &&
-      profile.location.trim(),
-  );
+  return isWidgetProfileComplete(profile);
 }
 
 function hasIdentity(profile: VisitorProfile) {
@@ -225,7 +211,6 @@ export function ChatWidget() {
   const [draft, setDraft] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [humanMode, setHumanMode] = useState(false);
   const [profile, setProfile] = useState<VisitorProfile>(emptyProfile);
   const [editingContact, setEditingContact] = useState(true);
   const [listening, setListening] = useState(false);
@@ -363,7 +348,6 @@ export function ChatWidget() {
     const nextId = convo.id as string;
     setConversationId(nextId);
     conversationIdRef.current = nextId;
-    if (convo.status === "human" || convo.status === "escalated") setHumanMode(true);
 
     // Contact matched an existing Inbox thread — reload that history once.
     if (prevId !== nextId) {
@@ -371,7 +355,6 @@ export function ChatWidget() {
         data: { key: widgetKey, pageOrigin, conversationId: nextId },
       })) as ServerMessage[];
       setMsgs(applyHistory(history));
-      setHumanMode(history.some((m) => m.sender === "agent") || convo.status === "human" || convo.status === "escalated");
     }
     return nextId;
   }
@@ -379,7 +362,6 @@ export function ChatWidget() {
   async function beginFreshConversation() {
     rotateSessionId();
     lookedUpRef.current = "";
-    setHumanMode(false);
     const keep = isProfileComplete(profileRef.current) ? profileRef.current : emptyProfile;
     setProfile(keep);
     profileRef.current = keep;
@@ -407,7 +389,6 @@ export function ChatWidget() {
       setConversationId(null);
       conversationIdRef.current = null;
       setMsgs([welcome]);
-      setHumanMode(false);
       return;
     }
     const convoId = await syncConversationProfile(initial);
@@ -415,7 +396,6 @@ export function ChatWidget() {
       data: { key: widgetKey, pageOrigin, conversationId: convoId },
     })) as ServerMessage[];
     setMsgs(applyHistory(history));
-    setHumanMode(history.some((m) => m.sender === "agent") || false);
   }
 
   useEffect(() => {
@@ -451,7 +431,6 @@ export function ChatWidget() {
           data: { key: widgetKey, pageOrigin, conversationId },
         })) as ServerMessage[];
         setMsgs(applyHistory(history));
-        if (history.some((m) => m.sender === "agent")) setHumanMode(true);
       } catch (err) {
         console.error(err);
       }
@@ -493,7 +472,7 @@ export function ChatWidget() {
 
   async function saveContactAndContinue() {
     if (!isProfileComplete(profile)) {
-      toast.error("Please fill Name, Email, Phone, and Location to continue.");
+      toast.error(widgetProfileIncompleteMessage(profile));
       return;
     }
     setBusy(true);
@@ -520,6 +499,15 @@ export function ChatWidget() {
       return;
     }
     if (busy) return;
+    if (
+      conversationId &&
+      msgs.some((m) => m.id !== "welcome") &&
+      !confirm(
+        "Start a new chat? Your earlier messages stay with EnerTech. This opens a fresh conversation in this browser.",
+      )
+    ) {
+      return;
+    }
 
     setBusy(true);
     try {
@@ -545,7 +533,7 @@ export function ChatWidget() {
     }
     if (!isProfileComplete(profile)) {
       setEditingContact(true);
-      toast.error("Please fill Name, Email, Phone, and Location before uploading");
+      toast.error(widgetProfileIncompleteMessage(profile));
       return;
     }
 
@@ -577,8 +565,7 @@ export function ChatWidget() {
         },
       });
       setMsgs(applyHistory(result.messages as ServerMessage[]));
-      if (result.aiPaused || result.status === "human" || result.status === "escalated") setHumanMode(true);
-      toast.success("File shared with support");
+      toast.success("File shared with EnerTech");
     } catch (err) {
       console.error(err);
       toast.error(err instanceof Error ? err.message : "Upload failed");
@@ -600,7 +587,7 @@ export function ChatWidget() {
     }
     if (!isProfileComplete(profile)) {
       setEditingContact(true);
-      toast.error("Please share your name, email, phone, and location so we can help you.");
+      toast.error(widgetProfileIncompleteMessage(profile));
       return;
     }
 
@@ -620,7 +607,6 @@ export function ChatWidget() {
         data: { key: widgetKey, pageOrigin, conversationId: convoId, body: userText },
       });
       setMsgs(applyHistory(result.messages as ServerMessage[]));
-      if (result.aiPaused || result.status === "human" || result.status === "escalated") setHumanMode(true);
       setEditingContact(false);
     } catch (err) {
       console.error(err);
@@ -643,7 +629,7 @@ export function ChatWidget() {
     }
     if (!isProfileComplete(profile)) {
       setEditingContact(true);
-      toast.error("Please share your name, email, phone, and location so we can help you.");
+      toast.error(widgetProfileIncompleteMessage(profile));
       return;
     }
 
@@ -659,7 +645,6 @@ export function ChatWidget() {
         data: { key: widgetKey, pageOrigin, conversationId: convoId, productId },
       });
       setMsgs(applyHistory(result.messages as ServerMessage[]));
-      if (result.aiPaused || result.status === "human" || result.status === "escalated") setHumanMode(true);
       setEditingContact(false);
     } catch (err) {
       console.error(err);
@@ -674,8 +659,14 @@ export function ChatWidget() {
     <>
       {open && (
         <div
-          className="fixed right-2 bottom-[4.75rem] z-50 flex h-[min(640px,calc(100dvh-6.5rem))] w-[min(384px,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl border shadow-2xl sm:right-4 sm:bottom-20"
-          style={{ borderColor: BRAND, backgroundColor: INK, color: BRAND }}
+          className="fixed z-50 flex h-[min(640px,calc(100dvh-6.5rem))] w-[min(384px,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl border shadow-2xl"
+          style={{
+            borderColor: BRAND,
+            backgroundColor: INK,
+            color: BRAND,
+            right: "max(0.5rem, env(safe-area-inset-right))",
+            bottom: "max(5.5rem, calc(4.75rem + env(safe-area-inset-bottom)))",
+          }}
         >
           <header className="flex items-center gap-2.5 px-3.5 py-3 text-white" style={{ backgroundColor: BRAND }}>
             <div className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg bg-white">
@@ -768,7 +759,7 @@ export function ChatWidget() {
                 </div>
                 <div className="relative">
                   <MapPin className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" style={{ color: BRAND }} />
-                  <Input value={profile.location} onChange={(e) => setProfile((s) => ({ ...s, location: e.target.value }))} placeholder="Location *" className="h-9 border pl-8 text-xs" style={{ borderColor: `${BRAND}44`, color: BRAND }} />
+                  <Input value={profile.location} onChange={(e) => setProfile((s) => ({ ...s, location: e.target.value }))} placeholder="Location (optional)" className="h-9 border pl-8 text-xs" style={{ borderColor: `${BRAND}44`, color: BRAND }} />
                 </div>
                 <div className="relative">
                   <Building2 className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" style={{ color: BRAND }} />
@@ -788,12 +779,6 @@ export function ChatWidget() {
             </div>
           ) : (
             <>
-              {humanMode ? (
-                <div className="border-b px-3.5 py-2 text-xs" style={{ borderColor: `${BRAND}22`, backgroundColor: "#FFFBEB", color: BRAND }}>
-                  You’re chatting with our support team — keep messaging here.
-                </div>
-              ) : null}
-
               <div
                 ref={listRef}
                 onScroll={onScroll}
@@ -808,15 +793,12 @@ export function ChatWidget() {
                       </div>
                     )}
                     <div className={cn("max-w-[80%] space-y-1", m.from === "user" && "items-end")}>
-                      {m.kind === "agent" ? <p className="px-1 text-[10px] font-medium" style={{ color: `${BRAND}99` }}>Support team</p> : null}
                       <div
                         className="min-w-0 overflow-hidden rounded-xl text-sm leading-relaxed"
                         style={
                           m.from === "user"
                             ? { backgroundColor: BRAND, color: INK }
-                            : m.kind === "agent"
-                              ? { backgroundColor: "#E8ECF8", color: BRAND, border: `1px solid ${BRAND}33` }
-                              : { backgroundColor: INK, color: BRAND, border: `1px solid ${BRAND}22` }
+                            : { backgroundColor: INK, color: BRAND, border: `1px solid ${BRAND}22` }
                         }
                       >
                         {(() => {
@@ -854,7 +836,7 @@ export function ChatWidget() {
                 ))}
                 {typing && (
                   <div className="flex items-center gap-2 text-xs" style={{ color: `${BRAND}99` }}>
-                    typing...
+                    EnerTech is typing…
                   </div>
                 )}
                 <div ref={endRef} />
@@ -933,8 +915,12 @@ export function ChatWidget() {
 
       <Button
         onClick={() => setOpen((v) => !v)}
-        className="fixed right-2 bottom-3 z-50 h-[72px] w-[72px] flex-col gap-0.5 rounded-full border-2 border-white px-2 text-white shadow-lg sm:right-4 sm:bottom-4"
-        style={{ backgroundColor: BRAND }}
+        className="fixed z-50 h-[72px] w-[72px] flex-col gap-0.5 rounded-full border-2 border-white px-2 text-white shadow-lg"
+        style={{
+          backgroundColor: BRAND,
+          right: "max(0.5rem, env(safe-area-inset-right))",
+          bottom: "max(0.75rem, env(safe-area-inset-bottom))",
+        }}
         aria-label={open ? "Close chat" : "ASK EnerTech"}
       >
         {open ? (

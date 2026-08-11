@@ -1140,12 +1140,18 @@ function Page() {
             >
               /widget-demo.html
             </a>
+            . Turn the Website channel <strong>Off</strong> above to stop all widget replies.
+          </p>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Welcome WhatsApp uses automation trigger <code className="rounded bg-secondary px-1">website_visitor_captured</code>{" "}
+            (not <code className="rounded bg-secondary px-1">lead_created</code>). In-app ASK preview and live embed use
+            different browser session keys — test the real site (or demo) for production behavior.
           </p>
           {!widgetKey ? (
             <p className="mb-3 text-sm text-amber-700 dark:text-amber-400">
               Set <code className="rounded bg-secondary px-1">WIDGET_PUBLIC_KEY</code> and{" "}
-              <code className="rounded bg-secondary px-1">VITE_WIDGET_PUBLIC_KEY</code> in{" "}
-              <code className="rounded bg-secondary px-1">.env</code>, then restart the dev server.
+              <code className="rounded bg-secondary px-1">VITE_WIDGET_PUBLIC_KEY</code> to the <strong>same</strong> value
+              in <code className="rounded bg-secondary px-1">.env</code> (and Render), then restart / redeploy.
             </p>
           ) : null}
           <pre className="overflow-x-auto rounded-lg border border-border bg-secondary/50 p-3 text-xs leading-relaxed">
@@ -1182,6 +1188,7 @@ function Page() {
             <code className="rounded bg-secondary px-1">shop.</code>) and all paths are allowed automatically.
             Always allowed: this app URL, localhost, and{" "}
             <code className="rounded bg-secondary px-1">enertechups-ai.onrender.com</code>.
+            Empty list blocks customer sites — add your live domain before go-live.
           </p>
           {!website ? (
             <p className="text-sm text-amber-700 dark:text-amber-400">

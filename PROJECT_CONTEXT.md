@@ -801,13 +801,13 @@ Website carousel expands seed matches to **all active products in that category*
 | 4.1 Service structured ticket → quiet escalate | DONE |
 | Session language (EN / HI / MR / mixed) | DONE (`src/lib/session-language.ts`) |
 | Inbox scroll to latest messages | DONE |
-| Inbox **Return to AI** | DONE — header Bot icon only (no banner above composer) |
+| Inbox **Return to AI** | DONE — resumes EnerBot immediately for unanswered website customer messages (`conversation-handoff.ts`) |
 
 **Paused for next session (discuss first):**
 - Human Support: sort by latest message; ensure claimed/`human` chats still listed.
 - Any further Inbox composer polish.
 
-**Key files:** `src/lib/session-language.ts`, `src/lib/conversation-guards.ts`, `src/server/whatsapp.ts`, `src/server/widget-chat.ts`, `src/routes/inbox.tsx`
+**Key files:** `src/lib/session-language.ts`, `src/lib/conversation-guards.ts`, `src/server/whatsapp.ts`, `src/server/widget-chat.ts`, `src/server/conversation-handoff.ts`, `src/routes/inbox.tsx`
 
 **Last commits (main):** Return to AI header-only (`e32aafa`), session language (`9793dc9`), handoff UX batch.
 

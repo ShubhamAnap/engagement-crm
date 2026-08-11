@@ -271,12 +271,16 @@ function Page() {
 
   const returnMutation = useMutation({
     mutationFn: async (item: HandoffItem) => {
-      await returnConversationToAi(item.id);
-      return item;
+      const { resumed } = await returnConversationToAi(item.id);
+      return { item, resumed };
     },
-    onSuccess: async (item) => {
+    onSuccess: async ({ item, resumed }) => {
       await invalidate();
-      toast.success(`Returned ${item.external_ref || item.id.slice(0, 8)} to EnerBot`);
+      toast.success(
+        resumed
+          ? `Returned ${item.external_ref || item.id.slice(0, 8)} to EnerBot — replied to waiting message`
+          : `Returned ${item.external_ref || item.id.slice(0, 8)} to EnerBot`,
+      );
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Return to AI failed"),
   });

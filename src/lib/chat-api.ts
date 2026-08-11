@@ -467,27 +467,12 @@ export async function resolveConversation(conversationId: string): Promise<void>
   if (error) throw error;
 }
 
-export async function returnConversationToAi(conversationId: string): Promise<void> {
-  const supabase = getBrowserSupabase();
-  const { data: row } = await supabase
-    .from("conversations")
-    .select("metadata")
-    .eq("id", conversationId)
-    .maybeSingle();
-  const meta = { ...(((row?.metadata || {}) as Record<string, unknown>) || {}) };
-  delete meta.handoff;
-  delete meta.ai_paused_from;
-  meta.returned_to_ai_at = new Date().toISOString();
-  const { error } = await supabase
-    .from("conversations")
-    .update({
-      status: "ai",
-      assignee_id: null,
-      assignee_label: "AI · Support Agent",
-      metadata: meta,
-    })
-    .eq("id", conversationId);
-  if (error) throw error;
+export async function returnConversationToAi(
+  conversationId: string,
+): Promise<{ resumed: boolean }> {
+  const { returnConversationToAiServer } = await import("@/server/conversation-handoff");
+  const result = await returnConversationToAiServer({ data: { conversationId } });
+  return { resumed: Boolean(result.resumed) };
 }
 
 export function formatRelativeTime(iso: string | null | undefined): string {

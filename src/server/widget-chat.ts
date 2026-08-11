@@ -914,30 +914,25 @@ export const widgetListMessages = createServerFn({ method: "POST" })
     return (messages ?? []).filter((m) => isCustomerFacingChatMessage(m));
   });
 
-export const widgetSendMessage = createServerFn({ method: "POST" })
-  .validator(
-    z.object({
-      key: z.string().min(1),
-      pageOrigin: z.string().max(500).optional(),
-      conversationId: z.string().uuid(),
-      body: z.string().min(1).max(4000),
-    }),
-  )
-  .handler(async ({ data }) => {
-    await assertWidgetAccess(data.key, data.pageOrigin);
-    const supabase = createServiceSupabase();
-    const text = data.body.trim();
+export async function processWidgetCustomerTurn(
+  supabase: ReturnType<typeof createServiceSupabase>,
+  data: { conversationId: string; body: string },
+  options: { insertCustomerMessage?: boolean } = {},
+) {
+  const insertCustomerMessage = options.insertCustomerMessage !== false;
+  const text = data.body.trim();
 
-    const { data: convo, error: convoError } = await supabase
-      .from("conversations")
-      .select("id, status, visitor_name, visitor_email, visitor_phone, visitor_company, customer_id, lead_id, tags, metadata, agent_id, channel, unread_count")
-      .eq("id", data.conversationId)
-      .eq("org_id", ORG_ID)
-      .maybeSingle();
+  const { data: convo, error: convoError } = await supabase
+    .from("conversations")
+    .select("id, status, visitor_name, visitor_email, visitor_phone, visitor_company, customer_id, lead_id, tags, metadata, agent_id, channel, unread_count")
+    .eq("id", data.conversationId)
+    .eq("org_id", ORG_ID)
+    .maybeSingle();
 
-    if (convoError) throw new Error(convoError.message);
-    if (!convo) throw new Error("Conversation not found");
+  if (convoError) throw new Error(convoError.message);
+  if (!convo) throw new Error("Conversation not found");
 
+  if (insertCustomerMessage) {
     const { error: customerErr } = await supabase.from("messages").insert({
       org_id: ORG_ID,
       conversation_id: data.conversationId,
@@ -958,13 +953,26 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       .eq("id", data.conversationId);
 
     await ensureConversationLinks(supabase, convo, text);
+  }
 
-    const escalate = wantsHumanHandoff(text);
-    const aiPaused =
-      convo.status === "human" ||
-      convo.status === "escalated" ||
-      convo.status === "resolved" ||
-      convo.status === "closed";
+  let convoStatus = String(convo.status || "ai");
+  try {
+    const { data: freshStatus } = await supabase
+      .from("conversations")
+      .select("status")
+      .eq("id", data.conversationId)
+      .maybeSingle();
+    if (freshStatus?.status) convoStatus = String(freshStatus.status);
+  } catch {
+    /* keep loaded row */
+  }
+
+  const escalate = wantsHumanHandoff(text);
+  const aiPaused =
+    convoStatus === "human" ||
+    convoStatus === "escalated" ||
+    convoStatus === "resolved" ||
+    convoStatus === "closed";
     const prevMetaEarly =
       convo.metadata && typeof convo.metadata === "object"
         ? (convo.metadata as Record<string, unknown>)
@@ -987,7 +995,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
     // Human takeover / escalated: save only ? except explicit language switch
     if (aiPaused) {
       const switchTo = explicitLanguageRequest(text);
-      if ((convo.status === "human" || convo.status === "escalated") && switchTo) {
+      if ((convoStatus === "human" || convoStatus === "escalated") && switchTo) {
         const ack = languageSwitchAck(switchTo);
         await supabase
           .from("conversations")
@@ -1008,7 +1016,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
           reply: ack,
           source: "fallback",
           aiPaused: true,
-          status: convo.status,
+          status: convoStatus,
         };
       }
       return {
@@ -1016,7 +1024,7 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
         reply: null,
         source: "paused",
         aiPaused: true,
-        status: convo.status,
+        status: convoStatus,
       };
     }
 
@@ -1841,8 +1849,26 @@ export const widgetSendMessage = createServerFn({ method: "POST" })
       reply,
       source,
       aiPaused: false,
-      status: convo.status,
+      status: convoStatus,
     };
+}
+
+export const widgetSendMessage = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      key: z.string().min(1),
+      pageOrigin: z.string().max(500).optional(),
+      conversationId: z.string().uuid(),
+      body: z.string().min(1).max(4000),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await assertWidgetAccess(data.key, data.pageOrigin);
+    const supabase = createServiceSupabase();
+    return processWidgetCustomerTurn(supabase, {
+      conversationId: data.conversationId,
+      body: data.body,
+    });
   });
 
 /** Website carousel: customer tapped “I need this” → Name, Photo, Price, Features, Catalogue. */

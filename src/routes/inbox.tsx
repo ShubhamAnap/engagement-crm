@@ -511,12 +511,11 @@ function Page() {
     return null;
   }, [messagesQuery.data]);
 
-  /** Show Return to AI when human owns the thread (status or agent messages). */
+  /** Show Return to AI while human or escalated owns the thread. */
   const showReturnToAi = useMemo(() => {
     if (!selected) return false;
-    if (selected.status === "human" || selected.status === "escalated") return true;
-    return (messagesQuery.data ?? []).some((m) => m.sender === "agent");
-  }, [selected, messagesQuery.data]);
+    return selected.status === "human" || selected.status === "escalated";
+  }, [selected]);
 
   const waOutbound = Boolean(selected && conversationRepliesViaWhatsApp(selected));
   const waPhone = selected
@@ -805,13 +804,17 @@ function Page() {
     if (!selected) return;
     setReturningToAi(true);
     try {
-      await returnConversationToAi(selected.id);
+      const { resumed } = await returnConversationToAi(selected.id);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["conversations", orgId] }),
         queryClient.invalidateQueries({ queryKey: ["messages", selected.id] }),
         queryClient.invalidateQueries({ queryKey: ["handoff-queue", orgId] }),
       ]);
-      toast.success("Returned to AI — EnerBot will reply on the next customer message");
+      toast.success(
+        resumed
+          ? "Returned to AI — EnerBot replied to the waiting customer message"
+          : "Returned to AI — EnerBot will reply on the next customer message",
+      );
     } catch (err) {
       console.error(err);
       toast.error(err instanceof Error ? err.message : "Return to AI failed");

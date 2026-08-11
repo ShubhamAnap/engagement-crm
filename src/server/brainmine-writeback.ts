@@ -6,7 +6,7 @@
  * when staff clicks the manual “Write follow-ups to Brainmine” button.
  *
  * Field mapping (locked with product):
- * - Follow up type → WhatsApp (channel)
+ * - Follow up type → Whatsapp (Brainmine Select option; not "WhatsApp")
  * - Contact with → CRM Contact Link: match phone (1st) → email → company → person name; omit if none
  * - Next Follow Up Date → push date + 4 days
  * - Description → conversation summary
@@ -41,7 +41,7 @@ const DEFAULT_MAP: WritebackMap = {
   contact_field: "contact_with",
   next_date_field: "next_follow_up_date",
   description_field: "description",
-  type_value_whatsapp: "WhatsApp",
+  type_value_whatsapp: "Whatsapp",
 };
 
 const TABLE_CANDIDATES = [
@@ -111,13 +111,17 @@ function detectFollowUpTable(doc: Record<string, unknown>, preferred: string): s
 
 function resolveWritebackMap(cfg: BrainmineChannelConfig): WritebackMap {
   const w = cfg.writeback || {};
+  // Brainmine Select options: Phone | Whatsapp | Email (exact casing — not "WhatsApp")
+  const rawType = w.type_value_whatsapp?.trim() || DEFAULT_MAP.type_value_whatsapp;
+  const typeValue =
+    /^whatsapp$/i.test(rawType) ? "Whatsapp" : rawType;
   return {
     follow_up_table: w.follow_up_table?.trim() || DEFAULT_MAP.follow_up_table,
     type_field: w.type_field?.trim() || DEFAULT_MAP.type_field,
     contact_field: w.contact_field?.trim() || DEFAULT_MAP.contact_field,
     next_date_field: w.next_date_field?.trim() || DEFAULT_MAP.next_date_field,
     description_field: w.description_field?.trim() || DEFAULT_MAP.description_field,
-    type_value_whatsapp: w.type_value_whatsapp?.trim() || DEFAULT_MAP.type_value_whatsapp,
+    type_value_whatsapp: typeValue,
   };
 }
 

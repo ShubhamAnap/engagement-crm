@@ -304,6 +304,14 @@ Record decisions here so we don't re-debate.
 
 Brief notes from each working session — append, don't delete.
 
+### Session 2026-08-11 — Follow up type casing Whatsapp
+
+**Goal:** Fix Select validation — CRM allows Phone / Whatsapp / Email (not WhatsApp).
+
+**Done:** Default + normalize `type_value_whatsapp` → `Whatsapp`.
+
+**Status:** Deploying.
+
 ### Session 2026-08-11 — Write-back Contact match priority
 
 **Goal:** Match CRM Contact by any customer field; phone first.

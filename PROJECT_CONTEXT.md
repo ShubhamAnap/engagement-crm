@@ -343,6 +343,10 @@ Brief notes from each working session — append, don't delete.
 
 **Shipped:** Team ticks `leads_create` / `leads_delete` under Leads section. Default off even when Leads is open. Leads UI hides Add / Bulk import / Delete actions; API asserts same.
 
+### Session 2026-08-11 — Products catalog polish
+
+**Shipped:** Updated Products page to use real client-side pagination and increased the `listProducts` fetch limit to 500 (non-destructive; no stored data changes).
+
 ### Session 2026-08-11 — Team users + section privileges A+B+C
 
 **Goal:** Main Admin creates users from Settings and tick-marks which sections they can open.

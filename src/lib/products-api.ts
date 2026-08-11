@@ -145,7 +145,7 @@ export async function listProducts(orgId: string): Promise<DbProduct[]> {
     .select("*")
     .eq("org_id", orgId)
     .order("created_at", { ascending: false })
-    .limit(200);
+    .limit(500);
 
   if (error) throw error;
   return (data ?? []) as DbProduct[];

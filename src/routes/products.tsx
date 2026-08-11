@@ -1,4 +1,4 @@
-﻿import { useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, FileText, Pencil, Plus, Trash2, Upload } from "lucide-react";
@@ -121,6 +121,8 @@ function Page() {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
+  const pageSize = 25;
+  const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<DbProduct | null>(null);
   const [productToDelete, setProductToDelete] = useState<DbProduct | null>(null);
@@ -327,6 +329,18 @@ function Page() {
     );
   }, [productsQuery.data, search]);
 
+  const pageCount = Math.max(1, Math.ceil(filteredProducts.length / pageSize));
+  const safePage = Math.min(Math.max(1, page), pageCount);
+  const pagedProducts = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return filteredProducts.slice(start, start + pageSize);
+  }, [filteredProducts, safePage]);
+
+  useEffect(() => {
+    // Keep pagination stable when users search.
+    setPage(1);
+  }, [search]);
+
   const openCreate = () => {
     setEditingProduct(null);
     setForm(defaultForm);
@@ -406,7 +420,7 @@ function Page() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {filteredProducts.map((product) => {
+                    {pagedProducts.map((product) => {
                       const catalogUrl = productCatalogueHref(product);
                       const imageUrl = productImageHref(product);
                       return (
@@ -461,7 +475,13 @@ function Page() {
                   </tbody>
                 </table>
               </div>
-              <TablePagination total={filteredProducts.length} shown={filteredProducts.length} />
+              <TablePagination
+                total={filteredProducts.length}
+                shown={pagedProducts.length}
+                page={safePage}
+                pageSize={pageSize}
+                onPageChange={setPage}
+              />
             </>
           )}
         </Panel>

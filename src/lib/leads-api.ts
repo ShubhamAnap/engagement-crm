@@ -22,6 +22,8 @@ export type LeadInput = {
   source?: ChannelType | null;
   score?: number;
   nextFollowUpAt?: string | null;
+  /** Conversation / CRM follow-up blurb stored in metadata.follow_up_summary */
+  followUpSummary?: string | null;
 };
 
 export type LeadRow = DbLead & {
@@ -100,6 +102,9 @@ function buildLeadPayload(input: LeadInput, includeRef: boolean, existingMeta?: 
     metadata: {
       ...prev,
       notes,
+      ...(typeof input.followUpSummary === "string"
+        ? { follow_up_summary: input.followUpSummary.trim() || null }
+        : {}),
     },
   };
 }

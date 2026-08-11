@@ -304,6 +304,14 @@ Record decisions here so we don't re-debate.
 
 Brief notes from each working session — append, don't delete.
 
+### Session 2026-08-11 — Leads edit: follow-up summary + clickable cells
+
+**Goal:** Edit next follow-up date, follow-up summary, and notes from the master sheet.
+
+**Done:** Follow-up summary field in Add/Edit lead dialog (saved to `metadata.follow_up_summary`); click Next follow-up / Follow-up summary / Note cells opens edit when user has leads_create.
+
+**Status:** Code ready — say **deploy** to commit/push.
+
 ### Session 2026-08-11 — Brainmine follow-up write-back + Leads summary column
 
 **Goal:** Write conversation follow-ups back to Brainmine CRM without touching lead sync; show summary on Leads.

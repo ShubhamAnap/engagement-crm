@@ -105,6 +105,7 @@ type LeadFormState = {
   priority: PriorityLevel;
   source: ChannelType;
   nextFollowUpAt: string;
+  followUpSummary: string;
   notes: string;
 };
 
@@ -122,8 +123,16 @@ const defaultForm: LeadFormState = {
   priority: "Medium",
   source: "website",
   nextFollowUpAt: "",
+  followUpSummary: "",
   notes: "",
 };
+
+function readFollowUpSummary(lead: LeadRow): string {
+  const meta = lead.metadata;
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return "";
+  const raw = (meta as Record<string, unknown>).follow_up_summary;
+  return typeof raw === "string" ? raw.trim() : "";
+}
 
 export const Route = createFileRoute("/leads")({
   head: () => ({
@@ -170,6 +179,7 @@ function formFromLead(lead: LeadRow): LeadFormState {
     priority: lead.priority,
     source: lead.source || "website",
     nextFollowUpAt: toDateTimeLocal(lead.next_follow_up_at),
+    followUpSummary: readFollowUpSummary(lead),
     notes: lead.notes || (typeof lead.metadata?.notes === "string" ? lead.metadata.notes : ""),
   };
 }
@@ -307,6 +317,7 @@ function Page() {
         salesPerson: form.salesPerson || matched?.name || profile.fullName || profile.email,
         tags: form.tags.split(/[,;]+/).map((t) => t.trim()).filter(Boolean),
         notes: form.notes,
+        followUpSummary: form.followUpSummary,
         status: form.status,
         priority: form.priority,
         source: form.source,
@@ -511,13 +522,6 @@ function Page() {
       hour: "2-digit",
       minute: "2-digit",
     });
-  }
-
-  function followUpSummaryText(lead: LeadRow): string {
-    const meta = lead.metadata;
-    if (!meta || typeof meta !== "object" || Array.isArray(meta)) return "";
-    const raw = (meta as Record<string, unknown>).follow_up_summary;
-    return typeof raw === "string" ? raw.trim() : "";
   }
 
   function priorityTone(p: PriorityLevel): "danger" | "warning" | "neutral" {
@@ -991,12 +995,24 @@ function Page() {
                         <td className="px-3 py-2.5">
                           <Pill tone={priorityTone(lead.priority)}>{lead.priority}</Pill>
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-xs text-muted-foreground">
+                        <td
+                          className={`whitespace-nowrap px-3 py-2.5 text-xs text-muted-foreground ${
+                            canEdit ? "cursor-pointer hover:text-foreground" : ""
+                          }`}
+                          title={canEdit ? "Click to edit next follow-up" : undefined}
+                          onClick={() => canEdit && openEdit(lead)}
+                        >
                           {formatFollowUp(lead.next_follow_up_at)}
                         </td>
-                        <td className="max-w-[220px] px-3 py-2.5 text-xs text-muted-foreground">
+                        <td
+                          className={`max-w-[220px] px-3 py-2.5 text-xs text-muted-foreground ${
+                            canEdit ? "cursor-pointer hover:text-foreground" : ""
+                          }`}
+                          title={canEdit ? "Click to edit follow-up summary" : undefined}
+                          onClick={() => canEdit && openEdit(lead)}
+                        >
                           {(() => {
-                            const summary = followUpSummaryText(lead);
+                            const summary = readFollowUpSummary(lead);
                             if (!summary) return "—";
                             return (
                               <span className="line-clamp-2 whitespace-normal" title={summary}>
@@ -1005,7 +1021,13 @@ function Page() {
                             );
                           })()}
                         </td>
-                        <td className="max-w-[160px] truncate px-3 py-2.5 text-muted-foreground">
+                        <td
+                          className={`max-w-[160px] truncate px-3 py-2.5 text-muted-foreground ${
+                            canEdit ? "cursor-pointer hover:text-foreground" : ""
+                          }`}
+                          title={canEdit ? "Click to edit note" : undefined}
+                          onClick={() => canEdit && openEdit(lead)}
+                        >
                           {lead.notes || "—"}
                         </td>
                         <td className="px-3 py-2.5">
@@ -1372,6 +1394,18 @@ function Page() {
                 value={form.nextFollowUpAt}
                 onChange={(e) => setForm((s) => ({ ...s, nextFollowUpAt: e.target.value }))}
               />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label>Follow-up summary</Label>
+              <Textarea
+                rows={3}
+                value={form.followUpSummary}
+                onChange={(e) => setForm((s) => ({ ...s, followUpSummary: e.target.value }))}
+                placeholder="Short conversation / follow-up blurb (shown as 2 lines in the grid)…"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Also filled when you run Write follow-ups to Brainmine. You can edit it here anytime.
+              </p>
             </div>
           </div>
 

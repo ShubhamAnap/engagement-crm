@@ -319,7 +319,7 @@ async function appendFollowUpRow(options: {
   contactLink: string | null;
   summary: string;
   followUpType: string;
-}): Promise<{ table: string }> {
+}): Promise<{ table: string; rowCount: number }> {
   const { cfg, docName, map, contactLink, summary, followUpType } = options;
   const doc = await fetchCrmDoc(cfg, docName);
   const table = detectFollowUpTable(doc, map.follow_up_table);
@@ -331,32 +331,65 @@ async function appendFollowUpRow(options: {
   }
 
   const existing = Array.isArray(doc[table]) ? [...(doc[table] as Record<string, unknown>[])] : [];
+  const sample =
+    existing.find((r) => r && typeof r === "object") || (null as Record<string, unknown> | null);
+
+  // Prefer real column names from an existing Follow Up row (Brainmine UI labels ≠ API fieldnames)
+  const col = (preferred: string, patterns: RegExp[]) => {
+    if (sample && Object.prototype.hasOwnProperty.call(sample, preferred)) return preferred;
+    if (sample) {
+      for (const key of Object.keys(sample)) {
+        if (patterns.some((re) => re.test(key))) return key;
+      }
+    }
+    return preferred;
+  };
+  const typeField = col(map.type_field, [/follow.?up.?type|^type$/i]);
+  const contactField = col(map.contact_field, [/contact/i]);
+  const nextDateField = col(map.next_date_field, [/next.*date|follow.?up.?date/i]);
+  const descField = col(map.description_field, [/desc/i]);
+
   const nextDate = ymdPlusDays(FOLLOW_UP_DAYS);
   const row: Record<string, unknown> = {
-    [map.type_field]: followUpType,
-    [map.next_date_field]: nextDate,
-    [map.description_field]: summary,
+    [typeField]: followUpType,
+    [nextDateField]: nextDate,
+    [descField]: summary,
   };
-  // Only set Contact with when we have a valid CRM Contact (Link). Value "WhatsApp"
-  // is the Follow up *type*, not the Contact link.
   if (contactLink) {
-    row[map.contact_field] = contactLink;
+    row[contactField] = contactLink;
   }
   existing.push(row);
 
-  const payload = { ...doc, [table]: existing };
-  // Frappe rejects read-only / system keys sometimes — keep name for identity
-  delete payload.__onload;
-  delete payload._user_tags;
-  delete payload._comments;
-  delete payload._assign;
-  delete payload._liked_by;
+  // Minimal PUT — full doc dumps often ignore / strip child tables on custom Brainmine
+  const payload: Record<string, unknown> = {
+    name: doc.name || docName,
+    [table]: existing,
+  };
 
   await brainmineHttpJson(cfg, `${leadsPath(cfg)}/${encodeURIComponent(docName)}`, {
     method: "PUT",
     body: payload,
   });
-  return { table };
+
+  // Verify the Description landed on CRM (catch silent no-ops)
+  const after = await fetchCrmDoc(cfg, docName);
+  const afterRows = Array.isArray(after[table]) ? (after[table] as Record<string, unknown>[]) : [];
+  if (afterRows.length < existing.length) {
+    throw new Error(
+      `CRM accepted write but Follow Up row count did not increase on ${docName} (table ${table}). ` +
+        `Re-run Inspect write-back fields and confirm the table fieldname.`,
+    );
+  }
+  const last = afterRows[afterRows.length - 1] || {};
+  const descVal = String(last[descField] ?? last[map.description_field] ?? "").trim();
+  if (!descVal) {
+    throw new Error(
+      `Follow Up row saved on ${docName} but Description is empty (tried field “${descField}”). ` +
+        `Open Inspect write-back fields, set Description fieldname from child table columns, Save mapping.`,
+    );
+  }
+
+  return { table, rowCount: afterRows.length };
 }
 
 export type WritebackRunResult = {
@@ -384,7 +417,9 @@ export async function runBrainmineFollowUpWriteback(): Promise<WritebackRunResul
 
   const { data: leads, error: leadErr } = await supabase
     .from("leads")
-    .select("id, name, company, phone, email, source, external_ref, metadata, next_follow_up_at")
+    .select(
+      "id, name, company, phone, email, notes, source, external_ref, metadata, next_follow_up_at",
+    )
     .eq("org_id", ORG_ID)
     .eq("source", "brainmine")
     .order("last_activity_at", { ascending: false })
@@ -396,7 +431,7 @@ export async function runBrainmineFollowUpWriteback(): Promise<WritebackRunResul
       string,
       unknown
     >;
-    return Boolean(String(meta.brainmine_id || "").trim());
+    return Boolean(String(meta.brainmine_id || l.external_ref || "").trim());
   });
 
   let written = 0;
@@ -416,7 +451,7 @@ export async function runBrainmineFollowUpWriteback(): Promise<WritebackRunResul
         unknown
       >),
     };
-    const brainmineId = String(meta.brainmine_id || "").trim();
+    const brainmineId = String(meta.brainmine_id || lead.external_ref || "").trim();
     if (!brainmineId) {
       skipped += 1;
       continue;
@@ -430,24 +465,31 @@ export async function runBrainmineFollowUpWriteback(): Promise<WritebackRunResul
       .order("last_message_at", { ascending: false })
       .limit(8);
 
-    // Contact by WhatsApp — prefer WA thread; skip leads with no WhatsApp conversation
-    const preferred = (convos || []).find((c) => c.channel === "whatsapp") || null;
-    if (!preferred) {
-      skipped += 1;
-      continue;
+    const waConvo = (convos || []).find((c) => c.channel === "whatsapp") || null;
+    const anyConvo = waConvo || (convos || [])[0] || null;
+
+    let summary = "";
+    if (anyConvo) {
+      const { data: messages } = await supabase
+        .from("messages")
+        .select("sender, body, created_at")
+        .eq("conversation_id", anyConvo.id)
+        .order("created_at", { ascending: false })
+        .limit(16);
+      const chronological = [...(messages || [])].reverse();
+      summary = buildConversationSummary(
+        chronological.map((m) => ({ sender: String(m.sender), body: String(m.body || "") })),
+      );
     }
 
-    const { data: messages } = await supabase
-      .from("messages")
-      .select("sender, body, created_at")
-      .eq("conversation_id", preferred.id)
-      .order("created_at", { ascending: false })
-      .limit(16);
+    // Fallback for leads without chat (e.g. dummy test note) — still write to Brainmine
+    if (!summary) {
+      const localSummary =
+        typeof meta.follow_up_summary === "string" ? meta.follow_up_summary.trim() : "";
+      const notes = typeof lead.notes === "string" ? lead.notes.trim() : "";
+      summary = localSummary || notes;
+    }
 
-    const chronological = [...(messages || [])].reverse();
-    const summary = buildConversationSummary(
-      chronological.map((m) => ({ sender: String(m.sender), body: String(m.body || "") })),
-    );
     if (!summary) {
       skipped += 1;
       continue;
@@ -472,23 +514,20 @@ export async function runBrainmineFollowUpWriteback(): Promise<WritebackRunResul
       }
     }
 
-    const waPhone = preferred.visitor_phone || lead.phone || null;
+    const waPhone = waConvo?.visitor_phone || lead.phone || null;
     const matched = await resolveWhatsAppContactLink(cfg, {
       phone: waPhone,
       email: lead.email,
       company: lead.company,
-      visitorName: preferred.visitor_name,
+      visitorName: waConvo?.visitor_name || anyConvo?.visitor_name,
       leadName: lead.name,
     });
     const contactLink = matched?.contactName || null;
-    // Follow up type = WhatsApp. Contact with = CRM Contact (phone → email → company → name).
     const followUpType = map.type_value_whatsapp;
-    const description = contactLink
-      ? summary
-      : `WhatsApp · ${preferred.visitor_name || lead.name || "Customer"}: ${summary}`;
+    const description = summary;
 
     try {
-      await appendFollowUpRow({
+      const result = await appendFollowUpRow({
         cfg,
         docName: brainmineId,
         map,
@@ -503,6 +542,7 @@ export async function runBrainmineFollowUpWriteback(): Promise<WritebackRunResul
       meta.brainmine_followup_written_at = ranAt;
       meta.brainmine_followup_summary_hash = summary.slice(0, 120);
       meta.brainmine_followup_next_date = ymdPlusDays(FOLLOW_UP_DAYS);
+      meta.brainmine_followup_table = result.table;
       await supabase
         .from("leads")
         .update({
@@ -515,7 +555,7 @@ export async function runBrainmineFollowUpWriteback(): Promise<WritebackRunResul
     } catch (err) {
       failed += 1;
       const msg = err instanceof Error ? err.message : "write failed";
-      errors.push(`${lead.name || lead.id}: ${msg}`);
+      errors.push(`${lead.name || lead.company || lead.id} (${brainmineId}): ${msg}`);
       // Still persist local summary so Leads column updates
       try {
         await supabase.from("leads").update({ metadata: meta }).eq("id", lead.id);

@@ -304,6 +304,14 @@ Record decisions here so we don't re-debate.
 
 Brief notes from each working session — append, don't delete.
 
+### Session 2026-08-11 — Write-back: notes fallback + verify CRM row
+
+**Issue:** Toast looked successful but dummy lead (note only, no WhatsApp chat) was skipped; CRM Follow Up Description stayed empty.
+
+**Done:** Summary from chat → else `follow_up_summary` → else Note; brainmine_id or external_ref; minimal PUT + verify Description on CRM; honest toast when written=0.
+
+**Status:** Code ready — say **deploy**.
+
 ### Session 2026-08-11 — Follow up type casing Whatsapp
 
 **Goal:** Fix Select validation — CRM allows Phone / Whatsapp / Email (not WhatsApp).

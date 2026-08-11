@@ -1008,11 +1008,18 @@ function Page() {
     onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: ["brainmine-setup"] });
       await queryClient.invalidateQueries({ queryKey: ["leads"] });
-      toast.success(
-        `Brainmine write-back: ${result.written} written · ${result.skipped} skipped · ${result.failed} failed`,
-      );
+      const summary = `${result.written} written · ${result.skipped} skipped · ${result.failed} failed`;
+      if (result.written > 0 && result.failed === 0) {
+        toast.success(`Brainmine write-back: ${summary}`);
+      } else if (result.written > 0) {
+        toast.message(`Brainmine write-back partial: ${summary}`);
+      } else {
+        toast.error(
+          `Brainmine write-back: nothing written (${summary}). Check Follow-up summary / Note on the lead, brainmine id, and Inspect write-back fields.`,
+        );
+      }
       if (result.errors.length) {
-        toast.message("Some write-backs failed", { description: result.errors[0] });
+        toast.message("Write-back detail", { description: result.errors[0] });
       }
     },
     onError: (error) =>

@@ -1,6 +1,7 @@
 ﻿import { getBrowserSupabase } from "@/lib/supabase";
 import type { ChannelType, DbLead, LeadStatus, PriorityLevel } from "@/lib/db-types";
 import { normalizeLeadPhone } from "@/lib/whatsapp-window";
+import { canLeadsCreate, canLeadsDelete } from "@/lib/permissions";
 
 export type LeadInput = {
   orgId: string;
@@ -87,6 +88,33 @@ function normalizeLead(row: Record<string, unknown>): LeadRow {
   };
 }
 
+/** Enforce Team tick-marks for lead create/delete (Admin bypass). */
+async function assertLeadAction(action: "create" | "delete"): Promise<void> {
+  const supabase = getBrowserSupabase();
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError || !authData.user) throw new Error("Not signed in");
+
+  const { data: profile, error } = await supabase
+    .from("profiles")
+    .select("role, permissions")
+    .eq("id", authData.user.id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!profile) throw new Error("Profile not found");
+
+  const role = String(profile.role || "");
+  const permissions = profile.permissions;
+  if (action === "create") {
+    if (!canLeadsCreate(role, permissions)) {
+      throw new Error("You do not have permission to add leads");
+    }
+    return;
+  }
+  if (!canLeadsDelete(role, permissions)) {
+    throw new Error("You do not have permission to delete leads");
+  }
+}
+
 export async function listLeads(orgId: string): Promise<LeadRow[]> {
   const supabase = getBrowserSupabase();
   const { data, error } = await supabase
@@ -126,6 +154,7 @@ export async function listOrgSalesPeople(
 }
 
 export async function createLead(input: LeadInput): Promise<DbLead> {
+  await assertLeadAction("create");
   const supabase = getBrowserSupabase();
   const { data, error } = await supabase.from("leads").insert(buildLeadPayload(input, true)).select("*").single();
   if (error) throw error;
@@ -215,6 +244,7 @@ export async function updateLeadStage(
 }
 
 export async function deleteLead(leadId: string): Promise<void> {
+  await assertLeadAction("delete");
   const supabase = getBrowserSupabase();
   const { error } = await supabase.from("leads").delete().eq("id", leadId);
   if (error) throw error;
@@ -223,6 +253,7 @@ export async function deleteLead(leadId: string): Promise<void> {
 /** Delete many leads by id (chunked). Scoped to org for safety. */
 export async function bulkDeleteLeads(orgId: string, leadIds: string[]): Promise<number> {
   if (leadIds.length === 0) return 0;
+  await assertLeadAction("delete");
   const supabase = getBrowserSupabase();
   const chunkSize = 200;
   let total = 0;
@@ -244,6 +275,7 @@ export async function deleteLeadsBySource(
   orgId: string,
   source: ChannelType,
 ): Promise<number> {
+  await assertLeadAction("delete");
   const supabase = getBrowserSupabase();
   const { count, error } = await supabase
     .from("leads")

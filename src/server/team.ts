@@ -6,15 +6,15 @@ import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import { requireStaffUser } from "@/server/staff-auth";
 import {
-  APP_SECTION_KEYS,
   DEFAULT_NEW_USER_PERMISSIONS,
+  allPermissionKeys,
   normalizePermissions,
-  type AppSectionKey,
+  type PermissionKey,
 } from "@/lib/permissions";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
-const permissionsSchema = z.array(z.string()).max(APP_SECTION_KEYS.length);
+const permissionsSchema = z.array(z.string()).max(allPermissionKeys().length + 4);
 
 function forbidden(message = "Only Admin can manage team members"): never {
   const err = new Error(message);
@@ -34,7 +34,7 @@ export type TeamMemberRow = {
   email: string;
   full_name: string;
   role: string;
-  permissions: AppSectionKey[];
+  permissions: PermissionKey[];
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -47,9 +47,7 @@ function mapMember(
 ): TeamMemberRow {
   const role = String(row.role || "Agent");
   const permissions =
-    role === "Admin"
-      ? ([...APP_SECTION_KEYS] as AppSectionKey[])
-      : normalizePermissions(row.permissions);
+    role === "Admin" ? allPermissionKeys() : normalizePermissions(row.permissions);
   return {
     id: String(row.id),
     email: String(row.email || ""),
@@ -237,7 +235,7 @@ export const copyTeamMemberAccess = createServerFn({ method: "POST" })
 
     const permissions =
       String(source.role) === "Admin"
-        ? ([...APP_SECTION_KEYS] as AppSectionKey[])
+        ? allPermissionKeys()
         : normalizePermissions(source.permissions);
 
     const { error: updError } = await supabase

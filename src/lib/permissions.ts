@@ -1,6 +1,7 @@
 /**
- * App section privileges (tick-marks in Settings → Team).
- * Keys match sidebar routes. Admins always get every section.
+ * App section + action privileges (tick-marks in Settings → Team).
+ * Section keys match sidebar routes. Action keys gate buttons (e.g. Leads Add/Delete).
+ * Admins always get every section and action.
  */
 
 export const APP_SECTION_KEYS = [
@@ -27,7 +28,14 @@ export const APP_SECTION_KEYS = [
 
 export type AppSectionKey = (typeof APP_SECTION_KEYS)[number];
 
-export const DEFAULT_NEW_USER_PERMISSIONS: AppSectionKey[] = ["dashboard", "inbox"];
+/** Button-level actions (not sidebar routes). */
+export const APP_ACTION_KEYS = ["leads_create", "leads_delete"] as const;
+
+export type AppActionKey = (typeof APP_ACTION_KEYS)[number];
+
+export type PermissionKey = AppSectionKey | AppActionKey;
+
+export const DEFAULT_NEW_USER_PERMISSIONS: PermissionKey[] = ["dashboard", "inbox"];
 
 export type AppSectionGroup = {
   label: string;
@@ -98,16 +106,22 @@ const PATH_TO_SECTION: Array<{ prefix: string; key: AppSectionKey }> = [
   { prefix: "/", key: "dashboard" },
 ];
 
-export function normalizePermissions(raw: unknown): AppSectionKey[] {
-  const allowed = new Set<string>(APP_SECTION_KEYS);
+const ALL_PERMISSION_KEYS: PermissionKey[] = [...APP_SECTION_KEYS, ...APP_ACTION_KEYS];
+
+export function normalizePermissions(raw: unknown): PermissionKey[] {
+  const allowed = new Set<string>(ALL_PERMISSION_KEYS);
   const list = Array.isArray(raw) ? raw : [];
-  const out: AppSectionKey[] = [];
+  const out: PermissionKey[] = [];
   const seen = new Set<string>();
   for (const item of list) {
     const key = String(item || "").trim();
     if (!allowed.has(key) || seen.has(key)) continue;
     seen.add(key);
-    out.push(key as AppSectionKey);
+    out.push(key as PermissionKey);
+  }
+  // Drop lead actions if section access was removed
+  if (!out.includes("leads")) {
+    return out.filter((k) => k !== "leads_create" && k !== "leads_delete");
   }
   return out;
 }
@@ -116,14 +130,26 @@ export function allSectionKeys(): AppSectionKey[] {
   return [...APP_SECTION_KEYS];
 }
 
-/** Admins always have every section. */
+export function allPermissionKeys(): PermissionKey[] {
+  return [...ALL_PERMISSION_KEYS];
+}
+
+/** Admins always have every section + action. */
 export function effectivePermissions(options: {
   role: string | null | undefined;
   permissions?: unknown;
-}): AppSectionKey[] {
-  if (options.role === "Admin") return allSectionKeys();
+}): PermissionKey[] {
+  if (options.role === "Admin") return allPermissionKeys();
   const normalized = normalizePermissions(options.permissions);
   return normalized.length ? normalized : [...DEFAULT_NEW_USER_PERMISSIONS];
+}
+
+export function hasPermission(
+  role: string | null | undefined,
+  permissions: unknown,
+  key: PermissionKey,
+): boolean {
+  return effectivePermissions({ role, permissions }).includes(key);
 }
 
 export function hasSectionAccess(
@@ -131,7 +157,25 @@ export function hasSectionAccess(
   permissions: unknown,
   section: AppSectionKey,
 ): boolean {
-  return effectivePermissions({ role, permissions }).includes(section);
+  return hasPermission(role, permissions, section);
+}
+
+export function canLeadsCreate(
+  role: string | null | undefined,
+  permissions: unknown,
+): boolean {
+  if (role === "Admin") return true;
+  const keys = effectivePermissions({ role, permissions });
+  return keys.includes("leads") && keys.includes("leads_create");
+}
+
+export function canLeadsDelete(
+  role: string | null | undefined,
+  permissions: unknown,
+): boolean {
+  if (role === "Admin") return true;
+  const keys = effectivePermissions({ role, permissions });
+  return keys.includes("leads") && keys.includes("leads_delete");
 }
 
 export function sectionKeyForPath(pathname: string): AppSectionKey | null {
@@ -155,16 +199,24 @@ export function canAccessPath(
   return hasSectionAccess(role, permissions, key);
 }
 
-export function permissionSummary(permissions: AppSectionKey[]): string {
-  if (permissions.length >= APP_SECTION_KEYS.length) return "Full access";
-  if (permissions.length === 0) return "No sections";
+export function permissionSummary(permissions: PermissionKey[]): string {
+  const sections = permissions.filter((k): k is AppSectionKey =>
+    (APP_SECTION_KEYS as readonly string[]).includes(k),
+  );
+  if (sections.length >= APP_SECTION_KEYS.length) return "Full access";
+  if (sections.length === 0) return "No sections";
   const labels = new Map<string, string>();
   for (const g of APP_SECTION_GROUPS) {
     for (const s of g.sections) labels.set(s.key, s.label);
   }
-  return permissions
+  let text = sections
     .slice(0, 4)
     .map((k) => labels.get(k) || k)
     .join(", ")
-    .concat(permissions.length > 4 ? ` +${permissions.length - 4}` : "");
+    .concat(sections.length > 4 ? ` +${sections.length - 4}` : "");
+  const extras: string[] = [];
+  if (permissions.includes("leads_create")) extras.push("Add leads");
+  if (permissions.includes("leads_delete")) extras.push("Delete leads");
+  if (extras.length) text += ` · ${extras.join(", ")}`;
+  return text;
 }

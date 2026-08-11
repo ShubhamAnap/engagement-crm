@@ -26,8 +26,9 @@ import {
   APP_SECTION_GROUPS,
   APP_SECTION_KEYS,
   DEFAULT_NEW_USER_PERMISSIONS,
+  allPermissionKeys,
   permissionSummary,
-  type AppSectionKey,
+  type PermissionKey,
 } from "@/lib/permissions";
 import {
   copyTeamMemberAccess,
@@ -43,17 +44,39 @@ function PermissionChecklist({
   onChange,
   disabled,
 }: {
-  value: AppSectionKey[];
-  onChange: (next: AppSectionKey[]) => void;
+  value: PermissionKey[];
+  onChange: (next: PermissionKey[]) => void;
   disabled?: boolean;
 }) {
   const selected = new Set(value);
+  const leadsOpen = selected.has("leads");
 
-  function toggle(key: AppSectionKey, checked: boolean) {
+  function commit(next: Set<PermissionKey>) {
+    // Keep stable order: sections then actions
+    const ordered = allPermissionKeys().filter((k) => next.has(k));
+    onChange(ordered);
+  }
+
+  function toggleSection(key: (typeof APP_SECTION_KEYS)[number], checked: boolean) {
+    const next = new Set(selected);
+    if (checked) {
+      next.add(key);
+    } else {
+      next.delete(key);
+      if (key === "leads") {
+        next.delete("leads_create");
+        next.delete("leads_delete");
+      }
+    }
+    commit(next);
+  }
+
+  function toggleAction(key: "leads_create" | "leads_delete", checked: boolean) {
+    if (!leadsOpen) return;
     const next = new Set(selected);
     if (checked) next.add(key);
     else next.delete(key);
-    onChange(APP_SECTION_KEYS.filter((k) => next.has(k)));
+    commit(next);
   }
 
   return (
@@ -64,7 +87,7 @@ function PermissionChecklist({
           size="sm"
           variant="outline"
           disabled={disabled}
-          onClick={() => onChange([...APP_SECTION_KEYS])}
+          onClick={() => onChange(allPermissionKeys())}
         >
           Select all
         </Button>
@@ -96,17 +119,39 @@ function PermissionChecklist({
             {group.sections.map((section) => {
               const checked = selected.has(section.key);
               return (
-                <label
-                  key={section.key}
-                  className="flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:bg-secondary/40"
-                >
-                  <Checkbox
-                    checked={checked}
-                    disabled={disabled}
-                    onCheckedChange={(v) => toggle(section.key, v === true)}
-                  />
-                  <span>{section.label}</span>
-                </label>
+                <div key={section.key} className="space-y-1.5">
+                  <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:bg-secondary/40">
+                    <Checkbox
+                      checked={checked}
+                      disabled={disabled}
+                      onCheckedChange={(v) => toggleSection(section.key, v === true)}
+                    />
+                    <span>{section.label}</span>
+                  </label>
+                  {section.key === "leads" ? (
+                    <div className="ml-4 space-y-1 rounded-md border border-dashed border-border bg-secondary/20 px-3 py-2">
+                      <p className="text-[11px] text-muted-foreground">
+                        Button access (off until ticked)
+                      </p>
+                      <label className="flex cursor-pointer items-center gap-2 text-sm">
+                        <Checkbox
+                          checked={selected.has("leads_create")}
+                          disabled={disabled || !leadsOpen}
+                          onCheckedChange={(v) => toggleAction("leads_create", v === true)}
+                        />
+                        <span>Add lead</span>
+                      </label>
+                      <label className="flex cursor-pointer items-center gap-2 text-sm">
+                        <Checkbox
+                          checked={selected.has("leads_delete")}
+                          disabled={disabled || !leadsOpen}
+                          onCheckedChange={(v) => toggleAction("leads_delete", v === true)}
+                        />
+                        <span>Delete lead</span>
+                      </label>
+                    </div>
+                  ) : null}
+                </div>
               );
             })}
           </div>
@@ -126,11 +171,11 @@ export function TeamSettingsPanel() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [permissions, setPermissions] = useState<AppSectionKey[]>([
+  const [permissions, setPermissions] = useState<PermissionKey[]>([
     ...DEFAULT_NEW_USER_PERMISSIONS,
   ]);
   const [editName, setEditName] = useState("");
-  const [editPermissions, setEditPermissions] = useState<AppSectionKey[]>([]);
+  const [editPermissions, setEditPermissions] = useState<PermissionKey[]>([]);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [copyFromId, setCopyFromId] = useState("");

@@ -43,6 +43,7 @@ import {
   Toolbar,
 } from "@/components/shared/ui-kit";
 import { useAuth } from "@/lib/auth";
+import { canLeadsCreate, canLeadsDelete } from "@/lib/permissions";
 import type { ChannelType, LeadStatus, PriorityLevel } from "@/lib/db-types";
 import {
   bulkAssignLeads,
@@ -173,6 +174,8 @@ function Page() {
   const queryClient = useQueryClient();
   const { profile } = useAuth();
   const orgId = profile?.org.id;
+  const canCreate = canLeadsCreate(profile?.role, profile?.permissions);
+  const canDelete = canLeadsDelete(profile?.role, profile?.permissions);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"All" | LeadStatus>("All");
   const [sourceFilter, setSourceFilter] = useState<"All" | ChannelType>("All");
@@ -544,26 +547,32 @@ function Page() {
         }
         actions={
           <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1.5 text-destructive hover:text-destructive"
-              onClick={() => {
-                setDeleteSource("");
-                setDeleteBySourceOpen(true);
-              }}
-            >
-              <Trash2 className="size-4" /> Delete by source
-            </Button>
+            {canDelete ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 text-destructive hover:text-destructive"
+                onClick={() => {
+                  setDeleteSource("");
+                  setDeleteBySourceOpen(true);
+                }}
+              >
+                <Trash2 className="size-4" /> Delete by source
+              </Button>
+            ) : null}
             <Button size="sm" variant="outline" className="gap-1.5" onClick={exportSelectedOrFiltered}>
               <Download className="size-4" /> Export CSV
             </Button>
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setImportOpen(true)}>
-              <Upload className="size-4" /> Bulk import
-            </Button>
-            <Button size="sm" className="gap-1.5" onClick={openCreate}>
-              <Plus className="size-4" /> Add lead
-            </Button>
+            {canCreate ? (
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setImportOpen(true)}>
+                <Upload className="size-4" /> Bulk import
+              </Button>
+            ) : null}
+            {canCreate ? (
+              <Button size="sm" className="gap-1.5" onClick={openCreate}>
+                <Plus className="size-4" /> Add lead
+              </Button>
+            ) : null}
           </div>
         }
       />
@@ -674,14 +683,16 @@ function Page() {
               >
                 <Download className="size-3.5" /> Export selected
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1.5 text-destructive hover:text-destructive"
-                onClick={() => setDeleteSelectedOpen(true)}
-              >
-                <Trash2 className="size-3.5" /> Delete selected
-              </Button>
+              {canDelete ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 text-destructive hover:text-destructive"
+                  onClick={() => setDeleteSelectedOpen(true)}
+                >
+                  <Trash2 className="size-3.5" /> Delete selected
+                </Button>
+              ) : null}
               <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
                 Clear
               </Button>
@@ -813,14 +824,16 @@ function Page() {
                             <Button size="sm" variant="outline" onClick={() => openEdit(lead)}>
                               <Pencil className="size-3.5" />
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="text-destructive hover:text-destructive"
-                              onClick={() => setLeadToDelete(lead)}
-                            >
-                              <Trash2 className="size-3.5" />
-                            </Button>
+                            {canDelete ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-destructive hover:text-destructive"
+                                onClick={() => setLeadToDelete(lead)}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            ) : null}
                           </div>
                         </td>
                       </tr>

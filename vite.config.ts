@@ -13,6 +13,10 @@ export default defineConfig(({ command }) => ({
   build: {
     sourcemap: false,
     reportCompressedSize: false,
+    // Lower peak memory during "rendering chunks" on Render (~2GB default heap OOMs).
+    rollupOptions: {
+      maxParallelFileOps: 1,
+    },
   },
   // Node SMTP client — must not be prebundled for the browser.
   optimizeDeps: {
@@ -29,7 +33,9 @@ export default defineConfig(({ command }) => ({
       server: { entry: "server" },
     }),
     // Nitro only for production builds (Render / node-server). Skip in `vite dev`.
-    ...(command === "build" ? [nitro({ preset: "node-server" })] : []),
+    ...(command === "build"
+      ? [nitro({ preset: "node-server", sourceMap: false, minify: true })]
+      : []),
     viteReact(),
   ],
 }));

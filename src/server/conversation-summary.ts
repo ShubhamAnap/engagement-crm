@@ -1,6 +1,7 @@
 /**
  * Conversation Summary Agent — meaningful bilingual follow-up brief for Inbox / Leads / Brainmine.
  * Language policy C: English primary + short native line when customer used non-English.
+ * Priority: customer messages first; ignore templates / catalogue PDF noise.
  */
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
@@ -24,6 +25,13 @@ export type ConversationSummaryResult = {
   nextFollowUpAt: string | null;
 };
 
+type SummaryMessage = {
+  sender: string;
+  body: string;
+  created_at?: string;
+  metadata?: Record<string, unknown> | null;
+};
+
 /** Enforce max 2–3 lines for Inbox / Leads / Brainmine Description. */
 export function clampSummaryToThreeLines(raw: string, maxChars = CRM_SUMMARY_MAX): string {
   const cleaned = String(raw || "")
@@ -44,28 +52,104 @@ export function clampSummaryToThreeLines(raw: string, maxChars = CRM_SUMMARY_MAX
   return out;
 }
 
-function formatTranscript(
-  messages: Array<{ sender: string; body: string; created_at?: string }>,
-): string {
-  const lines: string[] = [];
+/** Outbound noise that must not drive the CRM follow-up summary. */
+export function isOutboundNoiseForSummary(m: SummaryMessage): boolean {
+  if (m.sender === "customer" || m.sender === "system") return false;
+  const meta =
+    m.metadata && typeof m.metadata === "object" && !Array.isArray(m.metadata) ? m.metadata : {};
+  if (
+    meta.wa_template === true ||
+    meta.is_template === true ||
+    meta.template === true ||
+    typeof meta.template_name === "string" ||
+    meta.product_pack === true ||
+    meta.kind === "template" ||
+    meta.message_kind === "template"
+  ) {
+    return true;
+  }
+  const body = String(m.body || "");
+  // Catalogue / PDF attachment lines (filename-driven product noise)
+  if (/\.pdf\b/i.test(body) && /(catalogue|catalog|brochure|datasheet|spec)/i.test(body)) {
+    return true;
+  }
+  if (/^[A-Z0-9._-]+-catalogue\.pdf$/i.test(body.trim())) return true;
+  if (/sent (you )?(the )?(product )?catalogue/i.test(body)) return true;
+  if (/here (is|are) (the )?(catalogue|brochure|pdf)/i.test(body)) return true;
+  return false;
+}
+
+function isGenericOutboundFiller(body: string): boolean {
+  const t = body.replace(/\s+/g, " ").trim();
+  if (t.length < 12) return false;
+  return (
+    /feel free to ask/i.test(t) ||
+    /thank you for your patience/i.test(t) ||
+    /if you have any other questions/i.test(t) ||
+    /happy to help/i.test(t)
+  );
+}
+
+/**
+ * Build a customer-weighted transcript for the summary agent.
+ * Customer lines first (full); skip templates/PDF packs; keep short useful agent replies only.
+ */
+export function formatTranscriptForSummary(messages: SummaryMessage[]): string {
+  const customerLines: string[] = [];
+  const staffLines: string[] = [];
+
   for (const m of messages) {
     if (m.sender === "system") continue;
+    if (isOutboundNoiseForSummary(m)) continue;
+
     const body = String(m.body || "")
       .replace(/\s+/g, " ")
       .trim();
     if (!body) continue;
-    const who =
-      m.sender === "customer" ? "Customer" : m.sender === "agent" ? "Agent" : "EnerTech";
-    lines.push(`${who}: ${body.slice(0, 400)}`);
+
+    if (m.sender === "customer") {
+      customerLines.push(`Customer: ${body.slice(0, 500)}`);
+      continue;
+    }
+
+    if (isGenericOutboundFiller(body)) continue;
+    // Keep short staff replies that may confirm a commitment (callback promised, etc.)
+    const who = m.sender === "agent" ? "Agent" : "EnerTech";
+    staffLines.push(`${who}: ${body.slice(0, 220)}`);
   }
-  return lines.join("\n");
+
+  // Prefer recent customer asks; keep only a few recent staff replies for context
+  const recentCustomers = customerLines.slice(-18);
+  const recentStaff = staffLines.slice(-6);
+
+  if (!recentCustomers.length && !recentStaff.length) return "";
+
+  const parts: string[] = [];
+  if (recentCustomers.length) {
+    parts.push("=== CUSTOMER MESSAGES (primary source — summarize these) ===");
+    parts.push(...recentCustomers);
+  }
+  if (recentStaff.length) {
+    parts.push("=== STAFF / AI REPLIES (context only — do not invent needs from these) ===");
+    parts.push(...recentStaff);
+  }
+  return parts.join("\n");
 }
 
 function fallbackSummary(transcript: string, leadName?: string | null): string {
+  const customerParts = transcript
+    .split("\n")
+    .filter((l) => /^Customer:/i.test(l))
+    .map((l) => l.replace(/^Customer:\s*/i, "").trim())
+    .filter(Boolean)
+    .slice(-3);
+  if (customerParts.length) {
+    return clampSummaryToThreeLines(customerParts.join("\n"));
+  }
   const parts = transcript
     .split("\n")
-    .map((l) => l.replace(/^(Customer|Agent|EnerTech):\s*/i, "").trim())
-    .filter(Boolean)
+    .map((l) => l.replace(/^(Customer|Agent|EnerTech|===.*===):\s*/i, "").trim())
+    .filter((l) => l && !l.startsWith("==="))
     .slice(-4);
   const body = parts.join(" · ");
   if (body) return clampSummaryToThreeLines(body);
@@ -95,20 +179,29 @@ async function callOpenAiSummary(options: {
     "You are the EnerTech Engage Conversation Summary Agent for EnerTech UPS Pvt. Ltd.",
     "Write a factual follow-up brief for sales and CRM Description.",
     "HARD LIMIT: maximum 2 to 3 short lines total. No headings, no bullet lists, no labels like Need:/Key asks:.",
-    "Line 1: what the customer wants (product/need).",
-    "Line 2: key ask or urgency (callback, quote, etc.) and any commitment already made.",
-    "Line 3 (optional): next step — OR if customer wrote Hindi/Marathi/other non-English, one short native quote of their ask.",
-    "Language: English primary. Do NOT invent products, prices, or promises not in the transcript.",
+    "",
+    "PRIORITY (strict):",
+    "1) CUSTOMER messages are the only source of truth for what the customer wants or asked.",
+    "2) IGNORE WhatsApp templates, catalogue/PDF filenames, product-pack sends, and brochure spam — never treat those as the customer's need.",
+    "3) Do NOT invent products from staff/AI catalogue sends (e.g. E-O3KW-catalogue.pdf). Only mention a product if the CUSTOMER named it.",
+    "4) Prefer the customer's latest real ask (callback, speak to a person by name, quote, site visit, complaint).",
+    "",
+    "Structure:",
+    "Line 1: customer's main ask (who to call, what they requested) — this is mandatory when a customer message exists.",
+    "Line 2: product/need ONLY if the customer stated it; otherwise a short next step for sales.",
+    "Line 3 (optional): commitment already made by staff/AI, OR one short native quote if customer wrote Hindi/Marathi/other non-English.",
+    "",
+    "Language: English primary. Do NOT invent products, prices, or promises not in CUSTOMER messages.",
     `Keep under ${CRM_SUMMARY_MAX} characters.`,
   ].join("\n");
 
   const user = [
     `Lead: ${options.leadName || "—"}`,
     `Company: ${options.company || "—"}`,
-    `Requirement label: ${options.requirement || "—"}`,
+    `CRM requirement label (may be outdated — do not override customer messages): ${options.requirement || "—"}`,
     `Channel: ${options.channel || "—"}`,
     "",
-    "Transcript:",
+    "Transcript (customer-weighted; templates/PDFs already removed):",
     options.transcript || "(empty)",
   ].join("\n");
 
@@ -121,7 +214,7 @@ async function callOpenAiSummary(options: {
       },
       body: JSON.stringify({
         model,
-        temperature: 0.2,
+        temperature: 0.15,
         max_tokens: 180,
         messages: [
           { role: "system", content: system },
@@ -181,7 +274,7 @@ export async function generateAndStoreConversationSummary(
 
   const { data: messages, error: msgErr } = await supabase
     .from("messages")
-    .select("sender, body, created_at")
+    .select("sender, body, created_at, metadata")
     .eq("conversation_id", conversationId)
     .order("created_at", { ascending: true })
     .limit(MAX_MESSAGES);
@@ -209,15 +302,19 @@ export async function generateAndStoreConversationSummary(
     | null;
   const lead = Array.isArray(leadRaw) ? leadRaw[0] : leadRaw;
 
-  let transcript = formatTranscript(
+  let transcript = formatTranscriptForSummary(
     (messages || []).map((m) => ({
       sender: String(m.sender),
       body: String(m.body || ""),
       created_at: String(m.created_at || ""),
+      metadata:
+        m.metadata && typeof m.metadata === "object" && !Array.isArray(m.metadata)
+          ? (m.metadata as Record<string, unknown>)
+          : null,
     })),
   );
   if (!transcript && lead?.notes?.trim()) {
-    transcript = `Note: ${lead.notes.trim()}`;
+    transcript = `Customer: ${lead.notes.trim()}`;
   }
 
   const generated = await callOpenAiSummary({

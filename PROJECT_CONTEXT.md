@@ -5,6 +5,14 @@
 
 ---
 
+### Session 2026-08-12 — Customer-first conversation summaries
+
+**Approved:** Summaries prioritize customer messages; ignore WhatsApp templates, catalogue/PDF product-pack sends, and generic AI filler. Products only if the customer named them. Line 1 = customer’s main ask (callback / person / quote).
+
+**Files:** `src/server/conversation-summary.ts`.
+
+---
+
 ### Session 2026-08-12 — Inbox summary → Leads overwrite + pending Brainmine push
 
 **Approved:** Each Inbox **Generate summary** overwrites Engage **Follow-up summary** + **Next follow-up** (+4 days); marks `brainmine_followup_pending`. Brainmine append-only (new Follow Up row per push). Push only **pending** follow-ups (updated since last CRM write). Leads toolbar **Push pending to Brainmine** + bulk **Push selected (pending)**; **Pending CRM push** badge on grid.

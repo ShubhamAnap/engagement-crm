@@ -304,6 +304,12 @@ Record decisions here so we don't re-debate.
 
 Brief notes from each working session — append, don't delete.
 
+### Session 2026-08-12 — Inbox: show Meta WhatsApp fail reason
+
+**Done:** Webhook stores `wa_error` + `wa_error_code` on Failed; Inbox shows code + short Meta message (hover for full). Explains template “Failed” after API accept.
+
+**Status:** Code ready — say **deploy** to commit/push.
+
 ### Session 2026-08-12 — Leads tiny WhatsApp icon → Inbox
 
 **Done:** Phone cell shows a small WhatsApp icon when the lead has a valid number. Opens existing WA/marketplace thread or creates one, then `/inbox?c=…`.

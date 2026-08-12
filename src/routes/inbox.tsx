@@ -234,6 +234,14 @@ function messageWaStatus(m: DbMessage): string | null {
   return typeof status === "string" ? status.toLowerCase() : null;
 }
 
+function messageWaFailure(m: DbMessage): { code: string | null; text: string } | null {
+  const meta = (m.metadata || {}) as Record<string, unknown>;
+  if (String(meta.wa_status || "").toLowerCase() !== "failed") return null;
+  const code = meta.wa_error_code != null ? String(meta.wa_error_code) : null;
+  const text = typeof meta.wa_error === "string" && meta.wa_error.trim() ? meta.wa_error.trim() : "";
+  return { code, text: text || "Meta could not deliver this WhatsApp message" };
+}
+
 const leadStatuses: LeadStatus[] = ["New", "Contacted", "Qualified", "Proposal", "Negotiation", "Won", "Lost"];
 const leadPriorities: PriorityLevel[] = ["High", "Medium", "Low"];
 const LAYOUT_KEY = "enertech-inbox-layout-v1";
@@ -1150,6 +1158,7 @@ function Page() {
                   const attach = messageAttachment(m);
                   const refImages = messageReferenceImages(m);
                   const waStatus = messageWaStatus(m);
+                  const waFail = messageWaFailure(m);
                   const prev = idx > 0 ? all[idx - 1] : null;
                   const showDay = !prev || !sameCalendarDay(prev.created_at, m.created_at);
                   const caption = attach
@@ -1260,6 +1269,14 @@ function Page() {
                               ))}
                             </div>
                           ) : null}
+                          {waFail ? (
+                            <p
+                              className="mt-1.5 max-w-[280px] text-left text-[10px] leading-snug text-destructive/90"
+                              title={waFail.text}
+                            >
+                              {waFail.text.length > 140 ? `${waFail.text.slice(0, 137)}…` : waFail.text}
+                            </p>
+                          ) : null}
                           <div className="inbox-wa-meta mt-1 flex items-center justify-end gap-1 text-[10px] leading-none">
                             <span className="num opacity-90">{formatClock(m.created_at)}</span>
                             {!isCustomer ? (
@@ -1268,7 +1285,18 @@ function Page() {
                               </span>
                             ) : null}
                             {!isCustomer && waStatus === "failed" ? (
-                              <span className="text-destructive">Failed</span>
+                              <span
+                                className="text-destructive"
+                                title={
+                                  waFail
+                                    ? [waFail.code ? `#${waFail.code}` : null, waFail.text]
+                                        .filter(Boolean)
+                                        .join(" · ")
+                                    : "WhatsApp delivery failed"
+                                }
+                              >
+                                Failed{waFail?.code ? ` · ${waFail.code}` : ""}
+                              </span>
                             ) : !isCustomer &&
                               (waStatus === "read" || waStatus === "delivered" || waStatus === "sent") ? (
                               <span

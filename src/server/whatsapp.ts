@@ -256,7 +256,13 @@ async function applyWhatsAppStatusUpdates(
     id?: string;
     status?: string;
     timestamp?: string;
-    errors?: Array<{ message?: string; code?: number }>;
+    errors?: Array<{
+      message?: string;
+      title?: string;
+      code?: number | string;
+      error_data?: { details?: string };
+      href?: string;
+    }>;
   }>,
 ) {
   for (const st of statuses) {
@@ -288,7 +294,13 @@ async function applyWhatsAppStatusUpdates(
         : new Date().toISOString(),
     };
     if (status === "failed") {
-      nextMeta.wa_error = st.errors?.[0]?.message || "failed";
+      const err = st.errors?.[0];
+      const details =
+        (err?.error_data && typeof err.error_data.details === "string" && err.error_data.details) ||
+        "";
+      nextMeta.wa_error = [err?.title, err?.message, details].filter(Boolean).join(" — ") || "failed";
+      nextMeta.wa_error_code = err?.code != null ? String(err.code) : null;
+      if (err?.href) nextMeta.wa_error_href = err.href;
     }
 
     // Message row only — never touch conversations (no "chat activity" from read/seen).
@@ -591,7 +603,13 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             status?: string;
             timestamp?: string;
             recipient_id?: string;
-            errors?: Array<{ message?: string; code?: number }>;
+            errors?: Array<{
+              message?: string;
+              title?: string;
+              code?: number | string;
+              error_data?: { details?: string };
+              href?: string;
+            }>;
           }>;
         };
       }>;

@@ -23,7 +23,7 @@ import {
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const MAX_BATCH = 40;
-const SUMMARY_MAX_CHARS = 480;
+const SUMMARY_MAX_CHARS = 1100;
 const FOLLOW_UP_DAYS = 4;
 
 type WritebackMap = {
@@ -404,8 +404,13 @@ export type WritebackRunResult = {
 /**
  * Manual batch: Brainmine-linked leads → conversation summary → CRM Follow Up row.
  * Does not call lead sync / ingest.
+ * @param leadIds when set, only those leads (Leads bulk / Inbox push).
+ * @param generateIfMissing when true, AI-summarize from linked chat/notes before write.
  */
-export async function runBrainmineFollowUpWriteback(): Promise<WritebackRunResult> {
+export async function runBrainmineFollowUpWriteback(options?: {
+  leadIds?: string[];
+  generateIfMissing?: boolean;
+}): Promise<WritebackRunResult> {
   const cfg = await loadBrainmineConfig();
   if (!brainmineConfigReady(cfg)) {
     throw new Error("Configure Brainmine API credentials under Channels first.");
@@ -414,16 +419,25 @@ export async function runBrainmineFollowUpWriteback(): Promise<WritebackRunResul
   const supabase = createServiceSupabase();
   const ranAt = new Date().toISOString();
   const today = todayYmd();
+  const filterIds = (options?.leadIds || []).filter(Boolean);
+  const generateIfMissing = Boolean(options?.generateIfMissing);
 
-  const { data: leads, error: leadErr } = await supabase
+  let query = supabase
     .from("leads")
     .select(
       "id, name, company, phone, email, notes, source, external_ref, metadata, next_follow_up_at",
     )
     .eq("org_id", ORG_ID)
-    .eq("source", "brainmine")
     .order("last_activity_at", { ascending: false })
-    .limit(200);
+    .limit(filterIds.length ? Math.min(filterIds.length, MAX_BATCH) : 200);
+
+  if (filterIds.length) {
+    query = query.in("id", filterIds.slice(0, MAX_BATCH));
+  } else {
+    query = query.eq("source", "brainmine");
+  }
+
+  const { data: leads, error: leadErr } = await query;
   if (leadErr) throw new Error(leadErr.message);
 
   const candidates = (leads || []).filter((l) => {
@@ -457,9 +471,24 @@ export async function runBrainmineFollowUpWriteback(): Promise<WritebackRunResul
       continue;
     }
 
+    if (generateIfMissing) {
+      const existing =
+        typeof meta.follow_up_summary === "string" ? meta.follow_up_summary.trim() : "";
+      if (!existing) {
+        try {
+          const { ensureLeadFollowUpSummary } = await import("@/server/conversation-summary");
+          const generated = await ensureLeadFollowUpSummary(lead.id);
+          if (generated) meta.follow_up_summary = generated;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "summary failed";
+          errors.push(`${lead.name || lead.id}: summary — ${msg}`);
+        }
+      }
+    }
+
     const { data: convos } = await supabase
       .from("conversations")
-      .select("id, channel, visitor_name, visitor_phone, preview, last_message_at")
+      .select("id, channel, visitor_name, visitor_phone, preview, last_message_at, metadata")
       .eq("org_id", ORG_ID)
       .eq("lead_id", lead.id)
       .order("last_message_at", { ascending: false })
@@ -468,8 +497,15 @@ export async function runBrainmineFollowUpWriteback(): Promise<WritebackRunResul
     const waConvo = (convos || []).find((c) => c.channel === "whatsapp") || null;
     const anyConvo = waConvo || (convos || [])[0] || null;
 
-    let summary = "";
-    if (anyConvo) {
+    // Prefer AI / saved follow-up summary over raw transcript glue
+    let summary =
+      typeof meta.follow_up_summary === "string" ? meta.follow_up_summary.trim() : "";
+    if (!summary && anyConvo?.metadata && typeof anyConvo.metadata === "object") {
+      const cm = anyConvo.metadata as Record<string, unknown>;
+      if (typeof cm.ai_summary === "string") summary = cm.ai_summary.trim();
+    }
+
+    if (!summary && anyConvo) {
       const { data: messages } = await supabase
         .from("messages")
         .select("sender, body, created_at")
@@ -482,12 +518,9 @@ export async function runBrainmineFollowUpWriteback(): Promise<WritebackRunResul
       );
     }
 
-    // Fallback for leads without chat (e.g. dummy test note) — still write to Brainmine
     if (!summary) {
-      const localSummary =
-        typeof meta.follow_up_summary === "string" ? meta.follow_up_summary.trim() : "";
       const notes = typeof lead.notes === "string" ? lead.notes.trim() : "";
-      summary = localSummary || notes;
+      summary = notes;
     }
 
     if (!summary) {
@@ -495,7 +528,6 @@ export async function runBrainmineFollowUpWriteback(): Promise<WritebackRunResul
       continue;
     }
 
-    // Always refresh Leads “Follow-up summary” column locally
     meta.follow_up_summary = summary;
     updatedSummaries += 1;
 
@@ -524,7 +556,7 @@ export async function runBrainmineFollowUpWriteback(): Promise<WritebackRunResul
     });
     const contactLink = matched?.contactName || null;
     const followUpType = map.type_value_whatsapp;
-    const description = summary;
+    const description = summary.slice(0, SUMMARY_MAX_CHARS);
 
     try {
       const result = await appendFollowUpRow({
@@ -556,16 +588,14 @@ export async function runBrainmineFollowUpWriteback(): Promise<WritebackRunResul
       failed += 1;
       const msg = err instanceof Error ? err.message : "write failed";
       errors.push(`${lead.name || lead.company || lead.id} (${brainmineId}): ${msg}`);
-      // Still persist local summary so Leads column updates
       try {
         await supabase.from("leads").update({ metadata: meta }).eq("id", lead.id);
       } catch {
-        /* ignore local persist failure */
+        /* ignore */
       }
     }
   }
 
-  // Persist last write-back result on channel config (does not touch sync stamps)
   try {
     const nextCfg: BrainmineChannelConfig = {
       ...cfg,
@@ -601,8 +631,22 @@ export async function runBrainmineFollowUpWriteback(): Promise<WritebackRunResul
 }
 
 export const writeBrainmineFollowUpsNow = createServerFn({ method: "POST" }).handler(async () => {
-  return runBrainmineFollowUpWriteback();
+  return runBrainmineFollowUpWriteback({ generateIfMissing: true });
 });
+
+export const writeBrainmineFollowUpsForLeads = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      leadIds: z.array(z.string().uuid()).min(1).max(40),
+      generateIfMissing: z.boolean().optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    return runBrainmineFollowUpWriteback({
+      leadIds: data.leadIds,
+      generateIfMissing: data.generateIfMissing !== false,
+    });
+  });
 
 /** Refresh local follow_up_summary only (no CRM write) — optional helper for Leads display. */
 export const refreshLeadFollowUpSummaries = createServerFn({ method: "POST" }).handler(async () => {

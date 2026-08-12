@@ -304,6 +304,14 @@ Record decisions here so we don't re-debate.
 
 Brief notes from each working session — append, don't delete.
 
+### Session 2026-08-12 — Conversation Summary Agent v1 + Leads bulk Brainmine push
+
+**Approved:** AI bilingual summary (policy C), Inbox generate + Update lead (+ optional Brainmine), Leads bulk **Push follow-ups to Brainmine**, keep Channels batch, CRM ✓ indicator on Follow-up summary column.
+
+**Files:** `conversation-summary.ts`, `brainmine-writeback.ts` (prefer AI summary; `writeBrainmineFollowUpsForLeads`), `inbox.tsx`, `leads.tsx`.
+
+**Status:** Code ready — say **deploy** to commit/push.
+
 ### Session 2026-08-11 — Write-back: notes fallback + verify CRM row
 
 **Issue:** Toast looked successful but dummy lead (note only, no WhatsApp chat) was skipped; CRM Follow Up Description stayed empty.

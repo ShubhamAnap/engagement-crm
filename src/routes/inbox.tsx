@@ -54,6 +54,9 @@ import {
 import { listProducts } from "@/lib/products-api";
 import type { ChannelType, DbMessage, DbProduct, LeadStatus, PriorityLevel } from "@/lib/db-types";
 import { updateLeadStage } from "@/lib/leads-api";
+import { generateConversationSummary } from "@/server/conversation-summary";
+import { writeBrainmineFollowUpsForLeads } from "@/server/brainmine-writeback";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import {
   conversationRepliesViaWhatsApp,
@@ -326,6 +329,7 @@ function Page() {
   const attachInputRef = useRef<HTMLInputElement>(null);
   const [leadStatus, setLeadStatus] = useState<LeadStatus>("New");
   const [leadPriority, setLeadPriority] = useState<PriorityLevel>("Medium");
+  const [pushFollowUpToBrainmine, setPushFollowUpToBrainmine] = useState(false);
   const [layout, setLayout] = useState<Record<string, number> | undefined>(undefined);
   const [nowTick, setNowTick] = useState(() => Date.now());
   /** Only one thread instance may mount — shared scroll ref breaks if desktop+mobile both render. */
@@ -573,17 +577,64 @@ function Page() {
   const updateLeadMutation = useMutation({
     mutationFn: async () => {
       if (!selected?.lead?.id) throw new Error("No lead linked to this conversation yet");
-      return updateLeadStage(selected.lead.id, { status: leadStatus, priority: leadPriority });
+      await updateLeadStage(selected.lead.id, { status: leadStatus, priority: leadPriority });
+      let summaryText: string | null = null;
+      if (selected.id) {
+        const generated = await generateConversationSummary({
+          data: { conversationId: selected.id },
+        });
+        summaryText = generated.summary;
+      }
+      if (pushFollowUpToBrainmine && selected.lead.id) {
+        const wb = await writeBrainmineFollowUpsForLeads({
+          data: { leadIds: [selected.lead.id], generateIfMissing: true },
+        });
+        return { summaryText, writeback: wb };
+      }
+      return { summaryText, writeback: null as null | Awaited<ReturnType<typeof writeBrainmineFollowUpsForLeads>> };
     },
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: ["conversations", orgId] });
-      toast.success("Lead updated from inbox");
+      await queryClient.invalidateQueries({ queryKey: ["leads"] });
+      if (result.writeback) {
+        if (result.writeback.written > 0) {
+          toast.success("Lead updated · summary saved · Brainmine follow-up written");
+        } else {
+          toast.message("Lead updated · summary saved", {
+            description:
+              result.writeback.errors[0] ||
+              `Brainmine: ${result.writeback.written} written · ${result.writeback.skipped} skipped · ${result.writeback.failed} failed`,
+          });
+        }
+      } else {
+        toast.success("Lead updated · conversation summary saved");
+      }
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "Could not update lead");
     },
   });
 
+  const generateSummaryMutation = useMutation({
+    mutationFn: async () => {
+      if (!selected?.id) throw new Error("Select a conversation first");
+      return generateConversationSummary({ data: { conversationId: selected.id } });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["conversations", orgId] });
+      await queryClient.invalidateQueries({ queryKey: ["leads"] });
+      toast.success("Conversation summary generated");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Could not generate summary");
+    },
+  });
+
+  function inboxAiSummary(c: InboxConversation | null | undefined): string {
+    if (!c?.metadata || typeof c.metadata !== "object") return "";
+    const raw = (c.metadata as Record<string, unknown>).ai_summary;
+    return typeof raw === "string" ? raw.trim() : "";
+  }
   async function onSendReply() {
     if (!selected || !profile || !draft.trim()) return;
     if (waOutbound && !waPhone && marketplaceLead) {
@@ -1424,6 +1475,14 @@ function Page() {
                   <div className="space-y-2"><p className="text-xs text-muted-foreground">Lead status</p><Select value={leadStatus} onValueChange={(value: LeadStatus) => setLeadStatus(value)}><SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger><SelectContent>{leadStatuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent></Select></div>
                   <div className="space-y-2"><p className="text-xs text-muted-foreground">Priority</p><Select value={leadPriority} onValueChange={(value: PriorityLevel) => setLeadPriority(value)}><SelectTrigger><SelectValue placeholder="Select priority" /></SelectTrigger><SelectContent>{leadPriorities.map((priority) => <SelectItem key={priority} value={priority}>{priority}</SelectItem>)}</SelectContent></Select></div>
                   <Button size="sm" className="w-full" onClick={() => updateLeadMutation.mutate()} disabled={updateLeadMutation.isPending}>{updateLeadMutation.isPending ? "Saving…" : "Update lead from inbox"}</Button>
+                  <label className="flex items-start gap-2 text-xs text-muted-foreground">
+                    <Checkbox
+                      checked={pushFollowUpToBrainmine}
+                      onCheckedChange={(v) => setPushFollowUpToBrainmine(v === true)}
+                      className="mt-0.5"
+                    />
+                    <span>Also push follow-up to Brainmine (uses AI summary)</span>
+                  </label>
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">This conversation does not have a linked lead yet.</p>
@@ -1436,7 +1495,25 @@ function Page() {
         )}
       </CardPanel>
       <CardPanel title="Conversation Summary" className="shrink-0">
-        <p className="text-sm text-muted-foreground">{selected?.preview || "Summary will appear as the thread grows. Full AI summaries come in the AI phase."}</p>
+        {selected ? (
+          <div className="space-y-2">
+            <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+              {inboxAiSummary(selected) ||
+                "No AI summary yet. Generate one for a meaningful follow-up brief (English + short native line when needed)."}
+            </p>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="w-full"
+              disabled={generateSummaryMutation.isPending}
+              onClick={() => generateSummaryMutation.mutate()}
+            >
+              {generateSummaryMutation.isPending ? "Generating…" : "Generate summary"}
+            </Button>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Select a conversation to see summary.</p>
+        )}
       </CardPanel>
       <CardPanel title="Channel" className="shrink-0">
         <p className="text-sm text-muted-foreground">{selected ? `${selected.channel} · session ${selected.widget_session_id?.slice(0, 8) || "—"}` : "—"}</p>

@@ -67,6 +67,7 @@ import {
   importLeadsFromCsv,
   MAX_IMPORT_ROWS,
 } from "@/lib/leads-import";
+import { writeBrainmineFollowUpsForLeads } from "@/server/brainmine-writeback";
 
 const statusOptions: LeadStatus[] = [
   "New",
@@ -132,6 +133,13 @@ function readFollowUpSummary(lead: LeadRow): string {
   if (!meta || typeof meta !== "object" || Array.isArray(meta)) return "";
   const raw = (meta as Record<string, unknown>).follow_up_summary;
   return typeof raw === "string" ? raw.trim() : "";
+}
+
+function brainmineFollowUpStamp(lead: LeadRow): string | null {
+  const meta = lead.metadata;
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return null;
+  const raw = (meta as Record<string, unknown>).brainmine_followup_written_at;
+  return typeof raw === "string" && raw.trim() ? raw.trim() : null;
 }
 
 export const Route = createFileRoute("/leads")({
@@ -436,6 +444,33 @@ function Page() {
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Bulk status update failed"),
+  });
+
+  const bulkBrainminePushMutation = useMutation({
+    mutationFn: async () => {
+      if (!canEdit) throw new Error("You do not have permission to edit leads");
+      const ids = [...selectedIds];
+      if (ids.length === 0) throw new Error("Select at least one lead");
+      return writeBrainmineFollowUpsForLeads({
+        data: { leadIds: ids.slice(0, 40), generateIfMissing: true },
+      });
+    },
+    onSuccess: async (result) => {
+      await invalidateLeads();
+      const summary = `${result.written} written · ${result.skipped} skipped · ${result.failed} failed`;
+      if (result.written > 0 && result.failed === 0) {
+        toast.success(`Brainmine push: ${summary}`);
+      } else if (result.written > 0) {
+        toast.message(`Brainmine push partial: ${summary}`);
+      } else {
+        toast.error(`Brainmine push: nothing written (${summary})`);
+      }
+      if (result.errors.length) {
+        toast.message("Push detail", { description: result.errors[0] });
+      }
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Brainmine bulk push failed"),
   });
 
   const importMutation = useMutation({
@@ -847,6 +882,17 @@ function Page() {
                   >
                     {bulkStatusMutation.isPending ? "Updating…" : "Apply status"}
                   </Button>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    disabled={bulkBrainminePushMutation.isPending}
+                    onClick={() => bulkBrainminePushMutation.mutate()}
+                    title="Generate AI summary if missing, then append Follow Up rows in Brainmine"
+                  >
+                    {bulkBrainminePushMutation.isPending
+                      ? "Pushing…"
+                      : "Push follow-ups to Brainmine"}
+                  </Button>
                 </>
               ) : null}
               <Button
@@ -1013,11 +1059,30 @@ function Page() {
                         >
                           {(() => {
                             const summary = readFollowUpSummary(lead);
-                            if (!summary) return "—";
+                            const crmAt = brainmineFollowUpStamp(lead);
+                            if (!summary && !crmAt) return "—";
                             return (
-                              <span className="line-clamp-2 whitespace-normal" title={summary}>
-                                {summary}
-                              </span>
+                              <div className="space-y-1">
+                                {summary ? (
+                                  <span className="line-clamp-2 whitespace-normal" title={summary}>
+                                    {summary}
+                                  </span>
+                                ) : (
+                                  <span>—</span>
+                                )}
+                                <span
+                                  className={`block text-[10px] ${
+                                    crmAt ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground/80"
+                                  }`}
+                                  title={
+                                    crmAt
+                                      ? `Pushed to Brainmine ${new Date(crmAt).toLocaleString()}`
+                                      : "Not pushed to Brainmine yet"
+                                  }
+                                >
+                                  {crmAt ? "CRM ✓" : "CRM —"}
+                                </span>
+                              </div>
                             );
                           })()}
                         </td>
@@ -1404,7 +1469,11 @@ function Page() {
                 placeholder="Short conversation / follow-up blurb (shown as 2 lines in the grid)…"
               />
               <p className="text-[11px] text-muted-foreground">
-                Also filled when you run Write follow-ups to Brainmine. You can edit it here anytime.
+                Filled by Inbox Generate summary or Brainmine push. English primary; native line when
+                customer used another language.
+                {editingLead && brainmineFollowUpStamp(editingLead)
+                  ? ` · Last CRM push ${new Date(brainmineFollowUpStamp(editingLead)!).toLocaleString()}`
+                  : " · Not pushed to Brainmine yet"}
               </p>
             </div>
           </div>

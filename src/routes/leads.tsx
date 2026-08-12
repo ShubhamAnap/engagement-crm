@@ -1,7 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Pencil, Plus, Trash2, Upload, UserPlus } from "lucide-react";
+import { Download, MessageCircle, Pencil, Plus, Trash2, Upload, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -68,6 +68,8 @@ import {
   MAX_IMPORT_ROWS,
 } from "@/lib/leads-import";
 import { writeBrainmineFollowUpsForLeads } from "@/server/brainmine-writeback";
+import { findOrOpenLeadWhatsAppConversation } from "@/lib/chat-api";
+import { normalizeWhatsAppDigits } from "@/lib/whatsapp-window";
 
 const statusOptions: LeadStatus[] = [
   "New",
@@ -194,8 +196,10 @@ function formFromLead(lead: LeadRow): LeadFormState {
 
 function Page() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { profile } = useAuth();
   const orgId = profile?.org.id;
+  const [waOpeningLeadId, setWaOpeningLeadId] = useState<string | null>(null);
   const canEdit = canLeadsCreate(profile?.role, profile?.permissions);
   const canDelete = canLeadsDelete(profile?.role, profile?.permissions);
   const [search, setSearch] = useState("");
@@ -444,6 +448,27 @@ function Page() {
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Bulk status update failed"),
+  });
+
+  const waInboxMutation = useMutation({
+    mutationFn: async (lead: LeadRow) => {
+      if (!orgId) throw new Error("Your profile is still loading");
+      setWaOpeningLeadId(lead.id);
+      return findOrOpenLeadWhatsAppConversation({
+        orgId,
+        leadId: lead.id,
+        phone: lead.phone,
+        name: lead.name,
+      });
+    },
+    onSuccess: (result) => {
+      setWaOpeningLeadId(null);
+      void navigate({ to: "/inbox", search: { c: result.conversationId } });
+    },
+    onError: (error) => {
+      setWaOpeningLeadId(null);
+      toast.error(error instanceof Error ? error.message : "Could not open WhatsApp inbox");
+    },
   });
 
   const bulkBrainminePushMutation = useMutation({
@@ -996,7 +1021,28 @@ function Page() {
                           {lead.email || "—"}
                         </td>
                         <td className="num whitespace-nowrap px-3 py-2.5 text-muted-foreground">
-                          {lead.phone || "—"}
+                          <span className="inline-flex items-center gap-1">
+                            {lead.phone || "—"}
+                            {normalizeWhatsAppDigits(lead.phone) ? (
+                              <button
+                                type="button"
+                                className="inline-flex size-5 shrink-0 items-center justify-center rounded text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-500 disabled:opacity-50"
+                                title="Open WhatsApp in Inbox"
+                                aria-label={`Open WhatsApp chat for ${lead.name}`}
+                                disabled={waInboxMutation.isPending}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  waInboxMutation.mutate(lead);
+                                }}
+                              >
+                                <MessageCircle
+                                  className={`size-3.5 ${
+                                    waOpeningLeadId === lead.id ? "animate-pulse" : ""
+                                  }`}
+                                />
+                              </button>
+                            ) : null}
+                          </span>
                         </td>
                         <td className="whitespace-nowrap px-3 py-2.5 text-muted-foreground">
                           {lead.location || "—"}

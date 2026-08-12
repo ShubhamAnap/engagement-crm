@@ -304,6 +304,12 @@ Record decisions here so we don't re-debate.
 
 Brief notes from each working session — append, don't delete.
 
+### Session 2026-08-12 — Leads tiny WhatsApp icon → Inbox
+
+**Done:** Phone cell shows a small WhatsApp icon when the lead has a valid number. Opens existing WA/marketplace thread or creates one, then `/inbox?c=…`.
+
+**Status:** Code ready — say **deploy** to commit/push.
+
 ### Session 2026-08-12 — AI: don’t pretend we can’t see shared PDFs
 
 **Issue:** After proforma/catalogue PDF, “Okay sir” / “details mentioned in this” got a ChatGPT-style “I don’t have access to files” reply.

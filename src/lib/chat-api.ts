@@ -1,6 +1,7 @@
 ﻿import { getBrowserSupabase } from "@/lib/supabase";
 import type { DbConversation, DbMessage, ChannelType, DbCustomer, DbLead, PriorityLevel } from "@/lib/db-types";
 import { buildPlaceholderAiReply } from "@/lib/chat-replies";
+import { normalizeWhatsAppDigits } from "@/lib/whatsapp-window";
 
 export { buildPlaceholderAiReply };
 export const ENERTECH_ORG_ID = "a0000000-0000-4000-8000-000000000001";
@@ -490,4 +491,104 @@ export function formatRelativeTime(iso: string | null | undefined): string {
 
 export function formatClock(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function pickLeadWhatsAppThread(
+  rows: Array<{
+    id: string;
+    channel: string | null;
+    last_message_at?: string | null;
+    updated_at?: string | null;
+  }>,
+): string | null {
+  if (!rows.length) return null;
+  const ranked = [...rows].sort((a, b) => {
+    const score = (c: (typeof rows)[0]) =>
+      (c.channel === "whatsapp" ? 2 : 0) +
+      (c.channel === "indiamart" || c.channel === "tradeindia" ? 1 : 0);
+    const d = score(b) - score(a);
+    if (d !== 0) return d;
+    return String(b.last_message_at || b.updated_at || "").localeCompare(
+      String(a.last_message_at || a.updated_at || ""),
+    );
+  });
+  return ranked[0]?.id || null;
+}
+
+/** Leads → Inbox WhatsApp: reuse linked/phone thread or create one. */
+export async function findOrOpenLeadWhatsAppConversation(options: {
+  orgId: string;
+  leadId: string;
+  phone?: string | null;
+  name?: string | null;
+}): Promise<{ conversationId: string; created: boolean }> {
+  const supabase = getBrowserSupabase();
+  const digits = normalizeWhatsAppDigits(options.phone);
+  if (!digits) throw new Error("This lead has no WhatsApp phone number");
+
+  const { data: byLead, error: leadErr } = await supabase
+    .from("conversations")
+    .select("id, channel, last_message_at, updated_at")
+    .eq("org_id", options.orgId)
+    .eq("lead_id", options.leadId)
+    .order("last_message_at", { ascending: false })
+    .limit(12);
+  if (leadErr) throw leadErr;
+  const fromLead = pickLeadWhatsAppThread(
+    (byLead || []).filter((c) =>
+      c.channel === "whatsapp" || c.channel === "indiamart" || c.channel === "tradeindia" || c.channel === "website",
+    ),
+  );
+  if (fromLead) return { conversationId: fromLead, created: false };
+
+  const last10 = digits.slice(-10);
+  const { data: byPhone, error: phoneErr } = await supabase
+    .from("conversations")
+    .select("id, channel, lead_id, last_message_at, updated_at")
+    .eq("org_id", options.orgId)
+    .in("channel", ["whatsapp", "indiamart", "tradeindia"])
+    .or(`visitor_phone.eq.${digits},visitor_phone.eq.${last10},visitor_phone.like.%${last10}`)
+    .order("last_message_at", { ascending: false })
+    .limit(12);
+  if (phoneErr) throw phoneErr;
+  const phoneHit = pickLeadWhatsAppThread(byPhone || []);
+  if (phoneHit) {
+    const row = (byPhone || []).find((c) => c.id === phoneHit);
+    if (row && !row.lead_id) {
+      await supabase.from("conversations").update({ lead_id: options.leadId }).eq("id", phoneHit);
+    }
+    return { conversationId: phoneHit, created: false };
+  }
+
+  const { data: channel } = await supabase
+    .from("channels")
+    .select("id")
+    .eq("org_id", options.orgId)
+    .eq("type", "whatsapp")
+    .maybeSingle();
+
+  const now = new Date().toISOString();
+  const { data: created, error: createErr } = await supabase
+    .from("conversations")
+    .insert({
+      org_id: options.orgId,
+      channel_id: channel?.id || null,
+      channel: "whatsapp" as ChannelType,
+      lead_id: options.leadId,
+      external_ref: `WA-${last10.slice(-6)}`,
+      status: "human",
+      assignee_label: "Sales",
+      visitor_name: options.name?.trim() || `WhatsApp ${last10.slice(-4)}`,
+      visitor_phone: digits,
+      widget_session_id: `wa:${digits}`,
+      tags: ["WhatsApp", "Lead"],
+      unread_count: 0,
+      last_message_at: now,
+      preview: options.name ? `${options.name} · ${digits}` : digits,
+      metadata: { wa_id: digits, opened_from: "leads" },
+    })
+    .select("id")
+    .single();
+  if (createErr) throw createErr;
+  return { conversationId: created.id as string, created: true };
 }

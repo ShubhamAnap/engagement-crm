@@ -23,7 +23,7 @@ import {
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const MAX_BATCH = 40;
-const SUMMARY_MAX_CHARS = 1100;
+const SUMMARY_MAX_CHARS = 280;
 const FOLLOW_UP_DAYS = 4;
 
 type WritebackMap = {
@@ -180,7 +180,18 @@ function buildConversationSummary(
     if (lines.join(" | ").length >= SUMMARY_MAX_CHARS) break;
   }
   if (!lines.length) return "";
-  return lines.join(" · ").slice(0, SUMMARY_MAX_CHARS);
+  return clampSummaryForWriteback(lines.join(" · "));
+}
+
+function clampSummaryForWriteback(raw: string): string {
+  return String(raw || "")
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(0, 3)
+    .join("\n")
+    .slice(0, SUMMARY_MAX_CHARS);
 }
 
 /** Two-line preview for Leads grid. */
@@ -556,7 +567,7 @@ export async function runBrainmineFollowUpWriteback(options?: {
     });
     const contactLink = matched?.contactName || null;
     const followUpType = map.type_value_whatsapp;
-    const description = summary.slice(0, SUMMARY_MAX_CHARS);
+    const description = clampSummaryForWriteback(summary);
 
     try {
       const result = await appendFollowUpRow({

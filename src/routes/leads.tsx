@@ -1064,7 +1064,7 @@ function Page() {
                             return (
                               <div className="space-y-1">
                                 {summary ? (
-                                  <span className="line-clamp-2 whitespace-normal" title={summary}>
+                                  <span className="line-clamp-3 whitespace-pre-wrap" title={summary}>
                                     {summary}
                                   </span>
                                 ) : (
@@ -1466,11 +1466,10 @@ function Page() {
                 rows={3}
                 value={form.followUpSummary}
                 onChange={(e) => setForm((s) => ({ ...s, followUpSummary: e.target.value }))}
-                placeholder="Short conversation / follow-up blurb (shown as 2 lines in the grid)…"
+                placeholder="Max 2–3 lines — need, key ask, next step…"
               />
               <p className="text-[11px] text-muted-foreground">
-                Filled by Inbox Generate summary or Brainmine push. English primary; native line when
-                customer used another language.
+                Keep to 2–3 lines. Filled by Inbox Generate summary or Brainmine push.
                 {editingLead && brainmineFollowUpStamp(editingLead)
                   ? ` · Last CRM push ${new Date(brainmineFollowUpStamp(editingLead)!).toLocaleString()}`
                   : " · Not pushed to Brainmine yet"}

@@ -9,6 +9,11 @@ import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
 import { isOffTopicMessage, isAckOnlyMessage, isGreetingOnlyMessage } from "@/lib/enertech-scope";
 import {
+  documentAckReplyForLang,
+  lastOutboundDocument,
+  shouldShortAckSharedDocument,
+} from "@/lib/thread-documents";
+import {
   isEducateOnlyAsk,
   isRequirementConfirmAck,
   hasRecentRequirementContext,
@@ -1071,6 +1076,33 @@ export async function processWidgetCustomerTurn(
         : history;
 
     const prevMeta = { ...prevMetaEarly };
+
+    if (shouldShortAckSharedDocument(text, priorHistory)) {
+      const lastDoc = lastOutboundDocument(priorHistory);
+      const reply = documentAckReplyForLang(sessionLang, lastDoc?.fileName);
+      await supabase.from("messages").insert({
+        org_id: ORG_ID,
+        conversation_id: data.conversationId,
+        sender: "ai",
+        body: reply,
+        metadata: { document_followup_ack: true, file_name: lastDoc?.fileName || null },
+      });
+      await supabase
+        .from("conversations")
+        .update({
+          preview: reply.slice(0, 160),
+          last_message_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", data.conversationId);
+      return {
+        messages: await getConversationMessages(supabase, data.conversationId),
+        reply,
+        source: "fallback",
+        aiPaused: false,
+        status: convo.status,
+      };
+    }
 
     if (isAckOnlyMessage(text)) {
       return {

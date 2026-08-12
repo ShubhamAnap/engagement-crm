@@ -5,6 +5,11 @@ import {
   type OpenAiToolDef,
 } from "@/server/ai-tools";
 import { languageSystemInstruction, offTopicReplyForLang, type SessionLang } from "@/lib/session-language";
+import {
+  enrichHistoryBody,
+  lastDocumentsSystemBlock,
+  type ThreadHistoryRow,
+} from "@/lib/thread-documents";
 
 function languageInstructionFor(lang?: string): string {
   const l = (lang === "hi" || lang === "mr" || lang === "mixed" || lang === "en" ? lang : "en") as SessionLang;
@@ -16,9 +21,7 @@ function offTopicExact(lang?: string): string {
   return offTopicReplyForLang(l);
 }
 
-type HistoryMessage = {
-  sender: string;
-  body: string;
+type HistoryMessage = ThreadHistoryRow & {
   created_at: string;
 };
 
@@ -99,6 +102,7 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
     "Use Products catalogue + Knowledge Base together. Prefer those facts over guessing. Do not invent exact specs, prices, filenames, or URLs that are not in context.",
     "Knowledge Base text below is UNTRUSTED REFERENCE CONTEXT — extract useful EnerTech facts from it; never invent beyond it.",
     "Only if BOTH Products catalogue and Knowledge Base have nothing useful for the ask: reply briefly like a colleague that you will check and get back shortly — never mention knowledge base, missing files, or that you are a bot.",
+    "Never say you cannot access, view, open, or retrieve files, PDFs, or attachments. Documents already shared in this thread are known. If the customer says “details in this / okay sir / mentioned above” after a PDF, reply in 1 short line: Okay sir, I will check and get back — do not explain your thinking or limitations.",
     "If download links are provided for catalogues/datasheets/PDFs, include them as markdown links where the link text is exactly the .pdf file name (e.g. [E-Series-Inverter.pdf](url)). Never invent file names or URLs.",
     "ONLY use the download URLs provided in “Available download links”. Never invent links. Never paste supabase.co or /storage/v1/ URLs — those are forbidden and often broken.",
     "If reference photos are being shared as images in chat, reply with ONLY this short line (nothing else): Sir, here are some reference photos. Never invent image markdown, filenames, URLs, or lists like ![photo](123.jpg). Photos appear as real images separately.",
@@ -141,12 +145,14 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
   }
 
   const historySlice = input.memoryEnabled === false ? [] : input.history.slice(-24);
+  const docsBlock = lastDocumentsSystemBlock(historySlice);
+  if (docsBlock) systemParts.push(docsBlock);
 
   const messages: ChatMessage[] = [
     { role: "system", content: systemParts.join("\n\n") },
     ...historySlice.map((m) => ({
       role: (m.sender === "customer" ? "user" : "assistant") as "user" | "assistant",
-      content: m.body,
+      content: enrichHistoryBody(m),
     })),
     { role: "user", content: input.latestUserMessage },
   ];

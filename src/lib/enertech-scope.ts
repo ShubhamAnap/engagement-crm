@@ -10,6 +10,13 @@ export const OFF_TOPIC_REPLY =
 const ACK_ONLY_RE =
   /^(ok|okay|oke|k|kk|okey|ok\.|thanks|thank\s*you|thx|ty|bye|goodbye|tc|hmm+|hmmm+|lol+|lmao|haha+|hehe+|a+|u+|e+|n+|y+|m+|w+|z+|\.+|\?+|!+|…+)$/i;
 
+/** “Okay sir” / “Ok sir” — not silent (used after PDFs for a short commercial ack). */
+export function isOkaySirAckMessage(text: string): boolean {
+  const q = String(text || "").trim();
+  if (!q || q.length > 40) return false;
+  return /^(ok|okay|oke)\s+sir[\s!.🙏]*$/i.test(q);
+}
+
 const EMOJI_ONLY_RE =
   /^(?:\p{Extended_Pictographic}|\uFE0F|\u200D|\s)+$/u;
 

@@ -7,6 +7,11 @@ import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
 import { isOffTopicMessage, isAckOnlyMessage, isGreetingOnlyMessage, isSoftCustomerAckMessage } from "@/lib/enertech-scope";
 import {
+  documentAckReplyForLang,
+  lastOutboundDocument,
+  shouldShortAckSharedDocument,
+} from "@/lib/thread-documents";
+import {
   isEducateOnlyAsk,
   isRequirementConfirmAck,
   hasRecentRequirementContext,
@@ -1047,7 +1052,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
         try {
           const { data: history } = await supabase
             .from("messages")
-            .select("sender, body, created_at")
+            .select("sender, body, created_at, metadata")
             .eq("conversation_id", convo.id)
             .order("created_at", { ascending: true })
             .limit(40);
@@ -1061,6 +1066,10 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             sender: m.sender as string,
             body: m.body as string,
             created_at: m.created_at as string,
+            metadata:
+              m.metadata && typeof m.metadata === "object"
+                ? (m.metadata as Record<string, unknown>)
+                : null,
           }));
 
           // Lead requirement for memory (same phone / linked lead)
@@ -1138,6 +1147,28 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
 
           // Partner business auto-reply — never off-topic refuse
           if (isBusinessAutoReplyMessage(text)) {
+            continue;
+          }
+
+          // After we shared a PDF/proforma: short commercial ack — never “I can’t access files”
+          if (shouldShortAckSharedDocument(text, historyRows)) {
+            const lastDoc = lastOutboundDocument(historyRows);
+            reply = documentAckReplyForLang(sessionLang, lastDoc?.fileName);
+            await supabase.from("messages").insert({
+              org_id: ORG_ID,
+              conversation_id: convo.id,
+              sender: "ai",
+              body: reply,
+              metadata: {
+                document_followup_ack: true,
+                file_name: lastDoc?.fileName || null,
+              },
+            });
+            try {
+              await sendWhatsAppText(from, reply, cfg);
+            } catch (err) {
+              console.error("WA document follow-up ack send failed", err);
+            }
             continue;
           }
 
@@ -1381,12 +1412,27 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
                   }
                   if (item.catalogueUrl && /^https:\/\//i.test(item.catalogueUrl)) {
                     try {
+                      const fileName = item.catalogueFileName || "catalogue.pdf";
                       await sendWhatsAppDocument({
                         toPhone: from,
                         documentUrl: item.catalogueUrl,
-                        fileName: item.catalogueFileName || "catalogue.pdf",
+                        fileName,
                         caption: "Catalogue",
                         cfg,
+                      });
+                      await supabase.from("messages").insert({
+                        org_id: ORG_ID,
+                        conversation_id: convo.id,
+                        sender: "ai",
+                        body: `Catalogue PDF: ${fileName}\n${item.catalogueUrl}`,
+                        metadata: {
+                          attachment: true,
+                          catalogue: true,
+                          url: item.catalogueUrl,
+                          file_name: fileName,
+                          mime_type: "application/pdf",
+                          product_id: item.productId || null,
+                        },
                       });
                     } catch (err) {
                       console.error("WA product catalogue send failed", err);
@@ -1414,11 +1460,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             const generated = await generateOpenAiReply({
               visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
               latestUserMessage: text,
-              history: (history || []).map((m) => ({
-                sender: m.sender as string,
-                body: m.body as string,
-                created_at: m.created_at as string,
-              })),
+              history: historyRows,
               knowledgeContext,
               productsContext,
               downloadLinks,
@@ -1839,11 +1881,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           const generated = await generateOpenAiReply({
             visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
             latestUserMessage: text,
-            history: (history || []).map((m) => ({
-              sender: m.sender as string,
-              body: m.body as string,
-              created_at: m.created_at as string,
-            })),
+            history: historyRows,
             knowledgeContext,
             productsContext,
             downloadLinks,

@@ -304,6 +304,14 @@ Record decisions here so we don't re-debate.
 
 Brief notes from each working session — append, don't delete.
 
+### Session 2026-08-12 — AI: don’t pretend we can’t see shared PDFs
+
+**Issue:** After proforma/catalogue PDF, “Okay sir” / “details mentioned in this” got a ChatGPT-style “I don’t have access to files” reply.
+
+**Done:** Inject last shared document (filename/URL) into OpenAI history; prompt lock; short commercial ack after outbound PDF (WhatsApp / widget / Meta); persist product-pack catalogue rows in chat history.
+
+**Status:** Code ready — say **deploy** to commit/push.
+
 ### Session 2026-08-12 — Conversation Summary Agent v1 + Leads bulk Brainmine push
 
 **Approved:** AI bilingual summary (policy C), Inbox generate + Update lead (+ optional Brainmine), Leads bulk **Push follow-ups to Brainmine**, keep Channels batch, CRM ✓ indicator on Follow-up summary column.

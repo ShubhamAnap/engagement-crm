@@ -8,7 +8,8 @@ import { createServiceSupabase } from "@/lib/supabase";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const MAX_MESSAGES = 40;
-const CRM_SUMMARY_MAX = 1100;
+/** ~2–3 short UI / CRM lines */
+const CRM_SUMMARY_MAX = 280;
 
 export type ConversationSummaryResult = {
   conversationId: string;
@@ -17,6 +18,26 @@ export type ConversationSummaryResult = {
   source: "openai" | "fallback";
   model: string;
 };
+
+/** Enforce max 2–3 lines for Inbox / Leads / Brainmine Description. */
+export function clampSummaryToThreeLines(raw: string, maxChars = CRM_SUMMARY_MAX): string {
+  const cleaned = String(raw || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (!cleaned) return "";
+  const lines = cleaned
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  let out = lines.join("\n");
+  if (out.length > maxChars) {
+    out = `${out.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+  }
+  return out;
+}
 
 function formatTranscript(
   messages: Array<{ sender: string; body: string; created_at?: string }>,
@@ -36,16 +57,16 @@ function formatTranscript(
 }
 
 function fallbackSummary(transcript: string, leadName?: string | null): string {
-  const lines = transcript
+  const parts = transcript
     .split("\n")
-    .map((l) => l.trim())
+    .map((l) => l.replace(/^(Customer|Agent|EnerTech):\s*/i, "").trim())
     .filter(Boolean)
-    .slice(-8);
-  const body = lines.join(" · ").slice(0, CRM_SUMMARY_MAX);
-  if (body) return body;
+    .slice(-4);
+  const body = parts.join(" · ");
+  if (body) return clampSummaryToThreeLines(body);
   return leadName
-    ? `Follow-up needed for ${leadName}. No detailed chat messages available.`
-    : "Follow-up needed. No detailed chat messages available.";
+    ? `Follow-up needed for ${leadName}.`
+    : "Follow-up needed — no chat details yet.";
 }
 
 async function callOpenAiSummary(options: {
@@ -67,17 +88,12 @@ async function callOpenAiSummary(options: {
 
   const system = [
     "You are the EnerTech Engage Conversation Summary Agent for EnerTech UPS Pvt. Ltd.",
-    "Write a factual follow-up brief for sales staff and CRM Description.",
-    "Language policy: English primary. If the customer wrote in Hindi/Marathi/other non-English, add one short native-language line at the end prefixed with Native: quoting their key ask.",
-    "Do NOT invent products, prices, commitments, or site details that are not in the transcript.",
-    "Do NOT include name/email/phone capture instructions.",
-    "Output plain text only (no markdown headings). Use this structure:",
-    "Need: …",
-    "Key asks: …",
-    "Commitments: … (or None)",
-    "Open points: …",
-    "Next step: …",
-    "Native: … (only if customer used non-English)",
+    "Write a factual follow-up brief for sales and CRM Description.",
+    "HARD LIMIT: maximum 2 to 3 short lines total. No headings, no bullet lists, no labels like Need:/Key asks:.",
+    "Line 1: what the customer wants (product/need).",
+    "Line 2: key ask or urgency (callback, quote, etc.) and any commitment already made.",
+    "Line 3 (optional): next step — OR if customer wrote Hindi/Marathi/other non-English, one short native quote of their ask.",
+    "Language: English primary. Do NOT invent products, prices, or promises not in the transcript.",
     `Keep under ${CRM_SUMMARY_MAX} characters.`,
   ].join("\n");
 
@@ -101,7 +117,7 @@ async function callOpenAiSummary(options: {
       body: JSON.stringify({
         model,
         temperature: 0.2,
-        max_tokens: 700,
+        max_tokens: 180,
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -120,9 +136,7 @@ async function callOpenAiSummary(options: {
     const json = (await res.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
     };
-    const content = String(json.choices?.[0]?.message?.content || "")
-      .replace(/\s+\n/g, "\n")
-      .trim();
+    const content = String(json.choices?.[0]?.message?.content || "").trim();
     if (!content) {
       return {
         summary: fallbackSummary(options.transcript, options.leadName),
@@ -131,7 +145,7 @@ async function callOpenAiSummary(options: {
       };
     }
     return {
-      summary: content.slice(0, CRM_SUMMARY_MAX),
+      summary: clampSummaryToThreeLines(content),
       source: "openai",
       model,
     };
@@ -310,13 +324,13 @@ export async function ensureLeadFollowUpSummary(leadId: string): Promise<string 
       .update({
         metadata: {
           ...meta,
-          follow_up_summary: notes.slice(0, CRM_SUMMARY_MAX),
+          follow_up_summary: clampSummaryToThreeLines(notes),
           follow_up_summary_at: new Date().toISOString(),
           follow_up_summary_source: "notes",
         },
       })
       .eq("id", leadId);
-    return notes.slice(0, CRM_SUMMARY_MAX);
+    return clampSummaryToThreeLines(notes);
   }
 
   return null;

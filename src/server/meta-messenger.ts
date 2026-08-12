@@ -13,6 +13,11 @@ import { resolveCatalogueRequest, retrieveKnowledgeContext, formatKnowledgeConte
 import { wantsHumanHandoff, explicitLanguageRequest, languageSwitchAck, withHandoffMetadata } from "@/lib/conversation-guards";
 import { humanWaitReplyForLang, sessionLangFromHistory, normalizeStoredLang, offTopicReplyForLang, kbPendingSendReplyForLang } from "@/lib/session-language";
 import { isOffTopicMessage } from "@/lib/enertech-scope";
+import {
+  documentAckReplyForLang,
+  lastOutboundDocument,
+  shouldShortAckSharedDocument,
+} from "@/lib/thread-documents";
 import { isProductIntent } from "@/server/product-pack";
 import { isEducateOnlyAsk } from "@/lib/conversation-intent";
 
@@ -371,10 +376,44 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
     try {
       const { data: history } = await supabase
         .from("messages")
-        .select("sender, body, created_at")
+        .select("sender, body, created_at, metadata")
         .eq("conversation_id", convo.id)
         .order("created_at", { ascending: true })
         .limit(20);
+      const historyRows = (history || []).map((m) => ({
+        sender: m.sender as string,
+        body: m.body as string,
+        created_at: m.created_at as string,
+        metadata:
+          m.metadata && typeof m.metadata === "object"
+            ? (m.metadata as Record<string, unknown>)
+            : null,
+      }));
+      if (shouldShortAckSharedDocument(text, historyRows)) {
+        const lastDoc = lastOutboundDocument(historyRows);
+        reply = documentAckReplyForLang(sessionLang, lastDoc?.fileName);
+        inspector = buildAnswerInspector({
+          chunks: [],
+          replySource: "fallback",
+          model: "gpt-4o-mini",
+          agentName: "EnerBot",
+          channel: type,
+        });
+        (inspector.metadata as Record<string, unknown>).document_followup_ack = true;
+        await supabase.from("messages").insert({
+          org_id: ORG_ID,
+          conversation_id: convo.id,
+          sender: "ai",
+          body: reply,
+          metadata: inspector.metadata,
+        });
+        try {
+          await sendMetaText(type, from, reply, cfg);
+        } catch (err) {
+          console.error("meta document follow-up ack send failed", err);
+        }
+        continue;
+      }
       const prevMeta =
         convo.metadata && typeof convo.metadata === "object"
           ? (convo.metadata as Record<string, unknown>)
@@ -551,11 +590,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
       const generated = await generateOpenAiReply({
         visitorName: (convo.visitor_name as string) || "Customer",
         latestUserMessage: text,
-        history: (history || []).map((m) => ({
-          sender: m.sender as string,
-          body: m.body as string,
-          created_at: m.created_at as string,
-        })),
+        history: historyRows,
         knowledgeContext: formatKnowledgeContext(chunks),
         productsContext,
         downloadLinks,

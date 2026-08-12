@@ -103,7 +103,16 @@ function buildLeadPayload(input: LeadInput, includeRef: boolean, existingMeta?: 
       ...prev,
       notes,
       ...(typeof input.followUpSummary === "string"
-        ? { follow_up_summary: input.followUpSummary.trim() || null }
+        ? {
+            follow_up_summary: input.followUpSummary
+              .replace(/\r\n/g, "\n")
+              .split("\n")
+              .map((l) => l.trim())
+              .filter(Boolean)
+              .slice(0, 3)
+              .join("\n")
+              .slice(0, 280) || null,
+          }
         : {}),
     },
   };

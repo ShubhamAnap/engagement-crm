@@ -1497,9 +1497,9 @@ function Page() {
       <CardPanel title="Conversation Summary" className="shrink-0">
         {selected ? (
           <div className="space-y-2">
-            <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+            <p className="line-clamp-3 whitespace-pre-wrap text-sm text-muted-foreground">
               {inboxAiSummary(selected) ||
-                "No AI summary yet. Generate one for a meaningful follow-up brief (English + short native line when needed)."}
+                "No AI summary yet. Generate one for a short 2–3 line follow-up brief."}
             </p>
             <Button
               size="sm"

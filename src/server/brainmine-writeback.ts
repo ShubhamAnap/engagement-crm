@@ -23,7 +23,9 @@ import {
 import {
   clearBrainmineFollowUpPending,
   FOLLOW_UP_DAYS,
+  isBrainmineFollowUpClaimFresh,
   isBrainmineFollowUpPending,
+  markBrainmineFollowUpClaimed,
   markBrainmineFollowUpPending,
   nextFollowUpAtIso,
   ymdPlusDays,
@@ -319,7 +321,7 @@ async function appendFollowUpRow(options: {
   contactLink: string | null;
   summary: string;
   followUpType: string;
-}): Promise<{ table: string; rowCount: number }> {
+}): Promise<{ table: string; rowCount: number; duplicate?: true }> {
   const { cfg, docName, map, contactLink, summary, followUpType } = options;
   const doc = await fetchCrmDoc(cfg, docName);
   const table = detectFollowUpTable(doc, map.follow_up_table);
@@ -348,6 +350,11 @@ async function appendFollowUpRow(options: {
   const contactField = col(map.contact_field, [/contact/i]);
   const nextDateField = col(map.next_date_field, [/next.*date|follow.?up.?date/i]);
   const descField = col(map.description_field, [/desc/i]);
+  const lastExisting = existing[existing.length - 1] || {};
+  const lastDesc = String(lastExisting[descField] ?? lastExisting[map.description_field] ?? "").trim();
+  if (lastDesc && lastDesc === summary) {
+    return { table, rowCount: existing.length, duplicate: true };
+  }
 
   const nextDate = ymdPlusDays(FOLLOW_UP_DAYS);
   const row: Record<string, unknown> = {
@@ -454,6 +461,7 @@ export async function runBrainmineFollowUpWriteback(options?: {
   let failed = 0;
   const errors: string[] = [];
   let processed = 0;
+  const seenBrainmineIds = new Set<string>();
 
   for (const lead of candidates) {
     if (processed >= MAX_BATCH) break;
@@ -470,6 +478,11 @@ export async function runBrainmineFollowUpWriteback(options?: {
       skipped += 1;
       continue;
     }
+    if (seenBrainmineIds.has(brainmineId)) {
+      skipped += 1;
+      continue;
+    }
+    seenBrainmineIds.add(brainmineId);
 
     if (generateIfMissing) {
       const existing =
@@ -535,6 +548,16 @@ export async function runBrainmineFollowUpWriteback(options?: {
       skipped += 1;
       continue;
     }
+    if (isBrainmineFollowUpClaimFresh(meta)) {
+      skipped += 1;
+      continue;
+    }
+    markBrainmineFollowUpClaimed(meta, `${lead.id}:${ranAt}`, ranAt);
+    await supabase
+      .from("leads")
+      .update({ metadata: meta, updated_at: ranAt })
+      .eq("id", lead.id)
+      .eq("org_id", ORG_ID);
 
     const waPhone = waConvo?.visitor_phone || lead.phone || null;
     const matched = await resolveWhatsAppContactLink(cfg, {
@@ -572,15 +595,22 @@ export async function runBrainmineFollowUpWriteback(options?: {
           metadata: meta,
           next_follow_up_at: lead.next_follow_up_at || nextFollowUpAtIso(),
           last_activity_at: ranAt,
+          updated_at: ranAt,
         })
         .eq("id", lead.id);
+      if (result.duplicate) {
+        skipped += 1;
+        continue;
+      }
       written += 1;
     } catch (err) {
       failed += 1;
       const msg = err instanceof Error ? err.message : "write failed";
+      delete meta.brainmine_followup_claim_id;
+      delete meta.brainmine_followup_claimed_at;
       errors.push(`${lead.name || lead.company || lead.id} (${brainmineId}): ${msg}`);
       try {
-        await supabase.from("leads").update({ metadata: meta }).eq("id", lead.id);
+        await supabase.from("leads").update({ metadata: meta, updated_at: ranAt }).eq("id", lead.id);
       } catch {
         /* ignore */
       }

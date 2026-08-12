@@ -48,5 +48,30 @@ export function markBrainmineFollowUpPending(
 
 export function clearBrainmineFollowUpPending(meta: Record<string, unknown>): Record<string, unknown> {
   meta.brainmine_followup_pending = false;
+  delete meta.brainmine_followup_claim_id;
+  delete meta.brainmine_followup_claimed_at;
   return meta;
+}
+
+export function markBrainmineFollowUpClaimed(
+  meta: Record<string, unknown>,
+  claimId: string,
+  ranAt: string,
+): Record<string, unknown> {
+  meta.brainmine_followup_claim_id = claimId;
+  meta.brainmine_followup_claimed_at = ranAt;
+  return meta;
+}
+
+export function isBrainmineFollowUpClaimFresh(
+  meta: Record<string, unknown> | null | undefined,
+  now = new Date(),
+  ttlMs = 2 * 60 * 1000,
+): boolean {
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return false;
+  const claimedAt = String(meta.brainmine_followup_claimed_at || "").trim();
+  if (!claimedAt) return false;
+  const claimedMs = new Date(claimedAt).getTime();
+  if (!Number.isFinite(claimedMs)) return false;
+  return now.getTime() - claimedMs < ttlMs;
 }

@@ -587,7 +587,7 @@ function Page() {
       if (!selected?.lead?.id) throw new Error("No lead linked to this conversation yet");
       await updateLeadStage(selected.lead.id, { status: leadStatus, priority: leadPriority });
       let summaryText: string | null = null;
-      if (selected.id) {
+      if (selected.id && shouldRegenerateConversationSummary(selected)) {
         const generated = await generateConversationSummary({
           data: { conversationId: selected.id },
         });
@@ -608,14 +608,18 @@ function Page() {
         if (result.writeback.written > 0) {
           toast.success("Lead updated · summary saved · Brainmine follow-up written");
         } else {
-          toast.message("Lead updated · summary saved", {
+          toast.message("Lead updated", {
             description:
               result.writeback.errors[0] ||
               `Brainmine: ${result.writeback.written} written · ${result.writeback.skipped} skipped · ${result.writeback.failed} failed`,
           });
         }
       } else {
-        toast.success("Lead updated · summary saved · ready for Brainmine push");
+        toast.success(
+          result.summaryText
+            ? "Lead updated · summary saved · ready for Brainmine push"
+            : "Lead updated · summary unchanged",
+        );
       }
     },
     onError: (error) => {
@@ -657,6 +661,19 @@ function Page() {
     if (!c?.metadata || typeof c.metadata !== "object") return "";
     const raw = (c.metadata as Record<string, unknown>).ai_summary;
     return typeof raw === "string" ? raw.trim() : "";
+  }
+  function shouldRegenerateConversationSummary(c: InboxConversation | null | undefined): boolean {
+    if (!c) return false;
+    const meta =
+      c.metadata && typeof c.metadata === "object" && !Array.isArray(c.metadata)
+        ? (c.metadata as Record<string, unknown>)
+        : {};
+    const aiSummary = typeof meta.ai_summary === "string" ? meta.ai_summary.trim() : "";
+    const aiSummaryAt = String(meta.ai_summary_at || "").trim();
+    const lastMessageAt = String(c.last_message_at || "").trim();
+    if (!aiSummary) return true;
+    if (!aiSummaryAt || !lastMessageAt) return false;
+    return new Date(lastMessageAt).getTime() > new Date(aiSummaryAt).getTime();
   }
   async function onSendReply() {
     if (!selected || !profile || !draft.trim()) return;

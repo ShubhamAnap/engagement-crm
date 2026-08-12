@@ -4,6 +4,10 @@
  */
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import {
+  markBrainmineFollowUpPending,
+  nextFollowUpAtIso,
+} from "@/lib/follow-up";
 import { createServiceSupabase } from "@/lib/supabase";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
@@ -17,6 +21,7 @@ export type ConversationSummaryResult = {
   summary: string;
   source: "openai" | "fallback";
   model: string;
+  nextFollowUpAt: string | null;
 };
 
 /** Enforce max 2–3 lines for Inbox / Leads / Brainmine Description. */
@@ -250,16 +255,27 @@ export async function generateAndStoreConversationSummary(
         ? { ...(leadRow.metadata as Record<string, unknown>) }
         : {};
     prevLeadMeta.follow_up_summary = generated.summary;
-    prevLeadMeta.follow_up_summary_at = ranAt;
     prevLeadMeta.follow_up_summary_source = generated.source;
+    markBrainmineFollowUpPending(prevLeadMeta, ranAt);
+    const nextFollowUpAt = nextFollowUpAtIso();
     await supabase
       .from("leads")
       .update({
         metadata: prevLeadMeta,
+        next_follow_up_at: nextFollowUpAt,
         last_activity_at: ranAt,
         updated_at: ranAt,
       })
       .eq("id", leadId);
+
+    return {
+      conversationId,
+      leadId,
+      summary: generated.summary,
+      source: generated.source,
+      model: generated.model,
+      nextFollowUpAt,
+    };
   }
 
   return {
@@ -268,6 +284,7 @@ export async function generateAndStoreConversationSummary(
     summary: generated.summary,
     source: generated.source,
     model: generated.model,
+    nextFollowUpAt: null,
   };
 }
 
@@ -305,10 +322,13 @@ export async function ensureLeadFollowUpSummary(leadId: string): Promise<string 
         : {};
     const ai = typeof convoMeta.ai_summary === "string" ? convoMeta.ai_summary.trim() : "";
     if (ai) {
+      const ranAt = new Date().toISOString();
+      const nextMeta = markBrainmineFollowUpPending({ ...meta, follow_up_summary: ai }, ranAt);
       await supabase
         .from("leads")
         .update({
-          metadata: { ...meta, follow_up_summary: ai, follow_up_summary_at: new Date().toISOString() },
+          metadata: nextMeta,
+          next_follow_up_at: nextFollowUpAtIso(),
         })
         .eq("id", leadId);
       return ai;
@@ -319,18 +339,23 @@ export async function ensureLeadFollowUpSummary(leadId: string): Promise<string 
 
   const notes = typeof lead.notes === "string" ? lead.notes.trim() : "";
   if (notes) {
+    const ranAt = new Date().toISOString();
+    const summary = clampSummaryToThreeLines(notes);
     await supabase
       .from("leads")
       .update({
-        metadata: {
-          ...meta,
-          follow_up_summary: clampSummaryToThreeLines(notes),
-          follow_up_summary_at: new Date().toISOString(),
-          follow_up_summary_source: "notes",
-        },
+        metadata: markBrainmineFollowUpPending(
+          {
+            ...meta,
+            follow_up_summary: summary,
+            follow_up_summary_source: "notes",
+          },
+          ranAt,
+        ),
+        next_follow_up_at: nextFollowUpAtIso(),
       })
       .eq("id", leadId);
-    return clampSummaryToThreeLines(notes);
+    return summary;
   }
 
   return null;

@@ -1,5 +1,8 @@
 ﻿import { getBrowserSupabase } from "@/lib/supabase";
 import type { ChannelType, DbLead, LeadStatus, PriorityLevel } from "@/lib/db-types";
+import {
+  markBrainmineFollowUpPending,
+} from "@/lib/follow-up";
 import { normalizeLeadPhone } from "@/lib/whatsapp-window";
 import { canLeadsCreate, canLeadsDelete } from "@/lib/permissions";
 
@@ -70,7 +73,12 @@ function parseTags(raw: string | string[] | undefined | null): string[] {
     .filter(Boolean);
 }
 
-function buildLeadPayload(input: LeadInput, includeRef: boolean, existingMeta?: Record<string, unknown> | null) {
+function buildLeadPayload(
+  input: LeadInput,
+  includeRef: boolean,
+  existingMeta?: Record<string, unknown> | null,
+  existingNextFollowUpAt?: string | null,
+) {
   const now = new Date().toISOString();
   const requirement = (input.requirement ?? input.productLabel)?.trim() || null;
   const notes = input.notes?.trim() || null;
@@ -79,6 +87,31 @@ function buildLeadPayload(input: LeadInput, includeRef: boolean, existingMeta?: 
     existingMeta && typeof existingMeta === "object" && !Array.isArray(existingMeta)
       ? { ...existingMeta }
       : {};
+  let followUpChanged = false;
+  if (typeof input.followUpSummary === "string") {
+    const newSummary = input.followUpSummary
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .slice(0, 3)
+      .join("\n")
+      .slice(0, 280);
+    const oldSummary =
+      typeof prev.follow_up_summary === "string" ? prev.follow_up_summary.trim() : "";
+    if (newSummary !== oldSummary) {
+      followUpChanged = true;
+      prev.follow_up_summary = newSummary || null;
+    }
+  }
+  const nextFollowUpAt = input.nextFollowUpAt || null;
+  if (input.nextFollowUpAt !== undefined) {
+    const oldNext = existingNextFollowUpAt || null;
+    if (nextFollowUpAt !== oldNext) followUpChanged = true;
+  }
+  if (followUpChanged && !includeRef) {
+    markBrainmineFollowUpPending(prev, now);
+  }
   return {
     org_id: input.orgId,
     owner_id: input.ownerId ?? null,
@@ -102,18 +135,6 @@ function buildLeadPayload(input: LeadInput, includeRef: boolean, existingMeta?: 
     metadata: {
       ...prev,
       notes,
-      ...(typeof input.followUpSummary === "string"
-        ? {
-            follow_up_summary: input.followUpSummary
-              .replace(/\r\n/g, "\n")
-              .split("\n")
-              .map((l) => l.trim())
-              .filter(Boolean)
-              .slice(0, 3)
-              .join("\n")
-              .slice(0, 280) || null,
-          }
-        : {}),
     },
   };
 }
@@ -357,7 +378,7 @@ export async function updateLead(leadId: string, input: LeadInput): Promise<DbLe
   // Preserve status-change automation when status changes; keep CRM metadata (follow-up summary, brainmine ids)
   const { data: prev } = await supabase
     .from("leads")
-    .select("status, metadata")
+    .select("status, metadata, next_follow_up_at")
     .eq("id", leadId)
     .maybeSingle();
   const existingMeta =
@@ -366,7 +387,7 @@ export async function updateLead(leadId: string, input: LeadInput): Promise<DbLe
       : null;
   const { data, error } = await supabase
     .from("leads")
-    .update(buildLeadPayload(input, false, existingMeta))
+    .update(buildLeadPayload(input, false, existingMeta, prev?.next_follow_up_at ?? null))
     .eq("id", leadId)
     .select("*")
     .single();

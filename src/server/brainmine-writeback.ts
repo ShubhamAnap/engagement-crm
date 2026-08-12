@@ -20,11 +20,18 @@ import {
   loadBrainmineConfig,
   type BrainmineChannelConfig,
 } from "@/server/brainmine";
+import {
+  clearBrainmineFollowUpPending,
+  FOLLOW_UP_DAYS,
+  isBrainmineFollowUpPending,
+  markBrainmineFollowUpPending,
+  nextFollowUpAtIso,
+  ymdPlusDays,
+} from "@/lib/follow-up";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const MAX_BATCH = 40;
 const SUMMARY_MAX_CHARS = 280;
-const FOLLOW_UP_DAYS = 4;
 
 type WritebackMap = {
   follow_up_table: string;
@@ -130,19 +137,6 @@ function leadsPath(cfg: BrainmineChannelConfig): string {
   return p.startsWith("/") ? p.replace(/\/$/, "") : `/${p}`.replace(/\/$/, "");
 }
 
-function ymdPlusDays(days: number, from = new Date()): string {
-  const d = new Date(from);
-  d.setDate(d.getDate() + days);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function todayYmd(): string {
-  return ymdPlusDays(0);
-}
-
 function getByPath(obj: unknown, path: string): unknown {
   const parts = path.split(".");
   let cur: unknown = obj;
@@ -202,11 +196,6 @@ export function truncateSummaryForDisplay(summary: string | null | undefined): s
   if (!s) return "";
   // ~2 short lines of UI text
   return s.length > 140 ? `${s.slice(0, 137)}…` : s;
-}
-
-function sameCalendarDay(iso: string | null | undefined, day: string): boolean {
-  if (!iso) return false;
-  return String(iso).slice(0, 10) === day;
 }
 
 async function fetchCrmDoc(
@@ -407,7 +396,6 @@ export type WritebackRunResult = {
   written: number;
   skipped: number;
   failed: number;
-  updatedSummaries: number;
   errors: string[];
   ranAt: string;
 };
@@ -417,10 +405,12 @@ export type WritebackRunResult = {
  * Does not call lead sync / ingest.
  * @param leadIds when set, only those leads (Leads bulk / Inbox push).
  * @param generateIfMissing when true, AI-summarize from linked chat/notes before write.
+ * @param pendingOnly when true (default), skip leads already pushed since last summary update.
  */
 export async function runBrainmineFollowUpWriteback(options?: {
   leadIds?: string[];
   generateIfMissing?: boolean;
+  pendingOnly?: boolean;
 }): Promise<WritebackRunResult> {
   const cfg = await loadBrainmineConfig();
   if (!brainmineConfigReady(cfg)) {
@@ -429,9 +419,9 @@ export async function runBrainmineFollowUpWriteback(options?: {
   const map = resolveWritebackMap(cfg);
   const supabase = createServiceSupabase();
   const ranAt = new Date().toISOString();
-  const today = todayYmd();
   const filterIds = (options?.leadIds || []).filter(Boolean);
   const generateIfMissing = Boolean(options?.generateIfMissing);
+  const pendingOnly = options?.pendingOnly !== false;
 
   let query = supabase
     .from("leads")
@@ -462,7 +452,6 @@ export async function runBrainmineFollowUpWriteback(options?: {
   let written = 0;
   let skipped = 0;
   let failed = 0;
-  let updatedSummaries = 0;
   const errors: string[] = [];
   let processed = 0;
 
@@ -489,7 +478,10 @@ export async function runBrainmineFollowUpWriteback(options?: {
         try {
           const { ensureLeadFollowUpSummary } = await import("@/server/conversation-summary");
           const generated = await ensureLeadFollowUpSummary(lead.id);
-          if (generated) meta.follow_up_summary = generated;
+          if (generated) {
+            meta.follow_up_summary = generated;
+            markBrainmineFollowUpPending(meta, new Date().toISOString());
+          }
         } catch (err) {
           const msg = err instanceof Error ? err.message : "summary failed";
           errors.push(`${lead.name || lead.id}: summary — ${msg}`);
@@ -539,22 +531,9 @@ export async function runBrainmineFollowUpWriteback(options?: {
       continue;
     }
 
-    meta.follow_up_summary = summary;
-    updatedSummaries += 1;
-
-    if (sameCalendarDay(String(meta.brainmine_followup_written_at || ""), today)) {
-      const prev = String(meta.brainmine_followup_summary_hash || "");
-      if (prev === summary.slice(0, 120)) {
-        await supabase
-          .from("leads")
-          .update({
-            metadata: meta,
-            next_follow_up_at: ymdPlusDays(FOLLOW_UP_DAYS) + "T10:00:00.000Z",
-          })
-          .eq("id", lead.id);
-        skipped += 1;
-        continue;
-      }
+    if (pendingOnly && !isBrainmineFollowUpPending(meta)) {
+      skipped += 1;
+      continue;
     }
 
     const waPhone = waConvo?.visitor_phone || lead.phone || null;
@@ -586,11 +565,12 @@ export async function runBrainmineFollowUpWriteback(options?: {
       meta.brainmine_followup_summary_hash = summary.slice(0, 120);
       meta.brainmine_followup_next_date = ymdPlusDays(FOLLOW_UP_DAYS);
       meta.brainmine_followup_table = result.table;
+      clearBrainmineFollowUpPending(meta);
       await supabase
         .from("leads")
         .update({
           metadata: meta,
-          next_follow_up_at: `${ymdPlusDays(FOLLOW_UP_DAYS)}T10:00:00.000Z`,
+          next_follow_up_at: lead.next_follow_up_at || nextFollowUpAtIso(),
           last_activity_at: ranAt,
         })
         .eq("id", lead.id);
@@ -635,27 +615,41 @@ export async function runBrainmineFollowUpWriteback(options?: {
     written,
     skipped,
     failed,
-    updatedSummaries,
     errors: errors.slice(0, 12),
     ranAt,
   };
 }
 
 export const writeBrainmineFollowUpsNow = createServerFn({ method: "POST" }).handler(async () => {
-  return runBrainmineFollowUpWriteback({ generateIfMissing: true });
+  return runBrainmineFollowUpWriteback({ generateIfMissing: true, pendingOnly: true });
 });
+
+export const pushBrainminePendingFollowUps = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      generateIfMissing: z.boolean().optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    return runBrainmineFollowUpWriteback({
+      generateIfMissing: data.generateIfMissing !== false,
+      pendingOnly: true,
+    });
+  });
 
 export const writeBrainmineFollowUpsForLeads = createServerFn({ method: "POST" })
   .validator(
     z.object({
       leadIds: z.array(z.string().uuid()).min(1).max(40),
       generateIfMissing: z.boolean().optional(),
+      pendingOnly: z.boolean().optional(),
     }),
   )
   .handler(async ({ data }) => {
     return runBrainmineFollowUpWriteback({
       leadIds: data.leadIds,
       generateIfMissing: data.generateIfMissing !== false,
+      pendingOnly: data.pendingOnly !== false,
     });
   });
 

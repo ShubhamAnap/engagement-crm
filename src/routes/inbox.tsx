@@ -595,7 +595,7 @@ function Page() {
       }
       if (pushFollowUpToBrainmine && selected.lead.id) {
         const wb = await writeBrainmineFollowUpsForLeads({
-          data: { leadIds: [selected.lead.id], generateIfMissing: true },
+          data: { leadIds: [selected.lead.id], generateIfMissing: true, pendingOnly: true },
         });
         return { summaryText, writeback: wb };
       }
@@ -615,7 +615,7 @@ function Page() {
           });
         }
       } else {
-        toast.success("Lead updated · conversation summary saved");
+        toast.success("Lead updated · summary saved · ready for Brainmine push");
       }
     },
     onError: (error) => {
@@ -628,10 +628,25 @@ function Page() {
       if (!selected?.id) throw new Error("Select a conversation first");
       return generateConversationSummary({ data: { conversationId: selected.id } });
     },
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: ["conversations", orgId] });
       await queryClient.invalidateQueries({ queryKey: ["leads"] });
-      toast.success("Conversation summary generated");
+      if (result.leadId) {
+        const dateLabel = result.nextFollowUpAt
+          ? new Date(result.nextFollowUpAt).toLocaleDateString(undefined, {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            })
+          : null;
+        toast.success(
+          dateLabel
+            ? `Lead follow-up updated · next ${dateLabel} · pending Brainmine push`
+            : "Conversation summary generated",
+        );
+      } else {
+        toast.success("Conversation summary generated · link a lead to save follow-up fields");
+      }
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "Could not generate summary");

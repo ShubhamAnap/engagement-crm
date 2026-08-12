@@ -1,7 +1,15 @@
 # EnerTech Engage — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
-> **Last updated:** 2026-08-11
+> **Last updated:** 2026-08-12
+
+---
+
+### Session 2026-08-12 — Inbox summary → Leads overwrite + pending Brainmine push
+
+**Approved:** Each Inbox **Generate summary** overwrites Engage **Follow-up summary** + **Next follow-up** (+4 days); marks `brainmine_followup_pending`. Brainmine append-only (new Follow Up row per push). Push only **pending** follow-ups (updated since last CRM write). Leads toolbar **Push pending to Brainmine** + bulk **Push selected (pending)**; **Pending CRM push** badge on grid.
+
+**Files:** `src/lib/follow-up.ts`, `conversation-summary.ts`, `brainmine-writeback.ts`, `leads-api.ts`, `inbox.tsx`, `leads.tsx`.
 
 ---
 

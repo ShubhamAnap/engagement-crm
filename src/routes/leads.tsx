@@ -67,7 +67,10 @@ import {
   importLeadsFromCsv,
   MAX_IMPORT_ROWS,
 } from "@/lib/leads-import";
-import { writeBrainmineFollowUpsForLeads } from "@/server/brainmine-writeback";
+import { writeBrainmineFollowUpsForLeads, pushBrainminePendingFollowUps } from "@/server/brainmine-writeback";
+import {
+  isBrainmineFollowUpPending,
+} from "@/lib/follow-up";
 import { findOrOpenLeadWhatsAppConversation } from "@/lib/chat-api";
 import { normalizeWhatsAppDigits } from "@/lib/whatsapp-window";
 
@@ -142,6 +145,18 @@ function brainmineFollowUpStamp(lead: LeadRow): string | null {
   if (!meta || typeof meta !== "object" || Array.isArray(meta)) return null;
   const raw = (meta as Record<string, unknown>).brainmine_followup_written_at;
   return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+}
+
+function leadMetadataRecord(lead: LeadRow): Record<string, unknown> | null {
+  const meta = lead.metadata;
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return null;
+  return meta as Record<string, unknown>;
+}
+
+function isBrainmineLinkedLead(lead: LeadRow): boolean {
+  const meta = leadMetadataRecord(lead);
+  if (!meta) return false;
+  return Boolean(String(meta.brainmine_id || lead.external_ref || "").trim());
 }
 
 export const Route = createFileRoute("/leads")({
@@ -477,7 +492,7 @@ function Page() {
       const ids = [...selectedIds];
       if (ids.length === 0) throw new Error("Select at least one lead");
       return writeBrainmineFollowUpsForLeads({
-        data: { leadIds: ids.slice(0, 40), generateIfMissing: true },
+        data: { leadIds: ids.slice(0, 40), generateIfMissing: true, pendingOnly: true },
       });
     },
     onSuccess: async (result) => {
@@ -488,7 +503,9 @@ function Page() {
       } else if (result.written > 0) {
         toast.message(`Brainmine push partial: ${summary}`);
       } else {
-        toast.error(`Brainmine push: nothing written (${summary})`);
+        toast.message(`Brainmine push: nothing new to push (${summary})`, {
+          description: "Selected leads are already synced or have no summary.",
+        });
       }
       if (result.errors.length) {
         toast.message("Push detail", { description: result.errors[0] });
@@ -496,6 +513,29 @@ function Page() {
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Brainmine bulk push failed"),
+  });
+
+  const pushAllPendingBrainmineMutation = useMutation({
+    mutationFn: async () => {
+      if (!canEdit) throw new Error("You do not have permission to edit leads");
+      return pushBrainminePendingFollowUps({ data: { generateIfMissing: true } });
+    },
+    onSuccess: async (result) => {
+      await invalidateLeads();
+      const summary = `${result.written} written · ${result.skipped} skipped · ${result.failed} failed`;
+      if (result.written > 0 && result.failed === 0) {
+        toast.success(`Brainmine pending push: ${summary}`);
+      } else if (result.written > 0) {
+        toast.message(`Brainmine pending push partial: ${summary}`);
+      } else {
+        toast.message(`No pending follow-ups to push (${summary})`);
+      }
+      if (result.errors.length) {
+        toast.message("Push detail", { description: result.errors[0] });
+      }
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Brainmine pending push failed"),
   });
 
   const importMutation = useMutation({
@@ -747,6 +787,20 @@ function Page() {
               <Download className="size-4" /> Export CSV
             </Button>
             {canEdit ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                disabled={pushAllPendingBrainmineMutation.isPending}
+                onClick={() => pushAllPendingBrainmineMutation.mutate()}
+                title="Push follow-ups updated in Engage but not yet written to Brainmine (new CRM row each time)"
+              >
+                {pushAllPendingBrainmineMutation.isPending
+                  ? "Pushing…"
+                  : "Push pending to Brainmine"}
+              </Button>
+            ) : null}
+            {canEdit ? (
               <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setImportOpen(true)}>
                 <Upload className="size-4" /> Bulk import
               </Button>
@@ -912,11 +966,11 @@ function Page() {
                     variant="default"
                     disabled={bulkBrainminePushMutation.isPending}
                     onClick={() => bulkBrainminePushMutation.mutate()}
-                    title="Generate AI summary if missing, then append Follow Up rows in Brainmine"
+                    title="Among selected rows, push only follow-ups updated since last Brainmine write (appends a new CRM row)"
                   >
                     {bulkBrainminePushMutation.isPending
                       ? "Pushing…"
-                      : "Push follow-ups to Brainmine"}
+                      : "Push selected (pending)"}
                   </Button>
                 </>
               ) : null}
@@ -1106,7 +1160,10 @@ function Page() {
                           {(() => {
                             const summary = readFollowUpSummary(lead);
                             const crmAt = brainmineFollowUpStamp(lead);
-                            if (!summary && !crmAt) return "—";
+                            const pending =
+                              isBrainmineLinkedLead(lead) &&
+                              isBrainmineFollowUpPending(leadMetadataRecord(lead));
+                            if (!summary && !crmAt && !pending) return "—";
                             return (
                               <div className="space-y-1">
                                 {summary ? (
@@ -1118,15 +1175,21 @@ function Page() {
                                 )}
                                 <span
                                   className={`block text-[10px] ${
-                                    crmAt ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground/80"
+                                    pending
+                                      ? "text-amber-600 dark:text-amber-400"
+                                      : crmAt
+                                        ? "text-emerald-600 dark:text-emerald-400"
+                                        : "text-muted-foreground/80"
                                   }`}
                                   title={
-                                    crmAt
-                                      ? `Pushed to Brainmine ${new Date(crmAt).toLocaleString()}`
-                                      : "Not pushed to Brainmine yet"
+                                    pending
+                                      ? "Summary updated in Engage — push to Brainmine for a new CRM row"
+                                      : crmAt
+                                        ? `Pushed to Brainmine ${new Date(crmAt).toLocaleString()}`
+                                        : "Not pushed to Brainmine yet"
                                   }
                                 >
-                                  {crmAt ? "CRM ✓" : "CRM —"}
+                                  {pending ? "Pending CRM push" : crmAt ? "CRM ✓" : "CRM —"}
                                 </span>
                               </div>
                             );
@@ -1515,10 +1578,16 @@ function Page() {
                 placeholder="Max 2–3 lines — need, key ask, next step…"
               />
               <p className="text-[11px] text-muted-foreground">
-                Keep to 2–3 lines. Filled by Inbox Generate summary or Brainmine push.
-                {editingLead && brainmineFollowUpStamp(editingLead)
-                  ? ` · Last CRM push ${new Date(brainmineFollowUpStamp(editingLead)!).toLocaleString()}`
-                  : " · Not pushed to Brainmine yet"}
+                Keep to 2–3 lines. Overwritten each Inbox generate; Engage keeps latest only — Brainmine keeps history.
+                {editingLead && isBrainmineLinkedLead(editingLead) ? (
+                  isBrainmineFollowUpPending(leadMetadataRecord(editingLead)) ? (
+                    " · Pending CRM push"
+                  ) : brainmineFollowUpStamp(editingLead) ? (
+                    ` · Last CRM push ${new Date(brainmineFollowUpStamp(editingLead)!).toLocaleString()}`
+                  ) : (
+                    " · Not pushed to Brainmine yet"
+                  )
+                ) : null}
               </p>
             </div>
           </div>

@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# Render Linux build (Vite 7 — no Rolldown native binding required).
+# Render Linux build (Vite 7 + Nitro). Keep peak memory low — avoid rm -rf node_modules each deploy.
 set -euo pipefail
 
-echo "==> Clean install"
-rm -rf node_modules
-npm install --include=dev
+echo "==> Install dependencies"
+if [ -f package-lock.json ]; then
+  npm ci --include=dev --no-audit --no-fund
+else
+  npm install --include=dev --no-audit --no-fund
+fi
 
-echo "==> Force Linux Lightningcss native (Tailwind)"
-npm install --force lightningcss-linux-x64-gnu@1.33.0 || true
+echo "==> Linux Lightningcss native (Tailwind)"
+npm install --force lightningcss-linux-x64-gnu@1.33.0 --no-audit --no-fund || true
 
 echo "==> vite build"
 npm run build

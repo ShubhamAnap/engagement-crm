@@ -10,6 +10,10 @@ export default defineConfig(({ command }) => ({
     host: true,
     port: 8080,
   },
+  build: {
+    sourcemap: false,
+    reportCompressedSize: false,
+  },
   // Node SMTP client — must not be prebundled for the browser.
   optimizeDeps: {
     exclude: ["nodemailer"],

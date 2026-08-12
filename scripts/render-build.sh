@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Render Linux build (Vite 7 + Nitro). Keep peak memory low — avoid rm -rf node_modules each deploy.
+# Render Linux build (Vite 7 + Nitro).
 set -euo pipefail
 
 echo "==> Install dependencies"
-if [ -f package-lock.json ]; then
-  npm ci --include=dev --no-audit --no-fund
+# Prefer npm ci when lock is valid; fall back to install (Render cache can desync strict ci).
+if [ -f package-lock.json ] && npm ci --include=dev --no-audit --no-fund; then
+  echo "==> npm ci OK"
 else
+  echo "==> npm ci skipped or failed — running npm install"
   npm install --include=dev --no-audit --no-fund
 fi
 

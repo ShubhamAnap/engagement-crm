@@ -9,7 +9,7 @@ import {
 
 export type Theme = "dark" | "light" | "system";
 
-export type ColorPalette = "forest" | "ocean" | "sunrise" | "slate" | "teal";
+export type ColorPalette = "navy" | "forest" | "ocean" | "sunrise" | "slate" | "teal";
 
 export const COLOR_PALETTES: Array<{
   id: ColorPalette;
@@ -17,6 +17,7 @@ export const COLOR_PALETTES: Array<{
   description: string;
   swatch: string;
 }> = [
+  { id: "navy", label: "Navy", description: "EnerTech blue", swatch: "oklch(0.32 0.14 264)" },
   { id: "forest", label: "Forest", description: "EnerTech green", swatch: "oklch(0.56 0.152 158)" },
   { id: "ocean", label: "Ocean", description: "Trust blue", swatch: "oklch(0.55 0.14 245)" },
   { id: "sunrise", label: "Sunrise", description: "Energy amber", swatch: "oklch(0.68 0.15 70)" },
@@ -38,7 +39,7 @@ type ThemeContextValue = {
 const ThemeContext = createContext<ThemeContextValue>({
   theme: "dark",
   resolved: "dark",
-  palette: "forest",
+  palette: "navy",
   setTheme: () => {},
   setPalette: () => {},
 });
@@ -62,17 +63,22 @@ function applyPalette(palette: ColorPalette) {
 }
 
 /** Runs before hydration so the first paint already has the right theme + palette. */
-export const themeInitScript = `(function(){try{var t=localStorage.getItem("${THEME_KEY}")||"dark";var d=t==="system"?window.matchMedia("(prefers-color-scheme: dark)").matches:t==="dark";var e=document.documentElement;e.classList.toggle("dark",d);e.style.colorScheme=d?"dark":"light";var p=localStorage.getItem("${PALETTE_KEY}")||"forest";var ok=["forest","ocean","sunrise","slate","teal"];if(ok.indexOf(p)<0)p="forest";e.setAttribute("data-palette",p);}catch(err){document.documentElement.classList.add("dark");document.documentElement.setAttribute("data-palette","forest");}})();`;
+export const themeInitScript = `(function(){try{var t=localStorage.getItem("${THEME_KEY}")||"dark";var d=t==="system"?window.matchMedia("(prefers-color-scheme: dark)").matches:t==="dark";var e=document.documentElement;e.classList.toggle("dark",d);e.style.colorScheme=d?"dark":"light";var p=localStorage.getItem("${PALETTE_KEY}")||"navy";var ok=["navy","forest","ocean","sunrise","slate","teal"];if(p==="forest"&&!localStorage.getItem("${PALETTE_KEY}-picked"))p="navy";if(ok.indexOf(p)<0)p="navy";e.setAttribute("data-palette",p);}catch(err){document.documentElement.classList.add("dark");document.documentElement.setAttribute("data-palette","navy");}})();`;
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>("dark");
   const [resolved, setResolved] = useState<"dark" | "light">("dark");
-  const [palette, setPaletteState] = useState<ColorPalette>("forest");
+  const [palette, setPaletteState] = useState<ColorPalette>("navy");
 
   useEffect(() => {
     const storedTheme = (localStorage.getItem(THEME_KEY) as Theme | null) ?? "dark";
     const storedPaletteRaw = localStorage.getItem(PALETTE_KEY);
-    const storedPalette = isPalette(storedPaletteRaw) ? storedPaletteRaw : "forest";
+    const picked = localStorage.getItem(`${PALETTE_KEY}-picked`);
+    const storedPalette = isPalette(storedPaletteRaw)
+      ? storedPaletteRaw === "forest" && !picked
+        ? "navy"
+        : storedPaletteRaw
+      : "navy";
     setThemeState(storedTheme);
     setPaletteState(storedPalette);
     setResolved(applyThemeMode(storedTheme));
@@ -95,6 +101,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const setPalette = useCallback((p: ColorPalette) => {
     localStorage.setItem(PALETTE_KEY, p);
+    localStorage.setItem(`${PALETTE_KEY}-picked`, "1");
     setPaletteState(p);
     applyPalette(p);
   }, []);

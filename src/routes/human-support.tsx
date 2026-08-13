@@ -37,6 +37,7 @@ import { listOrgSalesPeople } from "@/lib/leads-api";
 import type { ChannelType } from "@/lib/db-types";
 import { getBrowserSupabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
+import { getChannelBrand } from "@/lib/channel-brand";
 
 export const Route = createFileRoute("/human-support")({
   head: () => ({
@@ -521,7 +522,20 @@ function Page() {
                     const rowBusy = busyId === q.id;
                     const isMine = Boolean(myId && q.assignee_id === myId);
                     return (
-                      <tr key={q.id} className="hover:bg-secondary/40">
+                      <tr
+                        key={q.id}
+                        className={cn(
+                          "hover:bg-secondary/40",
+                          q.handoffState === "Waiting" && "bg-warning/5",
+                        )}
+                        style={{
+                          boxShadow: `inset 3px 0 0 ${
+                            q.handoffState === "Waiting"
+                              ? "var(--color-warning)"
+                              : getChannelBrand(q.channel).accent
+                          }`,
+                        }}
+                      >
                         <td className="num px-4 py-3 whitespace-nowrap">{ref}</td>
                         <td className="px-4 py-3">
                           <p className="font-medium whitespace-nowrap">{customer}</p>

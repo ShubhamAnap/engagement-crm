@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Cpu } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,11 +46,11 @@ function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-md rounded-xl border border-border bg-card p-8 shadow-sm">
         <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-4 grid size-12 place-items-center rounded-xl bg-primary text-primary-foreground">
-            <Cpu className="size-6" />
+          <div className="mb-4 grid size-12 place-items-center rounded-xl bg-primary text-lg font-semibold tracking-tight text-primary-foreground">
+            E
           </div>
           <h1 className="text-xl font-semibold tracking-tight text-foreground">EnerTech Engage</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Sign in to your workspace</p>
+          <p className="mt-1 text-sm text-muted-foreground">EnerTech UPS workspace</p>
         </div>
 
         <form onSubmit={onSubmit} className="space-y-4">

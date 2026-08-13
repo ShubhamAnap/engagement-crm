@@ -433,23 +433,36 @@ function Page() {
                     <button
                       type="button"
                       onClick={() => setSelectedCollectionId(c.id)}
-                      className={`w-full px-4 py-3 text-left hover:bg-secondary/40 ${activeCollectionId === c.id ? "bg-secondary/70" : ""}`}
+                      className={`flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-secondary/40 ${activeCollectionId === c.id ? "bg-secondary/70" : ""}`}
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="truncate text-sm font-medium">{c.name}</p>
-                        <Pill
-                          tone={c.status === "Indexed" ? "success" : c.status === "Embedding" ? "info" : c.status === "Failed" ? "danger" : "warning"}
-                          dot
-                        >
-                          {c.status}
-                        </Pill>
+                      <span
+                        className={`grid size-11 shrink-0 place-items-center rounded-lg ${
+                          c.purpose === "site_photos"
+                            ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                            : c.purpose === "datasheets"
+                              ? "bg-sky-500/15 text-sky-700 dark:text-sky-400"
+                              : "bg-primary/10 text-primary"
+                        }`}
+                      >
+                        <ImageIcon className="size-5" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="truncate text-sm font-medium">{c.name}</p>
+                          <Pill
+                            tone={c.status === "Indexed" ? "success" : c.status === "Embedding" ? "info" : c.status === "Failed" ? "danger" : "warning"}
+                            dot
+                          >
+                            {c.status}
+                          </Pill>
+                        </div>
+                        <p className="num mt-1 text-xs text-muted-foreground">
+                          {c.doc_count} items · {c.chunk_count} chunks
+                          {c.purpose
+                            ? ` · ${PURPOSE_LABELS[c.purpose as CollectionPurpose] || c.purpose}`
+                            : ""}
+                        </p>
                       </div>
-                      <p className="num mt-1 text-xs text-muted-foreground">
-                        {c.doc_count} items · {c.chunk_count} chunks
-                        {c.purpose
-                          ? ` · ${PURPOSE_LABELS[c.purpose as CollectionPurpose] || c.purpose}`
-                          : ""}
-                      </p>
                     </button>
                   </li>
                 ))}

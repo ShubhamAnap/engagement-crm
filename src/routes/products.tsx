@@ -1,7 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpDown, Download, FileText, Layers, Pencil, Plus, RefreshCw, SlidersHorizontal, Trash2, Upload } from "lucide-react";
+import { ArrowUpDown, Download, FileText, Layers, LayoutGrid, List, Pencil, Plus, RefreshCw, SlidersHorizontal, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -179,6 +179,13 @@ function Page() {
   const [stockFilter, setStockFilter] = useState<ProductStockFilter>("all");
   const [sourceFilter, setSourceFilter] = useState<ProductSourceFilter>("all");
   const [sortKey, setSortKey] = useState<ProductSort>("name-asc");
+  const [catalogView, setCatalogView] = useState<"grid" | "table">(() => {
+    try {
+      return localStorage.getItem("enertech-products-view") === "table" ? "table" : "grid";
+    } catch {
+      return "grid";
+    }
+  });
   const pageSize = 25;
   const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -698,20 +705,56 @@ function Page() {
               </DropdownMenu>
             }
             right={
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  if (filteredProducts.length === 0) {
-                    toast.message("Nothing to export");
-                    return;
-                  }
-                  downloadProductsCsv(filteredProducts, undefined, catLookup);
-                  toast.success(`Exported ${filteredProducts.length} products`);
-                }}
-              >
-                Export CSV
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex rounded-md border border-border p-0.5">
+                  <Button
+                    size="sm"
+                    variant={catalogView === "grid" ? "secondary" : "ghost"}
+                    className="h-8 gap-1.5 px-2"
+                    type="button"
+                    onClick={() => {
+                      setCatalogView("grid");
+                      try {
+                        localStorage.setItem("enertech-products-view", "grid");
+                      } catch {
+                        /* ignore */
+                      }
+                    }}
+                  >
+                    <LayoutGrid className="size-3.5" /> Cards
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={catalogView === "table" ? "secondary" : "ghost"}
+                    className="h-8 gap-1.5 px-2"
+                    type="button"
+                    onClick={() => {
+                      setCatalogView("table");
+                      try {
+                        localStorage.setItem("enertech-products-view", "table");
+                      } catch {
+                        /* ignore */
+                      }
+                    }}
+                  >
+                    <List className="size-3.5" /> Table
+                  </Button>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    if (filteredProducts.length === 0) {
+                      toast.message("Nothing to export");
+                      return;
+                    }
+                    downloadProductsCsv(filteredProducts, undefined, catLookup);
+                    toast.success(`Exported ${filteredProducts.length} products`);
+                  }}
+                >
+                  Export CSV
+                </Button>
+              </div>
             }
           />
 
@@ -721,6 +764,74 @@ function Page() {
             <div className="p-4"><EmptyState title={search || filterCount > 0 ? "No matching products" : "No products yet"} description={search || filterCount > 0 ? "Try a different search or clear filters." : "Add your first product to build the catalog."} /></div>
           ) : (
             <>
+              {catalogView === "grid" ? (
+                <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                  {pagedProducts.map((product) => {
+                    const catalogUrl = productCatalogueHref(product, catLookup);
+                    const imageUrl = productImageHref(product);
+                    const wp = isWordpressProduct(product);
+                    return (
+                      <article
+                        key={product.id}
+                        className="flex flex-col overflow-hidden rounded-xl border border-border bg-card"
+                      >
+                        <div className="relative aspect-[4/3] bg-muted">
+                          {imageUrl ? (
+                            <img src={imageUrl} alt="" className="size-full object-contain p-2" />
+                          ) : (
+                            <div className="grid size-full place-items-center text-xs text-muted-foreground">
+                              No photo
+                            </div>
+                          )}
+                          {wp ? (
+                            <span className="absolute top-2 left-2">
+                              <Pill tone="info">WP</Pill>
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="flex flex-1 flex-col gap-2 p-3">
+                          <div>
+                            <p className="line-clamp-2 text-sm font-semibold leading-snug">{product.name}</p>
+                            <p className="num mt-0.5 text-[11px] text-muted-foreground">{product.sku}</p>
+                          </div>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {productCategoryLabel(product)}
+                          </p>
+                          <div className="mt-auto flex items-baseline gap-2">
+                            <span className="num text-sm font-semibold">{product.price_label || "—"}</span>
+                            {product.mrp_label && product.mrp_label !== product.price_label ? (
+                              <span className="num text-xs text-muted-foreground line-through">
+                                {product.mrp_label}
+                              </span>
+                            ) : null}
+                          </div>
+                          <Pill tone={stockTone(product.stock_status)}>{product.stock_status}</Pill>
+                          <div className="flex flex-wrap gap-2 pt-1">
+                            {catalogUrl ? (
+                              <Button size="sm" variant="outline" className="gap-1.5" asChild>
+                                <a href={catalogUrl} target="_blank" rel="noreferrer">
+                                  <FileText className="size-3.5" /> PDF
+                                </a>
+                              </Button>
+                            ) : null}
+                            <Button size="sm" variant="outline" onClick={() => openEdit(product)}>
+                              <Pencil className="size-4" /> Edit
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => setProductToDelete(product)}
+                            >
+                              <Trash2 className="size-4" /> Delete
+                            </Button>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="border-b border-border bg-secondary/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
@@ -802,6 +913,7 @@ function Page() {
                   </tbody>
                 </table>
               </div>
+              )}
               <TablePagination
                 total={filteredProducts.length}
                 shown={pagedProducts.length}

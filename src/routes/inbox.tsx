@@ -75,6 +75,7 @@ import {
 import { formatDisplayPhone } from "@/lib/phone-country";
 import { useStickToBottomScroll } from "@/lib/chat-scroll";
 import { ChannelBrandMark } from "@/components/shared/ChannelBrandMark";
+import { getChannelBrand, inboxSkinFor } from "@/lib/channel-brand";
 import { RecommendProductDialog } from "@/components/inbox/RecommendProductDialog";
 import { SendWhatsAppTemplateDialog } from "@/components/inbox/SendWhatsAppTemplateDialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -1104,7 +1105,11 @@ function Page() {
                     )}
                   >
                   <div className="flex items-center gap-2.5">
-                      <span className="inbox-wa-avatar size-10 text-sm" aria-hidden>
+                      <span
+                        className="inbox-wa-avatar size-10 text-sm"
+                        style={{ background: getChannelBrand(c.channel).accent }}
+                        aria-hidden
+                      >
                         {(name.trim()[0] || "?").toUpperCase()}
                       </span>
                       <div className="min-w-0 flex-1">
@@ -1120,8 +1125,9 @@ function Page() {
                           <span
                             className={cn(
                               "num shrink-0 text-[11px]",
-                              c.unread_count > 0 ? "font-semibold text-[#00a884]" : "text-muted-foreground",
+                              c.unread_count > 0 ? "font-semibold" : "text-muted-foreground",
                             )}
+                            style={c.unread_count > 0 ? { color: getChannelBrand(c.channel).accent } : undefined}
                           >
                             {formatRelativeTime(c.last_message_at || c.created_at)}
                           </span>
@@ -1136,7 +1142,12 @@ function Page() {
                             {cleanInboxPreview(c.preview)}
                           </p>
                           {c.unread_count > 0 ? (
-                            <span className="inbox-wa-unread shrink-0">{c.unread_count}</span>
+                            <span
+                              className="inbox-wa-unread shrink-0"
+                              style={{ background: getChannelBrand(c.channel).accent }}
+                            >
+                              {c.unread_count}
+                            </span>
                           ) : null}
                         </div>
                         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -1214,7 +1225,11 @@ function Page() {
           </Button>
                           {selected ? (
             <span className="relative shrink-0">
-              <span className="inbox-wa-avatar" aria-hidden>
+              <span
+                className="inbox-wa-avatar"
+                style={{ background: getChannelBrand(selected.channel).accent }}
+                aria-hidden
+              >
                 {threadInitial}
               </span>
               <span className="absolute -bottom-0.5 -right-0.5 ring-2 ring-background rounded-full">
@@ -1842,7 +1857,10 @@ function Page() {
   );
 
   return (
-    <div className="inbox-wa flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+    <div
+      className="inbox-wa flex h-full min-h-0 flex-1 flex-col overflow-hidden"
+      data-inbox-skin={inboxSkinFor(selected?.channel)}
+    >
       <div className={cn("shrink-0", mobileThreadOpen && "hidden lg:block")}>
         <PageHeader
           title="Omnichannel Inbox"

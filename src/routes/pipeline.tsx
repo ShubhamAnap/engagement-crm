@@ -22,18 +22,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EmptyState, PageHeader, Pill, ScoreBar } from "@/components/shared/ui-kit";
+import { ChannelBrandMark } from "@/components/shared/ChannelBrandMark";
+import { getChannelBrand } from "@/lib/channel-brand";
 import { useAuth } from "@/lib/auth";
 import type { ChannelType, DbLead, LeadStatus, PriorityLevel } from "@/lib/db-types";
 import { createLead, listLeads, updateLeadStatus } from "@/lib/leads-api";
 
-const PIPELINE_STAGES: Array<{ status: LeadStatus; title: string }> = [
-  { status: "New", title: "New" },
-  { status: "Contacted", title: "Contacted" },
-  { status: "Qualified", title: "Qualified" },
-  { status: "Proposal", title: "Proposal" },
-  { status: "Negotiation", title: "Negotiation" },
-  { status: "Won", title: "Won" },
-  { status: "Lost", title: "Lost" },
+const PIPELINE_STAGES: Array<{ status: LeadStatus; title: string; tint: string }> = [
+  { status: "New", title: "New", tint: "bg-sky-500/8 border-sky-500/25" },
+  { status: "Contacted", title: "Contacted", tint: "bg-indigo-500/8 border-indigo-500/25" },
+  { status: "Qualified", title: "Qualified", tint: "bg-violet-500/8 border-violet-500/25" },
+  { status: "Proposal", title: "Proposal", tint: "bg-amber-500/8 border-amber-500/25" },
+  { status: "Negotiation", title: "Negotiation", tint: "bg-orange-500/8 border-orange-500/25" },
+  { status: "Won", title: "Won", tint: "bg-emerald-500/10 border-emerald-500/30" },
+  { status: "Lost", title: "Lost", tint: "bg-muted/60 border-border" },
 ];
 
 const priorityOptions: PriorityLevel[] = ["High", "Medium", "Low"];
@@ -242,8 +244,8 @@ function Page() {
               return (
                 <div
                   key={stage.status}
-                  className={`min-w-[240px] max-w-[260px] flex-1 rounded-xl border bg-secondary/30 p-2.5 transition-colors ${
-                    isTarget ? "border-primary bg-primary/5" : "border-border"
+                  className={`min-w-[240px] max-w-[260px] flex-1 rounded-xl border p-2.5 transition-colors ${
+                    isTarget ? "border-primary bg-primary/5" : stage.tint
                   }`}
                   onDragOver={(e) => {
                     e.preventDefault();
@@ -274,10 +276,14 @@ function Page() {
                         className={`cursor-grab rounded-lg border border-border bg-card p-3 shadow-sm active:cursor-grabbing ${
                           draggingId === lead.id ? "opacity-60" : ""
                         }`}
+                        style={{ boxShadow: `inset 3px 0 0 ${getChannelBrand(lead.source).accent}` }}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <p className="truncate text-sm font-medium">{lead.company || lead.name}</p>
-                          <Pill tone={priorityTone(lead.priority)}>{lead.priority}</Pill>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <ChannelBrandMark channel={lead.source} size="sm" />
+                            <Pill tone={priorityTone(lead.priority)}>{lead.priority}</Pill>
+                          </div>
                         </div>
                         <p className="mt-0.5 truncate text-xs text-muted-foreground">
                           {lead.name}

@@ -265,7 +265,10 @@ function CommandCenter() {
                         selectedId === s.id && "bg-secondary/70",
                       )}
                     >
-                      <ChannelIcon channel={s.channel} className="text-muted-foreground" />
+                      <span className="relative">
+                        <span className="absolute -top-0.5 -left-0.5 size-2 rounded-full bg-emerald-500 ring-2 ring-background" />
+                        <ChannelIcon channel={s.channel} className="text-muted-foreground" />
+                      </span>
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium">
                           {s.customer}{" "}

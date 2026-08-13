@@ -5,6 +5,21 @@
 
 ---
 
+### Session 2026-08-13 — Desk beautification (paint only)
+
+**Change:** Visual identity across the live desk. No send/sync/Brainmine/Woo logic change.
+
+- Inbox thread skins follow the open channel (WA / IndiaMART / email / TradeIndia / FB / IG / website). List avatars use brand color.
+- Products default to a photo card grid (table toggle kept).
+- Default chrome palette is EnerTech navy (Forest still in the picker if chosen).
+- Login mark is EnerTech “E”. Staff ChatWidget hidden on Inbox and Channels (white overlay).
+- Leads/Pipeline/Human Support: source/stage color accents. Dashboard + Analytics charts use brand hex.
+- Knowledge collections look like albums. Broadcast templates preview as a WhatsApp bubble. Customers get avatars; dummy Filter/Sort hidden. Command Center live dot.
+
+**Files:** `src/styles.css`, `src/lib/theme.tsx`, `src/lib/channel-brand.ts`, `src/routes/inbox.tsx`, `src/routes/products.tsx`, `src/routes/login.tsx`, `src/routes/__root.tsx`, `src/routes/leads.tsx`, `src/routes/pipeline.tsx`, `src/routes/knowledge.tsx`, `src/routes/broadcasting.tsx`, `src/routes/index.tsx`, `src/routes/analytics.tsx`, `src/routes/customers.tsx`, `src/routes/command-center.tsx`, `src/routes/human-support.tsx`.
+
+---
+
 ### Session 2026-08-13 — Sidebar group order
 
 **Change:** Sidebar (and Settings permission groups) now read Operate → Commerce → Intelligence → Insight. Items stay in their groups. Routes and access rules unchanged.

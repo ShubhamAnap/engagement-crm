@@ -620,19 +620,20 @@ function Page() {
                       </Button>
                     </div>
 
-                    {t.header_text ? (
-                      <p className="mt-3 text-xs font-medium text-foreground/80">{t.header_text}</p>
-                    ) : null}
-
-                    <p className="mt-3 flex-1 whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
-                      {t.body_text || "No body preview"}
-                    </p>
+                    <div className="mt-3 rounded-2xl rounded-tl-sm bg-[#d9fdd3] px-3 py-2 text-[#111b21] dark:bg-[#005c4b] dark:text-[#e9edef]">
+                      {t.header_text ? (
+                        <p className="text-xs font-medium opacity-80">{t.header_text}</p>
+                      ) : null}
+                      <p className="mt-1 flex-1 whitespace-pre-wrap text-sm leading-relaxed">
+                        {t.body_text || "No body preview"}
+                      </p>
+                      {t.footer_text ? (
+                        <p className="mt-1.5 text-[11px] opacity-70">{t.footer_text}</p>
+                      ) : null}
+                    </div>
 
                     <div className="mt-4 border-t border-border/60 pt-3">
-                      {t.footer_text ? (
-                        <p className="text-xs text-muted-foreground">{t.footer_text}</p>
-                      ) : null}
-                      <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
+                      <div className="space-y-1 text-[11px] text-muted-foreground">
                         <p>
                           Last synced: {formatRelativeTime(t.last_synced_at) || formatDateTime(t.last_synced_at)}
                         </p>

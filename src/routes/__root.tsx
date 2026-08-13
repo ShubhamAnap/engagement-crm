@@ -272,7 +272,7 @@ function AuthenticatedShell() {
           </main>
         </div>
       </div>
-      {pathname !== "/inbox" ? <ChatWidget /> : null}
+      {pathname !== "/inbox" && pathname !== "/channels" ? <ChatWidget /> : null}
     </>
   );
 }

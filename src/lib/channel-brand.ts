@@ -24,3 +24,21 @@ export function getChannelBrand(channel: string | null | undefined): ChannelBran
   const key = String(channel || "").toLowerCase();
   return BRANDS[key] || BRANDS.website;
 }
+
+const INBOX_SKINS = new Set([
+  "whatsapp",
+  "indiamart",
+  "tradeindia",
+  "email",
+  "facebook",
+  "instagram",
+  "website",
+]);
+
+/** Thread wallpaper/bubbles follow the open conversation’s channel. */
+export function inboxSkinFor(channel: string | null | undefined): string {
+  const key = String(channel || "whatsapp").toLowerCase();
+  if (INBOX_SKINS.has(key)) return key;
+  if (key === "wordpress" || key === "brainmine" || key === "api") return "website";
+  return "website";
+}

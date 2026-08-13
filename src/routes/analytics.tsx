@@ -31,6 +31,7 @@ import {
   ScoreBar,
   StatCard,
 } from "@/components/shared/ui-kit";
+import { getChannelBrand } from "@/lib/channel-brand";
 import { useAuth } from "@/lib/auth";
 import { getAnalyticsSnapshot, type AnalyticsRange } from "@/lib/analytics-api";
 
@@ -266,6 +267,10 @@ function Page() {
               <ul className="divide-y divide-border">
                 {data!.channelPerformance.map((c) => (
                   <li key={c.key} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                    <span
+                      className="size-2.5 shrink-0 rounded-full"
+                      style={{ background: getChannelBrand(c.key).accent }}
+                    />
                     <ChannelIcon channel={c.key} className="text-muted-foreground" />
                     <span className="flex-1">{c.name}</span>
                     <span className="num text-xs text-muted-foreground">{c.count}</span>

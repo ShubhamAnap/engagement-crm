@@ -171,6 +171,8 @@ function Page() {
             placeholder="Search customers…"
             value={search}
             onChange={setSearch}
+            filter={null}
+            sort={null}
             right={
               <Button
                 size="sm"
@@ -203,7 +205,14 @@ function Page() {
                   <tbody className="divide-y divide-border">
                     {filteredCustomers.map((customer) => (
                       <tr key={customer.id} className="hover:bg-secondary/40">
-                        <td className="px-4 py-3 font-medium whitespace-nowrap">{customer.company || "—"}</td>
+                        <td className="px-4 py-3 font-medium whitespace-nowrap">
+                          <span className="inline-flex items-center gap-2">
+                            <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary/15 text-[11px] font-semibold text-primary">
+                              {(customer.company || customer.name || "?").trim()[0]?.toUpperCase() || "?"}
+                            </span>
+                            {customer.company || "—"}
+                          </span>
+                        </td>
                         <td className="px-4 py-3 whitespace-nowrap">{customer.name}</td>
                         <td className="num px-4 py-3 text-muted-foreground whitespace-nowrap">{customer.phone || "—"}</td>
                         <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{customer.email || "—"}</td>

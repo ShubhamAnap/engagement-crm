@@ -73,6 +73,7 @@ import {
 } from "@/lib/follow-up";
 import { findOrOpenLeadWhatsAppConversation } from "@/lib/chat-api";
 import { normalizeWhatsAppDigits } from "@/lib/whatsapp-window";
+import { getChannelBrand } from "@/lib/channel-brand";
 
 const statusOptions: LeadStatus[] = [
   "New",
@@ -1059,6 +1060,9 @@ function Page() {
                             ? "bg-primary/5 hover:bg-primary/10"
                             : "hover:bg-secondary/40"
                         }
+                        style={{
+                          boxShadow: `inset 3px 0 0 ${getChannelBrand(lead.source).accent}`,
+                        }}
                       >
                         <td className="px-3 py-2.5">
                           <Checkbox

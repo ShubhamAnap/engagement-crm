@@ -18,6 +18,7 @@ import { Download, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ChannelIcon, EmptyState, PageHeader, Panel, Pill, StatCard } from "@/components/shared/ui-kit";
+import { getChannelBrand } from "@/lib/channel-brand";
 import { useAuth } from "@/lib/auth";
 import { downloadCsv } from "@/lib/csv";
 import { getDashboardSnapshot } from "@/lib/dashboard-api";
@@ -229,17 +230,17 @@ function Dashboard() {
                       paddingAngle={2}
                       stroke="none"
                     >
-                      {(data?.channelSplit ?? []).map((c, i) => (
-                        <Cell key={c.key} fill={`var(--color-chart-${(i % 5) + 1})`} />
+                      {(data?.channelSplit ?? []).map((c) => (
+                        <Cell key={c.key} fill={getChannelBrand(c.key).accent} />
                       ))}
                     </Pie>
                     <RTooltip contentStyle={tooltipStyle} />
                   </PieChart>
                 </ResponsiveContainer>
                 <ul className="mt-2 space-y-1.5">
-                  {(data?.channelSplit ?? []).map((c, i) => (
+                  {(data?.channelSplit ?? []).map((c) => (
                     <li key={c.key} className="flex items-center gap-2 text-xs">
-                      <span className="size-2 rounded-full" style={{ background: `var(--color-chart-${(i % 5) + 1})` }} />
+                      <span className="size-2 rounded-full" style={{ background: getChannelBrand(c.key).accent }} />
                       <span className="text-muted-foreground">{c.name}</span>
                       <span className="num ml-auto font-medium tabular-nums">
                         {c.count} · {c.value}%

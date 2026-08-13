@@ -463,3 +463,72 @@ export const generateConversationSummary = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     return generateAndStoreConversationSummary(data.conversationId);
   });
+
+/** Human edit of Inbox summary — writes conversation + lead follow-up (marks Brainmine pending). */
+export const saveConversationSummary = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      conversationId: z.string().uuid(),
+      summary: z.string().max(2000),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const summary = clampSummaryToThreeLines(data.summary);
+    if (!summary) throw new Error("Summary cannot be empty");
+
+    const supabase = createServiceSupabase();
+    const { data: convo, error } = await supabase
+      .from("conversations")
+      .select("id, lead_id, metadata")
+      .eq("id", data.conversationId)
+      .eq("org_id", ORG_ID)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!convo) throw new Error("Conversation not found");
+
+    const ranAt = new Date().toISOString();
+    const prevConvoMeta =
+      convo.metadata && typeof convo.metadata === "object" && !Array.isArray(convo.metadata)
+        ? { ...(convo.metadata as Record<string, unknown>) }
+        : {};
+    prevConvoMeta.ai_summary = summary;
+    prevConvoMeta.ai_summary_at = ranAt;
+    prevConvoMeta.ai_summary_source = "human";
+
+    const { error: convoErr } = await supabase
+      .from("conversations")
+      .update({ metadata: prevConvoMeta, updated_at: ranAt })
+      .eq("id", data.conversationId);
+    if (convoErr) throw new Error(convoErr.message);
+
+    const leadId = (convo.lead_id as string | null) || null;
+    if (leadId) {
+      const { data: leadRow } = await supabase
+        .from("leads")
+        .select("metadata")
+        .eq("id", leadId)
+        .maybeSingle();
+      const prevLeadMeta =
+        leadRow?.metadata && typeof leadRow.metadata === "object" && !Array.isArray(leadRow.metadata)
+          ? { ...(leadRow.metadata as Record<string, unknown>) }
+          : {};
+      prevLeadMeta.follow_up_summary = summary;
+      prevLeadMeta.follow_up_summary_source = "human";
+      markBrainmineFollowUpPending(prevLeadMeta, ranAt);
+      await supabase
+        .from("leads")
+        .update({
+          metadata: prevLeadMeta,
+          last_activity_at: ranAt,
+          updated_at: ranAt,
+        })
+        .eq("id", leadId);
+    }
+
+    return {
+      conversationId: data.conversationId,
+      leadId,
+      summary,
+      source: "human" as const,
+    };
+  });

@@ -5,6 +5,14 @@
 
 ---
 
+### Session 2026-08-13 — Inbox conversation summary is human-editable
+
+**Change:** Conversation Summary in Inbox is a textarea. Generate still fills it; humans can correct it and **Save edits**. Update lead / Brainmine push use the saved text (`ai_summary_source=human`), not a silent AI overwrite.
+
+**Files:** `src/routes/inbox.tsx`, `src/server/conversation-summary.ts`.
+
+---
+
 ### Session 2026-08-13 — WordPress / WooCommerce catalog pull
 
 **Decision:** WordPress is catalog master (pull-only). Engage does not push products back. Images/PDFs stay on WP as public HTTPS URLs.

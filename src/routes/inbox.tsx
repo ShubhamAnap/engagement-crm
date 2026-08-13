@@ -54,7 +54,7 @@ import {
 import { listProducts } from "@/lib/products-api";
 import type { ChannelType, DbMessage, DbProduct, LeadStatus, PriorityLevel } from "@/lib/db-types";
 import { updateLeadStage } from "@/lib/leads-api";
-import { generateConversationSummary } from "@/server/conversation-summary";
+import { generateConversationSummary, saveConversationSummary } from "@/server/conversation-summary";
 import { writeBrainmineFollowUpsForLeads } from "@/server/brainmine-writeback";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
@@ -164,6 +164,12 @@ function dayDividerLabel(iso: string): string {
   if (diffDays === 0) return "Today";
   if (diffDays === 1) return "Yesterday";
   return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+}
+
+function inboxAiSummary(c: InboxConversation | null | undefined): string {
+  if (!c?.metadata || typeof c.metadata !== "object") return "";
+  const raw = (c.metadata as Record<string, unknown>).ai_summary;
+  return typeof raw === "string" ? raw.trim() : "";
 }
 
 function sameCalendarDay(a: string, b: string): boolean {
@@ -338,6 +344,7 @@ function Page() {
   const [leadStatus, setLeadStatus] = useState<LeadStatus>("New");
   const [leadPriority, setLeadPriority] = useState<PriorityLevel>("Medium");
   const [pushFollowUpToBrainmine, setPushFollowUpToBrainmine] = useState(false);
+  const [summaryDraft, setSummaryDraft] = useState("");
   const [layout, setLayout] = useState<Record<string, number> | undefined>(undefined);
   const [nowTick, setNowTick] = useState(() => Date.now());
   /** Only one thread instance may mount — shared scroll ref breaks if desktop+mobile both render. */
@@ -488,6 +495,14 @@ function Page() {
     setLeadPriority(selected?.lead?.priority ?? "Medium");
   }, [selected?.lead?.id, selected?.lead?.status, selected?.lead?.priority]);
 
+  useEffect(() => {
+    if (!selectedId) {
+      setSummaryDraft("");
+      return;
+    }
+    setSummaryDraft(inboxAiSummary(selected));
+  }, [selectedId, selected?.id]);
+
   const messagesQuery = useQuery({
     queryKey: ["messages", selectedId],
     enabled: Boolean(selectedId),
@@ -587,7 +602,13 @@ function Page() {
       if (!selected?.lead?.id) throw new Error("No lead linked to this conversation yet");
       await updateLeadStage(selected.lead.id, { status: leadStatus, priority: leadPriority });
       let summaryText: string | null = null;
-      if (selected.id && shouldRegenerateConversationSummary(selected)) {
+      const draft = summaryDraft.trim();
+      if (draft && draft !== inboxAiSummary(selected)) {
+        const saved = await saveConversationSummary({
+          data: { conversationId: selected.id, summary: draft },
+        });
+        summaryText = saved.summary;
+      } else if (selected.id && !draft && shouldRegenerateConversationSummary(selected)) {
         const generated = await generateConversationSummary({
           data: { conversationId: selected.id },
         });
@@ -602,6 +623,7 @@ function Page() {
       return { summaryText, writeback: null as null | Awaited<ReturnType<typeof writeBrainmineFollowUpsForLeads>> };
     },
     onSuccess: async (result) => {
+      if (result.summaryText) setSummaryDraft(result.summaryText);
       await queryClient.invalidateQueries({ queryKey: ["conversations", orgId] });
       await queryClient.invalidateQueries({ queryKey: ["leads"] });
       if (result.writeback) {
@@ -633,6 +655,7 @@ function Page() {
       return generateConversationSummary({ data: { conversationId: selected.id } });
     },
     onSuccess: async (result) => {
+      setSummaryDraft(result.summary);
       await queryClient.invalidateQueries({ queryKey: ["conversations", orgId] });
       await queryClient.invalidateQueries({ queryKey: ["leads"] });
       if (result.leadId) {
@@ -657,11 +680,27 @@ function Page() {
     },
   });
 
-  function inboxAiSummary(c: InboxConversation | null | undefined): string {
-    if (!c?.metadata || typeof c.metadata !== "object") return "";
-    const raw = (c.metadata as Record<string, unknown>).ai_summary;
-    return typeof raw === "string" ? raw.trim() : "";
-  }
+  const saveSummaryMutation = useMutation({
+    mutationFn: async () => {
+      if (!selected?.id) throw new Error("Select a conversation first");
+      const text = summaryDraft.trim();
+      if (!text) throw new Error("Type a summary first, or click Generate summary");
+      return saveConversationSummary({ data: { conversationId: selected.id, summary: text } });
+    },
+    onSuccess: async (result) => {
+      setSummaryDraft(result.summary);
+      await queryClient.invalidateQueries({ queryKey: ["conversations", orgId] });
+      await queryClient.invalidateQueries({ queryKey: ["leads"] });
+      toast.success(
+        result.leadId
+          ? "Summary saved on lead · pending Brainmine push"
+          : "Summary saved on this conversation",
+      );
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not save summary"),
+  });
+
   function shouldRegenerateConversationSummary(c: InboxConversation | null | undefined): boolean {
     if (!c) return false;
     const meta =
@@ -1541,7 +1580,7 @@ function Page() {
                       onCheckedChange={(v) => setPushFollowUpToBrainmine(v === true)}
                       className="mt-0.5"
                     />
-                    <span>Also push follow-up to Brainmine (uses AI summary)</span>
+                    <span>Also push follow-up to Brainmine (uses the summary below)</span>
                   </label>
                 </div>
               ) : (
@@ -1557,19 +1596,42 @@ function Page() {
       <CardPanel title="Conversation Summary" className="shrink-0">
         {selected ? (
           <div className="space-y-2">
-            <p className="line-clamp-3 whitespace-pre-wrap text-sm text-muted-foreground">
-              {inboxAiSummary(selected) ||
-                "No AI summary yet. Generate one for a short 2–3 line follow-up brief."}
+            <Textarea
+              rows={4}
+              className="text-sm"
+              value={summaryDraft}
+              onChange={(e) => setSummaryDraft(e.target.value)}
+              placeholder="Edit this brief yourself, or click Generate summary. Keep to 2–3 lines."
+              disabled={generateSummaryMutation.isPending || saveSummaryMutation.isPending}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              You can correct the AI text. Update lead and Brainmine use what you save here.
             </p>
-            <Button
-              size="sm"
-              variant="secondary"
-              className="w-full"
-              disabled={generateSummaryMutation.isPending}
-              onClick={() => generateSummaryMutation.mutate()}
-            >
-              {generateSummaryMutation.isPending ? "Generating…" : "Generate summary"}
-            </Button>
+            <div className="flex flex-col gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                className="w-full"
+                disabled={generateSummaryMutation.isPending || saveSummaryMutation.isPending}
+                onClick={() => generateSummaryMutation.mutate()}
+              >
+                {generateSummaryMutation.isPending ? "Generating…" : "Generate summary"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full"
+                disabled={
+                  generateSummaryMutation.isPending ||
+                  saveSummaryMutation.isPending ||
+                  !summaryDraft.trim() ||
+                  summaryDraft.trim() === inboxAiSummary(selected)
+                }
+                onClick={() => saveSummaryMutation.mutate()}
+              >
+                {saveSummaryMutation.isPending ? "Saving…" : "Save edits"}
+              </Button>
+            </div>
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">Select a conversation to see summary.</p>

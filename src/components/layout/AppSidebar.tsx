@@ -43,6 +43,15 @@ const groupsBase: { label: string; items: Item[] }[] = [
     ],
   },
   {
+    label: "Commerce",
+    items: [
+      { to: "/products", label: "Products", icon: Boxes, section: "products" },
+      { to: "/customers", label: "Customers", icon: Users, section: "customers" },
+      { to: "/leads", label: "Leads", icon: Zap, section: "leads" },
+      { to: "/pipeline", label: "Pipeline", icon: KanbanSquare, section: "pipeline" },
+    ],
+  },
+  {
     label: "Intelligence",
     items: [
       { to: "/agents", label: "AI Agents", icon: Bot, section: "agents" },
@@ -51,15 +60,6 @@ const groupsBase: { label: string; items: Item[] }[] = [
       { to: "/knowledge", label: "Knowledge Base", icon: BookOpen, section: "knowledge" },
       { to: "/automation", label: "Automation", icon: Workflow, section: "automation" },
       { to: "/broadcasting", label: "Broadcasting", icon: Megaphone, section: "broadcasting" },
-    ],
-  },
-  {
-    label: "Commerce",
-    items: [
-      { to: "/products", label: "Products", icon: Boxes, section: "products" },
-      { to: "/customers", label: "Customers", icon: Users, section: "customers" },
-      { to: "/leads", label: "Leads", icon: Zap, section: "leads" },
-      { to: "/pipeline", label: "Pipeline", icon: KanbanSquare, section: "pipeline" },
     ],
   },
   {

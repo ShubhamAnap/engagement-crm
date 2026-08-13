@@ -5,6 +5,14 @@
 
 ---
 
+### Session 2026-08-13 — Sidebar group order
+
+**Change:** Sidebar (and Settings permission groups) now read Operate → Commerce → Intelligence → Insight. Items stay in their groups. Routes and access rules unchanged.
+
+**Files:** `src/components/layout/AppSidebar.tsx`, `src/lib/permissions.ts`.
+
+---
+
 ### Session 2026-08-13 — Sidebar Collapse on top; Products Filter/Sort
 
 **Change:** Sidebar Collapse moved from the footer to the header (next to the logo). Product Catalog Filter and Sort are wired: category / stock / WordPress vs manual, and name / SKU / category / price / newest. Previously Toolbar rendered disabled placeholder buttons.

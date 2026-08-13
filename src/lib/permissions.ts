@@ -54,6 +54,15 @@ export const APP_SECTION_GROUPS: AppSectionGroup[] = [
     ],
   },
   {
+    label: "Commerce",
+    sections: [
+      { key: "products", label: "Products", path: "/products" },
+      { key: "customers", label: "Customers", path: "/customers" },
+      { key: "leads", label: "Leads", path: "/leads" },
+      { key: "pipeline", label: "Pipeline", path: "/pipeline" },
+    ],
+  },
+  {
     label: "Intelligence",
     sections: [
       { key: "agents", label: "AI Agents", path: "/agents" },
@@ -62,15 +71,6 @@ export const APP_SECTION_GROUPS: AppSectionGroup[] = [
       { key: "knowledge", label: "Knowledge Base", path: "/knowledge" },
       { key: "automation", label: "Automation", path: "/automation" },
       { key: "broadcasting", label: "Broadcasting", path: "/broadcasting" },
-    ],
-  },
-  {
-    label: "Commerce",
-    sections: [
-      { key: "products", label: "Products", path: "/products" },
-      { key: "customers", label: "Customers", path: "/customers" },
-      { key: "leads", label: "Leads", path: "/leads" },
-      { key: "pipeline", label: "Pipeline", path: "/pipeline" },
     ],
   },
   {

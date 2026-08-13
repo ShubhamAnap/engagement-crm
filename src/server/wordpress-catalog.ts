@@ -253,6 +253,54 @@ function catalogueFromRest(product: Record<string, unknown>): string | null {
   return extractPdfUrls(html)[0] || looksLikePdf(html);
 }
 
+/** Theme plugins (e.g. Wishlist) often print HTML before REST JSON. */
+function parseWpJson(text: string): unknown {
+  const trimmed = String(text || "").replace(/^\uFEFF/, "").trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    /* continue */
+  }
+  const startArr = trimmed.indexOf("[");
+  const startObj = trimmed.indexOf("{");
+  let start = -1;
+  if (startArr >= 0 && (startObj < 0 || startArr < startObj)) start = startArr;
+  else if (startObj >= 0) start = startObj;
+  if (start < 0) return null;
+  const slice = trimmed.slice(start);
+  try {
+    return JSON.parse(slice);
+  } catch {
+    /* continue */
+  }
+  const end = Math.max(slice.lastIndexOf("]"), slice.lastIndexOf("}"));
+  if (end > 0) {
+    try {
+      return JSON.parse(slice.slice(0, end + 1));
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function productRowsFromJson(json: unknown): unknown[] {
+  if (Array.isArray(json)) return json;
+  const rec = asRecord(json);
+  if (Array.isArray(rec.products)) return rec.products;
+  if (Array.isArray(rec.data)) return rec.data;
+  return [];
+}
+
+function wooErrorMessage(json: unknown): string | null {
+  const rec = asRecord(json);
+  const msg = str(rec.message).trim();
+  const code = str(rec.code).trim();
+  if (msg && code) return `${code}: ${msg}`;
+  return msg || code || null;
+}
+
 async function fetchJson(url: string, init?: RequestInit): Promise<{
   ok: boolean;
   status: number;
@@ -267,20 +315,15 @@ async function fetchJson(url: string, init?: RequestInit): Promise<{
       signal: ctrl.signal,
       headers: {
         Accept: "application/json",
+        "User-Agent": "EnerTechEngage/1.0 (catalog-sync)",
         ...(init?.headers || {}),
       },
     });
     const text = await res.text();
-    let json: unknown = null;
-    try {
-      json = text ? JSON.parse(text) : null;
-    } catch {
-      json = null;
-    }
     return {
       ok: res.ok,
       status: res.status,
-      json,
+      json: parseWpJson(text),
       header: (name) => res.headers.get(name),
     };
   } catch {
@@ -399,34 +442,71 @@ function mapStoreProduct(raw: Record<string, unknown>): MappedWooProduct | null 
   };
 }
 
+async function fetchRestV3Page(
+  cfg: WordpressChannelConfig,
+  page: number,
+  withStatus: boolean,
+  auth: "query" | "basic",
+): Promise<{ ok: boolean; status: number; json: unknown; header: (name: string) => string | null }> {
+  const url = new URL(`${cfg.site_url}/wp-json/wc/v3/products`);
+  url.searchParams.set("per_page", String(PER_PAGE));
+  url.searchParams.set("page", String(page));
+  if (withStatus) url.searchParams.set("status", "publish");
+  const headers: Record<string, string> =
+    auth === "basic" ? wooAuthHeader(cfg.consumer_key, cfg.consumer_secret) : {};
+  if (auth === "query") {
+    url.searchParams.set("consumer_key", cfg.consumer_key);
+    url.searchParams.set("consumer_secret", cfg.consumer_secret);
+  }
+  return fetchJson(url.toString(), Object.keys(headers).length ? { headers } : undefined);
+}
+
 async function fetchRestV3Products(cfg: WordpressChannelConfig): Promise<{
   products: MappedWooProduct[];
   total: number | null;
   status: number;
+  error: string | null;
 }> {
-  if (!hasKeys(cfg)) return { products: [], total: null, status: 0 };
-  const headers = wooAuthHeader(cfg.consumer_key, cfg.consumer_secret);
+  if (!hasKeys(cfg)) return { products: [], total: null, status: 0, error: null };
   const products: MappedWooProduct[] = [];
   let total: number | null = null;
   let status = 0;
+  let error: string | null = null;
+  let auth: "query" | "basic" = "query";
+  let withStatus = true;
+
   for (let page = 1; page <= Math.ceil(MAX_PRODUCTS / PER_PAGE); page++) {
-    const url = new URL(`${cfg.site_url}/wp-json/wc/v3/products`);
-    url.searchParams.set("status", "publish");
-    url.searchParams.set("per_page", String(PER_PAGE));
-    url.searchParams.set("page", String(page));
-    url.searchParams.set("consumer_key", cfg.consumer_key);
-    url.searchParams.set("consumer_secret", cfg.consumer_secret);
-    const res = await fetchJson(url.toString(), { headers });
+    let res = await fetchRestV3Page(cfg, page, withStatus, auth);
     status = res.status;
+
+    if (page === 1 && (res.status === 401 || res.status === 403) && auth === "query") {
+      auth = "basic";
+      res = await fetchRestV3Page(cfg, page, withStatus, auth);
+      status = res.status;
+    }
+
     if (!res.ok) {
-      if (page === 1) return { products: [], total: null, status };
+      error = wooErrorMessage(res.json) || `Woo REST v3 HTTP ${res.status}`;
+      if (page === 1) return { products: [], total: null, status, error };
       break;
     }
+
+    let rows = productRowsFromJson(res.json);
+    if (page === 1 && withStatus && rows.length === 0) {
+      withStatus = false;
+      res = await fetchRestV3Page(cfg, page, withStatus, auth);
+      status = res.status;
+      if (!res.ok) {
+        error = wooErrorMessage(res.json) || `Woo REST v3 HTTP ${res.status}`;
+        return { products: [], total: null, status, error };
+      }
+      rows = productRowsFromJson(res.json);
+    }
+
     if (total == null) {
       const headerTotal = Number(res.header("X-WP-Total") || res.header("x-wp-total") || "");
       if (Number.isFinite(headerTotal)) total = headerTotal;
     }
-    const rows = Array.isArray(res.json) ? res.json : [];
     if (!rows.length) break;
     for (const row of rows) {
       const mapped = mapRestProduct(asRecord(row));
@@ -435,7 +515,7 @@ async function fetchRestV3Products(cfg: WordpressChannelConfig): Promise<{
     }
     if (rows.length < PER_PAGE || products.length >= MAX_PRODUCTS) break;
   }
-  return { products, total: total ?? products.length, status };
+  return { products, total: total ?? products.length, status, error };
 }
 
 async function fetchStoreProducts(cfg: WordpressChannelConfig): Promise<{
@@ -461,7 +541,7 @@ async function fetchStoreProducts(cfg: WordpressChannelConfig): Promise<{
       const headerTotal = Number(res.header("X-WP-Total") || res.header("x-wp-total") || "");
       if (Number.isFinite(headerTotal)) total = headerTotal;
     }
-    const rows = Array.isArray(res.json) ? res.json : [];
+    const rows = productRowsFromJson(res.json);
     if (!rows.length) break;
     for (const row of rows) {
       const mapped = mapStoreProduct(asRecord(row));
@@ -479,7 +559,7 @@ async function fetchPdfMediaIndex(siteUrl: string): Promise<Map<number, string>>
     const url = `${siteUrl}/wp-json/wp/v2/media?mime_type=application/pdf&per_page=100&page=${page}`;
     const res = await fetchJson(url);
     if (!res.ok) break;
-    const rows = Array.isArray(res.json) ? res.json : [];
+    const rows = productRowsFromJson(res.json);
     if (!rows.length) break;
     for (const row of rows) {
       const rec = asRecord(row);
@@ -809,7 +889,7 @@ export const inspectWordpressCatalog = createServerFn({ method: "POST" }).handle
   const siteUrl = cfg.site_url || WORDPRESS_DEFAULT_SITE;
 
   const storeProbe = await fetchJson(`${siteUrl}/wp-json/wc/store/v1/products?per_page=5`);
-  const storeRows = storeProbe.ok && Array.isArray(storeProbe.json) ? storeProbe.json : [];
+  const storeRows = storeProbe.ok ? productRowsFromJson(storeProbe.json) : [];
 
   let restV3Ok = false;
   let restV3Status: number | null = null;
@@ -820,12 +900,10 @@ export const inspectWordpressCatalog = createServerFn({ method: "POST" }).handle
     url.searchParams.set("per_page", "5");
     url.searchParams.set("consumer_key", cfg.consumer_key);
     url.searchParams.set("consumer_secret", cfg.consumer_secret);
-    const rest = await fetchJson(url.toString(), {
-      headers: wooAuthHeader(cfg.consumer_key, cfg.consumer_secret),
-    });
+    const rest = await fetchJson(url.toString());
     restV3Status = rest.status;
     restV3Ok = rest.ok;
-    restRows = rest.ok && Array.isArray(rest.json) ? rest.json : [];
+    restRows = rest.ok ? productRowsFromJson(rest.json) : [];
   } else {
     const rest = await fetchJson(`${siteUrl}/wp-json/wc/v3/products?per_page=1`);
     restV3Status = rest.status;
@@ -896,15 +974,18 @@ export const syncWordpressCatalog = createServerFn({ method: "POST" }).handler(a
   const rest = await fetchRestV3Products(cfg);
   const store = rest.products.length ? null : await fetchStoreProducts(cfg);
   const products = rest.products.length ? rest.products : store?.products || [];
-  const source = rest.products.length ? "wc/v3" : store?.ok ? "wc/store" : null;
+  const source = rest.products.length ? "wc/v3" : store?.ok && store.products.length ? "wc/store" : null;
 
   if (!source || !products.length) {
     const err =
-      rest.status === 401
-        ? "Woo REST v3 unauthorized. Paste Consumer Key + Secret, or rely on public Store API (no products returned)."
-        : store && !store.ok
-          ? `Could not reach Woo Store API (${store.status}). Check site URL ${cfg.site_url}.`
-          : `No published Woo products found at ${cfg.site_url}.`;
+      rest.status === 401 || rest.status === 403
+        ? rest.error ||
+          "Woo REST v3 unauthorized. Check Consumer Key + Secret (Read permission) and try Inspect catalog."
+        : rest.error && rest.status >= 400
+          ? rest.error
+          : store && !store.ok
+            ? `Could not reach Woo Store API (${store.status}). Check site URL ${cfg.site_url}.`
+            : `Could not read Woo products at ${cfg.site_url} (REST HTTP ${rest.status || "—"}, Store HTTP ${store?.status ?? "—"}). Theme HTML in the API response is now stripped — try Sync now again.`;
     await stampSync({
       last_sync_error: err,
       last_sync_result: "0 products",

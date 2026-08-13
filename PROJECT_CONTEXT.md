@@ -5,6 +5,16 @@
 
 ---
 
+### Session 2026-08-13 — Woo sync empty because theme HTML prefixed REST JSON
+
+**Bug:** Sync showed “No published Woo products found” even though the Store API has products. YITH/Wishlist (and similar) print HTML before JSON; `JSON.parse` failed and we treated it as zero products.
+
+**Fix:** Strip leading HTML and parse from the first `[`/`{`. REST v3 tries query-param auth then Basic; retry without `status=publish` if the first page is empty.
+
+**Files:** `src/server/wordpress-catalog.ts`.
+
+---
+
 ### Session 2026-08-13 — Inbox conversation summary is human-editable
 
 **Change:** Conversation Summary in Inbox is a textarea. Generate still fills it; humans can correct it and **Save edits**. Update lead / Brainmine push use the saved text (`ai_summary_source=human`), not a silent AI overwrite.

@@ -186,7 +186,7 @@ function Page() {
       return "grid";
     }
   });
-  const pageSize = 25;
+  const pageSize = 24;
   const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);

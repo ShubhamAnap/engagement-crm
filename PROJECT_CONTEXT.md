@@ -5,6 +5,22 @@
 
 ---
 
+### Session 2026-08-13 — Knowledge: one upload surface when empty
+
+**Change:** Empty collection no longer stacks a second “Choose images” empty state under the drop zone. Drop zone + header Add images / Add PDF stay. Upload logic unchanged.
+
+**Files:** `src/routes/knowledge.tsx`.
+
+---
+
+### Session 2026-08-13 — Products grid page size 24
+
+**Change:** Catalog page size 25 → 24 so card rows fill evenly at 2 / 3 / 4 columns (no leftover gap on the last row of a page).
+
+**Files:** `src/routes/products.tsx`.
+
+---
+
 ### Session 2026-08-13 — Desk beautification (paint only)
 
 **Change:** Visual identity across the live desk. No send/sync/Brainmine/Woo logic change.

@@ -590,19 +590,9 @@ function Page() {
               ) : documentsQuery.isLoading ? (
                 <div className="p-3"><ListSkeleton rows={5} /></div>
               ) : documents.length === 0 ? (
-                <div className="p-4">
-                  <EmptyState
-                    title="No images or docs yet"
-                    description={`Choose files from your computer to add them under ${activeCollection?.name || "this collection"}.`}
-                    icon={ImageIcon}
-                    action={
-                      <Button className="gap-1.5" disabled={uploadMutation.isPending} onClick={startLocalImagePick}>
-                        <Upload className="size-3.5" />
-                        Choose images from computer
-                      </Button>
-                    }
-                  />
-                </div>
+                <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+                  Drop images in the box above, or use Add PDF / files for documents.
+                </p>
               ) : (
                 <div className="space-y-4 p-4">
                   {imageDocs.length > 0 ? (

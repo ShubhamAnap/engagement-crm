@@ -5,6 +5,16 @@
 
 ---
 
+### Session 2026-08-13 — Reference photos must not defer to sales
+
+**Bug:** “Refrence of petrol pump” matched sales-owned commercial defer (`reference` in transactional regex) and replied with Mr. Ritesh instead of KB petrol-pump photos.
+
+**Fix:** `wantsSalesOwnedCommercialDefer` skips site/install/reference photo asks so WhatsApp continues to `findReferenceImages`.
+
+**Files:** `src/lib/conversation-intent.ts`.
+
+---
+
 ### Session 2026-08-13 — Poultry install photos vs product card; AI Hi reply
 
 **Bugs:** (1) “installations of poultry” hit product pack (use-case + short text) instead of KB site photos. (2) AI-owned WhatsApp threads stayed silent on next-day Hi because greetings were skipped on non-cold chats.

@@ -265,6 +265,8 @@ export function wantsSalesOwnedCommercialDefer(text: string): boolean {
   const q = String(text || "").trim();
   if (!q) return false;
   if (isEducateOnlyAsk(q)) return false;
+  // Site / install / petrol-pump reference photos are KB — do not bounce to sales.
+  if (wantsSiteInstallOrReferencePhotos(q)) return false;
   if (PRICE_RE.test(q)) return true;
   if (/\b(quotation|quote|proforma|commercial offer|best price)\b/i.test(q)) return true;
   if (/\b(send|share|bhejo)\b[\s\S]{0,40}\b(price|rate|quote|quotation)\b/i.test(q)) return true;

@@ -11,6 +11,7 @@ import { createServiceSupabase } from "@/lib/supabase";
 import {
   formatProductPackBody,
   formatProductRecommendationCaption,
+  formatPrice,
   resolveProductCatalogueUrl,
   resolveProductImageUrl,
   cleanProductDisplayName,
@@ -404,12 +405,8 @@ function matchIntro(products: DbProduct[]): string {
 function clarifyMessage(products: DbProduct[]): string {
   const lines = products.slice(0, 8).map((p, i) => {
     const name = cleanProductDisplayName(p.name);
-    const price = p.price_label
-      ? ` — ${/^[₹rs]/i.test(p.price_label) ? p.price_label : `₹${p.price_label}`}`
-      : p.price_paise != null
-        ? ` — ₹${(p.price_paise / 100).toLocaleString("en-IN")}`
-        : "";
-    return `${i + 1}. ${name}${price}`;
+    const price = formatPrice(p);
+    return `${i + 1}. ${name}${price ? ` — ${price}` : ""}`;
   });
   return `Which product do you want?\n${lines.join("\n")}\n\nReply with the number.`;
 }
@@ -595,11 +592,7 @@ export function buildProductPackMedia(products: DbProduct[]): ProductPackMedia[]
 
 function formatProductContextLine(p: DbProduct): string {
   const name = cleanProductDisplayName(p.name);
-  const price = p.price_label
-    ? /^[₹rs]/i.test(p.price_label) ? p.price_label : `₹${p.price_label}`
-    : p.price_paise != null
-      ? `₹${(p.price_paise / 100).toLocaleString("en-IN")}`
-      : null;
+  const price = formatPrice(p);
   const features = cleanProductDescription(p.description || "", p.name).slice(0, 280);
   const catalog = resolveProductCatalogueUrl(p);
   return [

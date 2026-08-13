@@ -64,12 +64,28 @@ type MappedWooProduct = {
   description: string | null;
   pricePaise: number | null;
   priceLabel: string | null;
+  mrpPaise: number | null;
+  mrpLabel: string | null;
   stockStatus: StockStatus;
   quantity: number;
   imageUrl: string | null;
   catalogueUrl: string | null;
   permalink: string | null;
   isActive: boolean;
+};
+
+type ParsedPrices = {
+  paise: number | null;
+  label: string | null;
+  mrpPaise: number | null;
+  mrpLabel: string | null;
+};
+
+const EMPTY_PRICES: ParsedPrices = {
+  paise: null,
+  label: null,
+  mrpPaise: null,
+  mrpLabel: null,
 };
 
 function envTrim(name: string): string {
@@ -177,31 +193,48 @@ function formatInr(amount: number): string {
   return `₹${amount.toLocaleString("en-IN")}`;
 }
 
-function parseStorePrice(prices: Record<string, unknown> | null, onSale: boolean): {
-  paise: number | null;
-  label: string | null;
-} {
-  if (!prices) return { paise: null, label: null };
-  const minor = Math.max(0, Math.min(4, num(prices.currency_minor_unit) ?? 2));
-  const raw = onSale
-    ? str(prices.sale_price || prices.price || prices.regular_price)
-    : str(prices.sale_price || prices.price || prices.regular_price);
-  const preferred = onSale && str(prices.sale_price) ? str(prices.sale_price) : str(prices.price || prices.regular_price);
-  const n = num(preferred || raw);
-  if (n == null || n <= 0) return { paise: null, label: null };
+function fromMinorUnits(raw: string, minor: number): { paise: number; label: string } | null {
+  const n = num(raw);
+  if (n == null || n <= 0) return null;
   const rupees = n / 10 ** minor;
-  if (!Number.isFinite(rupees) || rupees <= 0) return { paise: null, label: null };
+  if (!Number.isFinite(rupees) || rupees <= 0) return null;
   return { paise: Math.round(rupees * 100), label: formatInr(rupees) };
 }
 
-function parseRestPrice(product: Record<string, unknown>): { paise: number | null; label: string | null } {
-  const sale = str(product.sale_price).trim();
-  const regular = str(product.regular_price).trim();
-  const price = str(product.price).trim();
-  const chosen = sale || price || regular;
-  const n = num(chosen);
-  if (n == null || n <= 0) return { paise: null, label: null };
+function fromRupees(raw: string): { paise: number; label: string } | null {
+  const n = num(raw);
+  if (n == null || n <= 0) return null;
   return { paise: Math.round(n * 100), label: formatInr(n) };
+}
+
+function parseStorePrice(prices: Record<string, unknown> | null, onSale: boolean): ParsedPrices {
+  if (!prices) return EMPTY_PRICES;
+  const minor = Math.max(0, Math.min(4, num(prices.currency_minor_unit) ?? 2));
+  const sale = fromMinorUnits(str(prices.sale_price), minor);
+  const regular = fromMinorUnits(str(prices.regular_price), minor);
+  const current = fromMinorUnits(str(prices.price), minor);
+  const selling = onSale && sale ? sale : current || sale || regular;
+  const mrp = regular || current;
+  return {
+    paise: selling?.paise ?? null,
+    label: selling?.label ?? null,
+    mrpPaise: mrp?.paise ?? null,
+    mrpLabel: mrp?.label ?? null,
+  };
+}
+
+function parseRestPrice(product: Record<string, unknown>): ParsedPrices {
+  const sale = fromRupees(str(product.sale_price).trim());
+  const regular = fromRupees(str(product.regular_price).trim());
+  const current = fromRupees(str(product.price).trim());
+  const selling = sale || current || regular;
+  const mrp = regular || (!sale ? current : null);
+  return {
+    paise: selling?.paise ?? null,
+    label: selling?.label ?? null,
+    mrpPaise: mrp?.paise ?? null,
+    mrpLabel: mrp?.label ?? null,
+  };
 }
 
 function mapStock(opts: {
@@ -397,6 +430,8 @@ function mapRestProduct(raw: Record<string, unknown>): MappedWooProduct | null {
     description: desc ? desc.slice(0, 2000) : null,
     pricePaise: price.paise,
     priceLabel: price.label,
+    mrpPaise: price.mrpPaise,
+    mrpLabel: price.mrpLabel,
     stockStatus: mapStock({
       stockStatus: str(raw.stock_status),
       quantity: qty,
@@ -430,6 +465,8 @@ function mapStoreProduct(raw: Record<string, unknown>): MappedWooProduct | null 
     description: desc ? desc.slice(0, 2000) : null,
     pricePaise: price.paise,
     priceLabel: price.label,
+    mrpPaise: price.mrpPaise,
+    mrpLabel: price.mrpLabel,
     stockStatus: mapStock({
       inStock,
       onBackorder: Boolean(raw.is_on_backorder),
@@ -614,6 +651,8 @@ function mergeKeep(
     description?: string | null;
     price_paise?: number | null;
     price_label?: string | null;
+    mrp_paise?: number | null;
+    mrp_label?: string | null;
     image_url?: string | null;
     catalog_pdf_url?: string | null;
     specs?: Record<string, unknown> | null;
@@ -636,6 +675,8 @@ function mergeKeep(
     quantity: incoming.quantity,
     price_paise: incoming.pricePaise ?? existing.price_paise,
     price_label: incoming.priceLabel || existing.price_label,
+    mrp_paise: incoming.mrpPaise ?? existing.mrp_paise,
+    mrp_label: incoming.mrpLabel || existing.mrp_label,
     image_url: incoming.imageUrl || existing.image_url,
     catalog_pdf_url: incoming.catalogueUrl || existing.catalog_pdf_url,
     is_active: incoming.isActive,
@@ -685,7 +726,12 @@ async function upsertProducts(mapped: MappedWooProduct[]): Promise<{
         if (nextSku !== match.sku && skuOwner && skuOwner.id !== match.id) {
           payload.sku = match.sku;
         }
-        const { error } = await supabase.from("products").update(payload).eq("id", match.id);
+        let { error } = await supabase.from("products").update(payload).eq("id", match.id);
+        if (error && /mrp_label|mrp_paise/i.test(error.message)) {
+          console.warn("product mrp columns missing — run 036_product_mrp.sql");
+          const { mrp_paise: _mrpPaise, mrp_label: _mrpLabel, ...rest } = payload;
+          ({ error } = await supabase.from("products").update(rest).eq("id", match.id));
+        }
         if (error) throw error;
         updated += 1;
         const nextRow: RowLite = {
@@ -697,9 +743,7 @@ async function upsertProducts(mapped: MappedWooProduct[]): Promise<{
         byWpId.set(item.wordpressId, nextRow);
         bySku.set(nextRow.sku.toLowerCase(), nextRow);
       } else {
-        const { data, error } = await supabase
-          .from("products")
-          .insert({
+        const insertRow = {
             org_id: ORG_ID,
             sku: item.sku,
             name: item.name,
@@ -709,6 +753,8 @@ async function upsertProducts(mapped: MappedWooProduct[]): Promise<{
             quantity: item.quantity,
             price_paise: item.pricePaise,
             price_label: item.priceLabel,
+            mrp_paise: item.mrpPaise,
+            mrp_label: item.mrpLabel,
             ai_weight: 0.5,
             specs: {
               wordpress_id: item.wordpressId,
@@ -719,9 +765,13 @@ async function upsertProducts(mapped: MappedWooProduct[]): Promise<{
             is_active: true,
             image_url: item.imageUrl,
             catalog_pdf_url: item.catalogueUrl,
-          })
-          .select("id")
-          .single();
+          };
+        let { data, error } = await supabase.from("products").insert(insertRow).select("id").single();
+        if (error && /mrp_label|mrp_paise/i.test(error.message)) {
+          console.warn("product mrp columns missing — run 036_product_mrp.sql");
+          const { mrp_paise: _mrpPaise, mrp_label: _mrpLabel, ...rest } = insertRow;
+          ({ data, error } = await supabase.from("products").insert(rest).select("id").single());
+        }
         if (error) throw error;
         created += 1;
         if (data?.id) {

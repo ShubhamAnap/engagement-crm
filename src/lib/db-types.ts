@@ -59,6 +59,8 @@ export type DbProduct = {
   quantity: number;
   price_paise: number | null;
   price_label: string | null;
+  mrp_paise?: number | null;
+  mrp_label?: string | null;
   ai_weight: number;
   battery_spec: string | null;
   runtime_spec: string | null;

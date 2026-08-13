@@ -71,6 +71,7 @@ type ProductFormState = {
   stockStatus: StockStatus;
   quantity: string;
   priceLabel: string;
+  mrpLabel: string;
   batterySpec: string;
   runtimeSpec: string;
 };
@@ -83,6 +84,7 @@ const defaultForm: ProductFormState = {
   stockStatus: "In Stock",
   quantity: "0",
   priceLabel: "",
+  mrpLabel: "",
   batterySpec: "",
   runtimeSpec: "",
 };
@@ -114,6 +116,7 @@ function formFromProduct(product: DbProduct): ProductFormState {
     stockStatus: product.stock_status,
     quantity: String(product.quantity),
     priceLabel: product.price_label || "",
+    mrpLabel: product.mrp_label || "",
     batterySpec: product.battery_spec || "",
     runtimeSpec: product.runtime_spec || "",
   };
@@ -233,6 +236,7 @@ function Page() {
         stockStatus: form.stockStatus,
         quantity,
         priceLabel: form.priceLabel,
+        mrpLabel: form.mrpLabel,
         batterySpec: form.batterySpec,
         runtimeSpec: form.runtimeSpec,
       };
@@ -434,7 +438,7 @@ function Page() {
     const q = search.trim().toLowerCase();
     if (!q) return items;
     return items.filter((product) =>
-      [product.sku, product.name, product.category, product.battery_spec, product.runtime_spec, product.price_label]
+      [product.sku, product.name, product.category, product.battery_spec, product.runtime_spec, product.price_label, product.mrp_label]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(q)),
     );
@@ -552,7 +556,7 @@ function Page() {
                 <table className="w-full text-sm">
                   <thead className="border-b border-border bg-secondary/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
                     <tr>
-                      {["SKU", "Product", "Category", "Batteries", "Runtime", "Stock", "Price", "Image", "Catalogue", "Actions"].map((h) => (
+                      {["SKU", "Product", "Category", "Batteries", "Runtime", "Stock", "Price", "MRP", "Image", "Catalogue", "Actions"].map((h) => (
                         <th key={h} className="px-4 py-2.5 font-medium whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -578,6 +582,7 @@ function Page() {
                           <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{product.runtime_spec || "—"}</td>
                           <td className="px-4 py-3"><Pill tone={stockTone(product.stock_status)}>{product.stock_status}</Pill></td>
                           <td className="num px-4 py-3 whitespace-nowrap">{product.price_label || "—"}</td>
+                          <td className="num px-4 py-3 text-muted-foreground whitespace-nowrap">{product.mrp_label || "—"}</td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             {imageUrl ? (
                               <img
@@ -670,7 +675,8 @@ function Page() {
             <div className="space-y-2"><Label htmlFor="product-category">Category</Label><Input id="product-category" value={form.category} onChange={(e) => setForm((s) => ({ ...s, category: e.target.value }))} placeholder="UPS / Battery / Service" /></div>
             <div className="space-y-2"><Label>Stock status</Label><Select value={form.stockStatus} onValueChange={(value: StockStatus) => setForm((s) => ({ ...s, stockStatus: value }))}><SelectTrigger><SelectValue placeholder="Select stock status" /></SelectTrigger><SelectContent>{stockOptions.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent></Select></div>
             <div className="space-y-2"><Label htmlFor="product-quantity">Quantity</Label><Input id="product-quantity" type="number" min="0" value={form.quantity} onChange={(e) => setForm((s) => ({ ...s, quantity: e.target.value }))} /></div>
-            <div className="space-y-2"><Label htmlFor="product-price">Price</Label><Input id="product-price" value={form.priceLabel} onChange={(e) => setForm((s) => ({ ...s, priceLabel: e.target.value }))} placeholder="₹52,900" /></div>
+            <div className="space-y-2"><Label htmlFor="product-price">Price</Label><Input id="product-price" value={form.priceLabel} onChange={(e) => setForm((s) => ({ ...s, priceLabel: e.target.value }))} placeholder="₹45,900" /></div>
+            <div className="space-y-2"><Label htmlFor="product-mrp">MRP</Label><Input id="product-mrp" value={form.mrpLabel} onChange={(e) => setForm((s) => ({ ...s, mrpLabel: e.target.value }))} placeholder="₹52,900" /></div>
             <div className="space-y-2"><Label htmlFor="product-battery">Battery spec</Label><Input id="product-battery" value={form.batterySpec} onChange={(e) => setForm((s) => ({ ...s, batterySpec: e.target.value }))} placeholder="8 x 42Ah" /></div>
             <div className="space-y-2 sm:col-span-2"><Label htmlFor="product-runtime">Runtime spec</Label><Input id="product-runtime" value={form.runtimeSpec} onChange={(e) => setForm((s) => ({ ...s, runtimeSpec: e.target.value }))} placeholder="42–48 minutes at 60% load" /></div>
             <div className="space-y-2 sm:col-span-2"><Label htmlFor="product-description">Description</Label><Textarea id="product-description" value={form.description} onChange={(e) => setForm((s) => ({ ...s, description: e.target.value }))} placeholder="Product overview, positioning, or technical summary" /></div>

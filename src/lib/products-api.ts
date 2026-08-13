@@ -2,6 +2,7 @@
 import type { DbCategoryCatalogue, DbProduct, StockStatus } from "@/lib/db-types";
 import { downloadCsv } from "@/lib/csv";
 import {
+  formatPrice,
   formatProductRecommendationCaption,
   inheritCategoryCatalogue,
   normalizeCategoryKey,
@@ -10,7 +11,7 @@ import {
 } from "@/lib/product-card";
 import { shortProductCatalogueUrl } from "@/lib/short-links";
 
-export { formatProductRecommendationCaption, productImagePublicUrl };
+export { formatPrice, formatProductRecommendationCaption, productImagePublicUrl };
 
 const KNOWLEDGE_BUCKET = "knowledge";
 
@@ -98,6 +99,17 @@ function mapProductMediaDbError(error: { message?: string }, kind: "image" | "pd
   if (/product_category_catalogues|category_key/i.test(msg)) {
     return new Error(`${msg} — run migration 035_category_catalogues.sql in Supabase SQL Editor.`);
   }
+  if (/mrp_label|mrp_paise/i.test(msg)) {
+    return new Error(`${msg} — run migration 036_product_mrp.sql in Supabase SQL Editor.`);
+  }
+  return new Error(msg);
+}
+
+function mapProductDbError(error: { message?: string }): Error {
+  const msg = error.message || "Could not save product";
+  if (/mrp_label|mrp_paise/i.test(msg)) {
+    return new Error(`${msg} — run migration 036_product_mrp.sql in Supabase SQL Editor.`);
+  }
   return new Error(msg);
 }
 
@@ -118,6 +130,7 @@ export type ProductInput = {
   stockStatus?: StockStatus;
   quantity?: number;
   priceLabel?: string;
+  mrpLabel?: string;
   batterySpec?: string;
   runtimeSpec?: string;
 };
@@ -142,6 +155,8 @@ function buildProductPayload(input: ProductInput) {
     quantity: input.quantity ?? 0,
     price_paise: parsePriceToPaise(input.priceLabel),
     price_label: input.priceLabel?.trim() || null,
+    mrp_paise: parsePriceToPaise(input.mrpLabel),
+    mrp_label: input.mrpLabel?.trim() || null,
     ai_weight: 0.5,
     battery_spec: input.batterySpec?.trim() || null,
     runtime_spec: input.runtimeSpec?.trim() || null,
@@ -176,7 +191,7 @@ export async function createProduct(input: ProductInput): Promise<DbProduct> {
     .select("*")
     .single();
 
-  if (error) throw error;
+  if (error) throw mapProductDbError(error);
   return data as DbProduct;
 }
 
@@ -190,7 +205,7 @@ export async function updateProduct(productId: string, input: ProductInput): Pro
     .select("*")
     .single();
 
-  if (error) throw error;
+  if (error) throw mapProductDbError(error);
   return data as DbProduct;
 }
 
@@ -500,6 +515,7 @@ export function downloadProductsCsv(
       "Stock",
       "Quantity",
       "Price",
+      "MRP",
       "Battery",
       "Runtime",
       "Catalogue URL",
@@ -515,6 +531,7 @@ export function downloadProductsCsv(
       p.stock_status ?? "",
       String(p.quantity ?? ""),
       p.price_label ?? "",
+      p.mrp_label ?? "",
       p.battery_spec ?? "",
       p.runtime_spec ?? "",
       productCatalogueHref(p, categoryByKey) ?? "",

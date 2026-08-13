@@ -5,6 +5,16 @@
 
 ---
 
+### Session 2026-08-13 — Sale price + MRP on products and chat
+
+**Change:** Woo selling/sale price stays on `price_label`; regular price stored as `mrp_label`. Products table/form show both. WhatsApp/chat: `Price: ₹45,000 (MRP ₹52,000)` when they differ.
+
+**Ops:** Run `036_product_mrp.sql`, then Sync from WordPress.
+
+**Files:** `supabase/migrations/036_product_mrp.sql`, `src/server/wordpress-catalog.ts`, `src/lib/product-card.ts`, `src/lib/products-api.ts`, `src/routes/products.tsx`.
+
+---
+
 ### Session 2026-08-13 — Category catalogue PDFs (one per category)
 
 **Approved:** Upload one catalogue PDF per product category. All SKUs in that category inherit it at read time (WhatsApp pack, `/c/{sku}`, Products table). A product-level PDF still overrides. Woo sync does not copy the file onto each row.
@@ -105,7 +115,7 @@
 
 Run **EnerTech Engage** as a **working enterprise AI customer engagement platform** for EnerTech UPS Pvt. Ltd., with architecture that can later become multi-tenant SaaS.
 
-**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Team permissions** — run `033`. **Knowledge Base A+B+C** — run `032` if needed. **Agents/Tools** + **Leads A+B** deployed. **Website Widget A+B** ready (is_enabled, embed attach, EnerTech typing) — deploy when asked. **Ops:** `029`→`035` as needed; public `APP_URL` for photo links. Category PDFs: run `035`.
+**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Team permissions** — run `033`. **Knowledge Base A+B+C** — run `032` if needed. **Agents/Tools** + **Leads A+B** deployed. **Website Widget A+B** ready (is_enabled, embed attach, EnerTech typing) — deploy when asked. **Ops:** `029`→`036` as needed; public `APP_URL` for photo links. Category PDFs: run `035`. Dual prices: run `036` then Sync WordPress.
 **Approach:** Prefer stabilize and ship focused improvements; new modules only when requested.
 
 ---
@@ -350,7 +360,7 @@ Embed on EnerTech website — live AI chat, lead capture (name/email/phone requi
 | AI Agents | `/agents` | Supabase | Master + specialists; test classify; Admin-only save; effective tools |
 | Tools | `/tools` | Supabase | Global enable + API-key hints + agents-using-tool; Admin-only; stale allow-list clean |
 | Knowledge Base | `/knowledge` | Supabase + Storage | Live collections + upload/index (pgvector RAG) |
-| Products | `/products` | Supabase + Storage | CRUD + card image + catalogue PDF (**short link** `/c/{SKU}`); category PDF inherit |
+| Products | `/products` | Supabase + Storage | CRUD + card image + catalogue PDF (`/c/{SKU}`); category PDF inherit; Price + MRP |
 | Customers | `/customers` | Supabase | List/create/update/delete |
 | Leads | `/leads` | Supabase | Master sheet: **paged** filters, CRM toggle, Add/Edit privileges, safe delete-by-source |
 | Pipeline | `/pipeline` | Supabase | Live Kanban from `leads` + drag/select stage updates |

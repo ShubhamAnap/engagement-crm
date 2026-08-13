@@ -12,7 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Pill } from "@/components/shared/ui-kit";
 import type { DbProduct } from "@/lib/db-types";
-import { formatProductRecommendationCaption, productImageHref } from "@/lib/products-api";
+import { formatPrice, formatProductRecommendationCaption, productImageHref } from "@/lib/products-api";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -50,7 +50,7 @@ export function RecommendProductDialog({
     const q = query.trim().toLowerCase();
     if (!q) return active;
     return active.filter((p) =>
-      [p.name, p.sku, p.category, p.price_label, p.description]
+      [p.name, p.sku, p.category, p.price_label, p.mrp_label, p.description]
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(q)),
     );
@@ -135,7 +135,7 @@ export function RecommendProductDialog({
                       <div className="min-w-0 flex-1">
                         <div className="truncate font-medium">{p.name}</div>
                         <div className="truncate text-xs text-muted-foreground">
-                          {[p.sku, p.category, p.price_label].filter(Boolean).join(" · ") || "—"}
+                          {[p.sku, p.category, formatPrice(p)].filter(Boolean).join(" · ") || "—"}
                         </div>
                       </div>
                       {!img ? <Pill tone="neutral">Text only</Pill> : null}

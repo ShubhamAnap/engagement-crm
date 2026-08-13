@@ -148,15 +148,36 @@ function featureBullets(desc: string, max = 6): string[] {
   return [`${(lastSpace > 160 ? cut.slice(0, lastSpace) : cut).trim()}…`];
 }
 
-function formatPrice(product: DbProduct): string | null {
-  if (product.price_label?.trim()) {
-    const label = product.price_label.trim();
-    return /^[₹rs]/i.test(label) ? label : `₹${label}`;
+function formatMoney(label: string | null | undefined, paise: number | null | undefined): string | null {
+  if (label?.trim()) {
+    const t = label.trim();
+    return /^[₹rs]/i.test(t) ? t : `₹${t}`;
   }
-  if (product.price_paise != null) {
-    return `₹${(product.price_paise / 100).toLocaleString("en-IN")}`;
+  if (paise != null && Number.isFinite(paise)) {
+    return `₹${(paise / 100).toLocaleString("en-IN")}`;
   }
   return null;
+}
+
+function moneyPaise(label: string | null | undefined, paise: number | null | undefined): number | null {
+  if (paise != null && Number.isFinite(paise)) return Math.round(paise);
+  if (!label?.trim()) return null;
+  const n = Number(String(label).replace(/[^\d.]/g, ""));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n * 100);
+}
+
+/** Selling price, with MRP in parentheses when it differs. */
+export function formatPrice(product: DbProduct): string | null {
+  const sell = formatMoney(product.price_label, product.price_paise);
+  if (!sell) return null;
+  const mrp = formatMoney(product.mrp_label, product.mrp_paise);
+  if (!mrp) return sell;
+  const sellPaise = moneyPaise(product.price_label, product.price_paise);
+  const mrpPaise = moneyPaise(product.mrp_label, product.mrp_paise);
+  if (sellPaise != null && mrpPaise != null && sellPaise === mrpPaise) return sell;
+  if (sell.replace(/\s/g, "").toLowerCase() === mrp.replace(/\s/g, "").toLowerCase()) return sell;
+  return `${sell} (MRP ${mrp})`;
 }
 
 /**

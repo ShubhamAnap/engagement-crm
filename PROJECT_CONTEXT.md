@@ -5,6 +5,16 @@
 
 ---
 
+### Session 2026-08-13 — Poultry install photos vs product card; AI Hi reply
+
+**Bugs:** (1) “installations of poultry” hit product pack (use-case + short text) instead of KB site photos. (2) AI-owned WhatsApp threads stayed silent on next-day Hi because greetings were skipped on non-cold chats.
+
+**Fix:** `wantsSiteInstallOrReferencePhotos` before product pack; Hi/Ho on AI-owned threads get a short greeting (5 min debounce).
+
+**Files:** `conversation-intent.ts`, `knowledge.ts`, `product-pack.ts`, `enertech-scope.ts`, `whatsapp.ts`, `widget-chat.ts`.
+
+---
+
 ### Session 2026-08-13 — Keep full sales name in defer replies (Mr. Amol, not A)
 
 **Bug:** `requirement_submitted` template `*Mr. Amol*` was parsed as `A` because a non-greedy regex stopped at one letter. Defer reply became “A is handling…”.

@@ -5,6 +5,7 @@ import {
   isInformationalProductAsk,
   hasTransactionalProductSignal,
   isEducateOnlyAsk,
+  wantsSiteInstallOrReferencePhotos,
 } from "@/lib/conversation-intent";
 import { createServiceSupabase } from "@/lib/supabase";
 import {
@@ -142,6 +143,7 @@ export function wantsProductPack(text: string): boolean {
   if (!q || q.length > 280) return false;
   if (isAckOnlyMessage(q) || isGreetingOnlyMessage(q)) return false;
   if (isServiceIntent(q)) return false;
+  if (wantsSiteInstallOrReferencePhotos(q)) return false;
 
   // Learn-first for complex power products (industry practice + India WhatsApp Hinglish)
   if (isEducateOnlyAsk(q)) {

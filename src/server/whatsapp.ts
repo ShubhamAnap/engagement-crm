@@ -1244,13 +1244,9 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             continue;
           }
 
-          // Cold-start greeting only — never Meta hello_world; template only when window was closed
+          // Short greeting on AI-owned threads (including next-day Hi) — never Meta hello_world
           if (isGreetingOnlyMessage(text)) {
-            if (!isColdConversationStart(historyRows)) {
-              continue;
-            }
-
-            const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+            const since = new Date(Date.now() - 5 * 60 * 1000).toISOString();
             const { data: priorGreet } = await supabase
               .from("messages")
               .select("id")
@@ -1333,12 +1329,13 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             Object.assign(prevMeta, cleaned);
           }
 
-          const productPack = educateOnly
-            ? { mode: "none" as const }
-            : await resolveProductPackRequest(text, {
-                pendingProducts,
-                presentation: "whatsapp",
-              });
+          const productPack =
+            educateOnly || wantsReferenceImages(text)
+              ? { mode: "none" as const }
+              : await resolveProductPackRequest(text, {
+                  pendingProducts,
+                  presentation: "whatsapp",
+                });
           if (productPack.mode === "clarify" || productPack.mode === "match") {
             const nextMeta: Record<string, unknown> = { ...prevMeta };
             if (productPack.mode === "clarify") {

@@ -1302,12 +1302,13 @@ export async function processWidgetCustomerTurn(
     }
 
     // Products: website → swipe carousel first; detail only after "I need this"
-    const productPack = educateOnly
-      ? { mode: "none" as const }
-      : await resolveProductPackRequest(text, {
-          pendingProducts,
-          presentation: "carousel",
-        });
+    const productPack =
+      educateOnly || wantsReferenceImages(text)
+        ? { mode: "none" as const }
+        : await resolveProductPackRequest(text, {
+            pendingProducts,
+            presentation: "carousel",
+          });
     if (productPack.mode === "carousel") {
       const nextMeta: Record<string, unknown> = {
         ...prevMeta,

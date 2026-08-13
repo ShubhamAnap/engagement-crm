@@ -83,8 +83,8 @@ export function hasActiveCustomerHandlingContext(
 }
 
 /**
- * Soft ping after an active thread: stay silent (or skip cold greeting).
- * Prefer no reply over a wrong welcome / Meta sample template.
+ * Soft ping after an active thread: stay silent on acks only.
+ * Greetings (Hi/Hello) still get a short “how can I help” — AI-owned chats must not go quiet.
  */
 export function shouldSuppressColdGreeting(options: {
   text: string;
@@ -93,9 +93,37 @@ export function shouldSuppressColdGreeting(options: {
   isGreeting: boolean;
   isAck: boolean;
 }): boolean {
-  if (!options.isGreeting && !options.isAck) return false;
+  if (options.isGreeting) return false;
+  if (!options.isAck) return false;
   if (hasActiveCustomerHandlingContext(options.history, options.leadRequirement)) return true;
   if (!isColdConversationStart(options.history)) return true;
+  return false;
+}
+
+const PHOTO_ASK_RE =
+  /reference|refrence|site\s*photo|gallery|photo|picture|image|\bpic\b|dikhao|dikha|dikhai|project\s*photo|show\s*(me\s*)?(photo|image|pic|picture)|photo\s*bhejo|image\s*bhejo|\bref\b|site\s*ref|install\s*ref|bhejo\s*(photo|image|pic)|send\s*(me\s*)?(a\s*)?(photo|image|pic|picture)|(photo|image|pic|picture).{0,40}(inverter|ups|bess|hybrid|product)|(inverter|ups|bess|hybrid|ongrid|product).{0,40}(photo|image|pic|picture)|reference\s*(photo|image|pic)|install(ation)?s?\s*(photo|image|pic|picture)/i;
+
+const INSTALL_ASK_RE =
+  /\b(install(?:ation|ations)?|installed|site\s*photos?|site\s*pics?|project\s*photos?)\b/i;
+
+const SITE_USE_CASE_RE =
+  /\b(poultry|broiler|chicken\s*farm|hatchery|farm(?:house)?|hospital|clinic|cold\s*storage|petrol|pump|house|home|residential|office|factory|industrial|hotel|mall)\b/i;
+
+/**
+ * Customer wants installation / application / site photos — not a product card.
+ * "installations of poultry" must hit this even without the word photo.
+ */
+export function wantsSiteInstallOrReferencePhotos(text: string): boolean {
+  const q = String(text || "").trim();
+  if (!q || isEducateOnlyAsk(q)) return false;
+  if (PHOTO_ASK_RE.test(q)) return true;
+  if (INSTALL_ASK_RE.test(q) && SITE_USE_CASE_RE.test(q)) return true;
+  if (
+    INSTALL_ASK_RE.test(q) &&
+    !/\b(price|quote|quotation|kw|kva|inverter|ups|hybrid|ongrid|catalogue|catalog)\b/i.test(q)
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -309,7 +337,7 @@ export function resolveSalesOwnerGate(options: {
 function isGreetingOnlyLike(text: string): boolean {
   const q = String(text || "").trim();
   if (!q || q.length > 48) return false;
-  return /^(hi|hello|hey|hii|hlo|namaste|namaskar|good\s*(morning|afternoon|evening)|thanks|thank\s*you|ok|okay|ji)[\s!.]*$/i.test(
+  return /^(hi+|hlo|hello|hey+|ho|namaste|namaskar|good\s*(morning|afternoon|evening)|thanks|thank\s*you|ok|okay|ji)[\s!.]*$/i.test(
     q,
   );
 }

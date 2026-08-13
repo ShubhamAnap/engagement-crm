@@ -22,7 +22,7 @@ const EMOJI_ONLY_RE =
 
 /** Short greetings that still get a tiny welcome (not product dumps). */
 const GREETING_RE =
-  /^(hi|hello|hey|hii|hlo|namaste|namaskar|good\s*(morning|afternoon|evening))[\s!.]*$/i;
+  /^(hi+|hlo|hello|hey+|ho|namaste|namaskar|good\s*(morning|afternoon|evening))[\s!.]*$/i;
 
 export const GREETING_REPLY =
   "Hello! How can I help you with EnerTech products or services?";

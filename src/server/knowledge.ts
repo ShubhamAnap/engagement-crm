@@ -5,7 +5,7 @@ import { chunkText, embedQuery, embedTexts, estimateTokens } from "@/server/embe
 import { ensurePdfFileLabel, shortDatasheetUrl, shortKnowledgeDocumentUrl } from "@/lib/short-links";
 import { isAckOnlyMessage, isGreetingOnlyMessage } from "@/lib/enertech-scope";
 import { isServiceIntent } from "@/lib/conversation-guards";
-import { isEducateOnlyAsk } from "@/lib/conversation-intent";
+import { isEducateOnlyAsk, wantsSiteInstallOrReferencePhotos } from "@/lib/conversation-intent";
 import { shortenStorageUrl } from "@/server/shorten-urls";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
@@ -1495,13 +1495,7 @@ export function customerAskedForMorePhotos(query: string): boolean {
 
 /** Hindi/English cues that the visitor wants installation / application / product photos. */
 export function wantsReferenceImages(query: string): boolean {
-  const q = query.toLowerCase();
-  // Definition asks are not photo requests (even if conversation has prior photo context)
-  if (isEducateOnlyAsk(q)) return false;
-  // Require an explicit visual / reference ask — do not hijack "hospital UPS" / "cold storage inverter"
-  return /reference|refrence|site\s*photo|gallery|photo|picture|image|\bpic\b|dikhao|dikha|dikhai|project\s*photo|show\s*(me\s*)?(photo|image|pic|picture)|photo\s*bhejo|image\s*bhejo|\bref\b|site\s*ref|install\s*ref|bhejo\s*(photo|image|pic)|send\s*(me\s*)?(a\s*)?(photo|image|pic|picture)|(photo|image|pic|picture).{0,40}(inverter|ups|bess|hybrid|product)|(inverter|ups|bess|hybrid|ongrid|product).{0,40}(photo|image|pic|picture)|reference\s*(photo|image|pic)|install(ation)?\s*(photo|image|pic|picture)/i.test(
-    q,
-  );
+  return wantsSiteInstallOrReferencePhotos(query);
 }
 
 /** True when a ready PDF was indexed without extracted body text (filename stub). */

@@ -443,7 +443,7 @@ export async function resolveProductPackRequest(
     .eq("org_id", ORG_ID)
     .eq("is_active", true)
     .order("ai_weight", { ascending: false })
-    .limit(200);
+    .limit(400);
 
   if (error) throw new Error(error.message);
   const products = (data || []) as DbProduct[];

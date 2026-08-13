@@ -2,9 +2,14 @@ import type { DbProduct } from "@/lib/db-types";
 import { shortProductCatalogueUrl } from "@/lib/short-links";
 
 export function resolveProductCatalogueUrl(product: DbProduct): string | null {
-  if (!product.catalog_pdf_url && !product.catalog_pdf_path) return null;
+  const raw = product.catalog_pdf_url || null;
+  const externalHttps =
+    raw && /^https:\/\//i.test(raw) && !/\/storage\/v1\/object\//i.test(raw) ? raw : null;
+  // Public WP/CDN PDFs: send the HTTPS URL so WhatsApp/Meta can fetch without Engage proxy.
+  if (externalHttps) return externalHttps;
+  if (!raw && !product.catalog_pdf_path) return null;
   if (product.sku?.trim()) return shortProductCatalogueUrl(product.sku);
-  return product.catalog_pdf_url || null;
+  return raw;
 }
 
 /** Public HTTPS image for chat / WhatsApp. */

@@ -14,6 +14,7 @@ export type ChannelType =
   | "indiamart"
   | "tradeindia"
   | "brainmine"
+  | "wordpress"
   | "api"
   | "webhook";
 

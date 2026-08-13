@@ -5,6 +5,18 @@
 
 ---
 
+### Session 2026-08-13 — WordPress / WooCommerce catalog pull
+
+**Decision:** WordPress is catalog master (pull-only). Engage does not push products back. Images/PDFs stay on WP as public HTTPS URLs.
+
+**Build:** Channels → WordPress / WooCommerce: Inspect (Store API, no keys) + Sync now. Woo REST v3 keys optional for prices, descriptions, download PDFs. Upsert by SKU or `WOO-{id}`/slug. Sale price over regular. Published only; missing Woo rows marked inactive. Product pack limit 400. `/c/{sku}` redirects to external HTTPS PDFs.
+
+**Ops:** Run `034_wordpress_channel.sql` then `034b_wordpress_channel_row.sql` in Supabase. Paste Woo Consumer Key/Secret in Channels (or `WOO_*` env). Then Inspect + Sync.
+
+**Files:** `src/server/wordpress-catalog.ts`, `src/routes/channels.tsx`, `src/routes/products.tsx`, `src/lib/product-card.ts`, `src/routes/c.$sku.ts`.
+
+---
+
 ### Session 2026-08-13 — Reference photos must not defer to sales
 
 **Bug:** “Refrence of petrol pump” matched sales-owned commercial defer (`reference` in transactional regex) and replied with Mr. Ritesh instead of KB petrol-pump photos.
@@ -743,7 +755,8 @@ Later (when needed): WhatsApp/Email credentials, brand assets, production domain
 
 ## Next Immediate Step
 
-1. **Follow-up Agent daily campaigns** — use Automation → “Suggest today’s follow-up”, or ensure Render cron hits `/api/cron/automations`. Approve in amber bar. Optional `FOLLOWUP_WA_TEMPLATE_NAME`.
+1. **WordPress catalog** — run migrations `034` then `034b` in Supabase. Channels → WordPress: Inspect, paste Woo REST keys when ready, Sync now. Not deployed until asked.
+2. **Follow-up Agent daily campaigns** — use Automation → “Suggest today’s follow-up”, or ensure Render cron hits `/api/cron/automations`. Approve in amber bar. Optional `FOLLOWUP_WA_TEMPLATE_NAME`.
 2. **Discuss then build:** Human Support queue — latest activity on top; keep human-handled visible.
 3. Confirm product image/PDF uploads / pending SQL as needed.
 4. Cron: `CRON_URL` + `CRON_SECRET` on Render (every 5 min).

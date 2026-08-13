@@ -1,7 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, FileText, Pencil, Plus, Trash2, Upload } from "lucide-react";
+import { Download, FileText, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -54,6 +54,7 @@ import {
   MAX_PRODUCT_IMPORT_ROWS,
 } from "@/lib/products-import";
 import { ensureKnowledgeStorage } from "@/server/knowledge";
+import { getWordpressSetup, syncWordpressCatalog } from "@/server/wordpress-catalog";
 
 const stockOptions: StockStatus[] = ["In Stock", "Low Stock", "Made to Order", "Out of Stock"];
 
@@ -137,6 +138,29 @@ function Page() {
     queryKey: ["products", orgId],
     enabled: Boolean(orgId),
     queryFn: () => listProducts(orgId!),
+  });
+
+  const wpSetupQuery = useQuery({
+    queryKey: ["wordpress-setup"],
+    queryFn: () => getWordpressSetup(),
+  });
+
+  const syncWpMutation = useMutation({
+    mutationFn: () => syncWordpressCatalog(),
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["products", orgId] });
+      await queryClient.invalidateQueries({ queryKey: ["wordpress-setup"] });
+      toast.success(
+        `WordPress sync: ${result.created} new · ${result.updated} updated · ${result.fetched} pulled`,
+      );
+      if (result.deactivated) {
+        toast.message(`${result.deactivated} unpublished Woo products marked inactive`);
+      }
+      if (result.errors.length) {
+        toast.message("Some products failed", { description: result.errors[0] });
+      }
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "WordPress sync failed"),
   });
 
   const saveMutation = useMutation({
@@ -368,9 +392,19 @@ function Page() {
     <>
       <PageHeader
         title="Product Catalog"
-        description="UPS systems, batteries and accessories — attach an image for WhatsApp product cards and a PDF catalogue for EnerBot."
+        description="UPS systems, batteries and accessories — WordPress is catalog master when connected. Attach an image for WhatsApp cards and a PDF catalogue for EnerBot."
         actions={
           <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              disabled={!wpSetupQuery.data?.configured || syncWpMutation.isPending}
+              onClick={() => syncWpMutation.mutate()}
+            >
+              <RefreshCw className={`size-4 ${syncWpMutation.isPending ? "animate-spin" : ""}`} />
+              {syncWpMutation.isPending ? "Syncing…" : "Sync from WordPress"}
+            </Button>
             <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setImportOpen(true)}>
               <Upload className="size-4" /> Bulk import
             </Button>
@@ -381,6 +415,19 @@ function Page() {
         }
       />
       <div className="space-y-4 p-6">
+        {wpSetupQuery.data?.lastSyncAt || wpSetupQuery.data?.channelReady ? (
+          <p className="text-xs text-muted-foreground">
+            WordPress source: {wpSetupQuery.data.siteUrl || "enertechups.com"}
+            {wpSetupQuery.data.lastSyncAt
+              ? ` · last sync ${new Date(wpSetupQuery.data.lastSyncAt).toLocaleString()}`
+              : " · not synced yet"}
+            {wpSetupQuery.data.lastSyncResult ? ` · ${wpSetupQuery.data.lastSyncResult}` : ""}
+            {" · "}
+            <Link to="/channels" className="text-primary underline">
+              Channels
+            </Link>
+          </p>
+        ) : null}
         <Panel bodyClassName="p-0">
           <Toolbar
             placeholder="Search SKU, name or category…"
@@ -426,7 +473,14 @@ function Page() {
                       return (
                         <tr key={product.id} className="hover:bg-secondary/40">
                           <td className="num px-4 py-3 whitespace-nowrap">{product.sku}</td>
-                          <td className="px-4 py-3 font-medium whitespace-nowrap">{product.name}</td>
+                          <td className="px-4 py-3 font-medium whitespace-nowrap">
+                            <span>{product.name}</span>
+                            {(product.specs as { source?: string } | null)?.source === "wordpress" ? (
+                              <Pill className="ml-2" tone="info">
+                                WP
+                              </Pill>
+                            ) : null}
+                          </td>
                           <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{product.category || "—"}</td>
                           <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{product.battery_spec || "—"}</td>
                           <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{product.runtime_spec || "—"}</td>

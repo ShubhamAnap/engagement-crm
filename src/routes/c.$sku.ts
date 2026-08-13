@@ -58,6 +58,10 @@ export const Route = createFileRoute("/c/$sku")({
             storagePath = m?.[1] ? decodeURIComponent(m[1]) : null;
           }
 
+          if (!storagePath && product.catalog_pdf_url && /^https:\/\//i.test(product.catalog_pdf_url)) {
+            return Response.redirect(product.catalog_pdf_url, 302);
+          }
+
           if (!storagePath) {
             return new Response("Catalogue not found", { status: 404 });
           }

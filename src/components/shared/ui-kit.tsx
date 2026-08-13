@@ -18,6 +18,7 @@ import {
   ArrowUpDown,
   Store,
   Database,
+  ShoppingBag,
   type LucideIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -186,6 +187,7 @@ export const channelMeta: Record<
   indiamart: { label: "IndiaMART", icon: Store, tone: "warning" },
   tradeindia: { label: "TradeIndia", icon: Store, tone: "info" },
   brainmine: { label: "Brainmine CRM+", icon: Database, tone: "primary" },
+  wordpress: { label: "WordPress / WooCommerce", icon: ShoppingBag, tone: "info" },
   api: { label: "API", icon: Globe, tone: "primary" },
   webhook: { label: "Webhook", icon: Globe, tone: "warning" },
 };

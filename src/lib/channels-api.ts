@@ -129,7 +129,8 @@ export async function setChannelEnabled(options: {
     type === "facebook" ||
     type === "instagram" ||
     type === "indiamart" ||
-    type === "tradeindia"
+    type === "tradeindia" ||
+    type === "wordpress"
   ) {
     status = enabled ? "Connected" : "Disconnected";
     health = enabled ? 100 : 0;
@@ -180,7 +181,11 @@ export async function setChannelEnabled(options: {
                         ? enabled
                           ? "CRM+ lead sync (read-only)"
                           : "disabled"
-                        : enabled
+                        : type === "wordpress"
+                          ? enabled
+                            ? "WooCommerce catalog pull"
+                            : "disabled"
+                          : enabled
                           ? "Enabled — connect credentials to go live"
                           : null,
     })
@@ -296,6 +301,7 @@ export function isLiveChannel(type: ChannelType): boolean {
     type === "instagram" ||
     type === "indiamart" ||
     type === "tradeindia" ||
-    type === "brainmine"
+    type === "brainmine" ||
+    type === "wordpress"
   );
 }

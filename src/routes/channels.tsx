@@ -91,6 +91,14 @@ import {
   syncBrainmineLeads,
 } from "@/server/brainmine";
 import { writeBrainmineFollowUpsNow, inspectBrainmineWritebackFields, saveBrainmineWritebackMap } from "@/server/brainmine-writeback";
+import {
+  WORDPRESS_DEFAULT_SITE,
+  ensureWordpressChannel,
+  getWordpressSetup,
+  inspectWordpressCatalog,
+  saveWordpressChannelConfig,
+  syncWordpressCatalog,
+} from "@/server/wordpress-catalog";
 import type { ChannelStatus } from "@/lib/db-types";
 import type { BrainmineAuthStyle, BrainmineIntervalUnit } from "@/server/brainmine";
 
@@ -192,6 +200,13 @@ function Page() {
   const [wbDescField, setWbDescField] = useState("description");
   const [websiteOriginsText, setWebsiteOriginsText] = useState("");
   const [websiteOriginsLoaded, setWebsiteOriginsLoaded] = useState(false);
+  const [wpSiteUrl, setWpSiteUrl] = useState(WORDPRESS_DEFAULT_SITE);
+  const [wpConsumerKey, setWpConsumerKey] = useState("");
+  const [wpConsumerSecret, setWpConsumerSecret] = useState("");
+  const [wpInspectOpen, setWpInspectOpen] = useState(false);
+  const [wpInspectResult, setWpInspectResult] = useState<Awaited<
+    ReturnType<typeof inspectWordpressCatalog>
+  > | null>(null);
 
   const channelsQuery = useQuery({
     queryKey: ["channels", orgId],
@@ -314,6 +329,11 @@ function Page() {
     refetchInterval: (q) => (q.state.data?.autoSyncEnabled ? 60_000 : false),
   });
 
+  const wpSetupQuery = useQuery({
+    queryKey: ["wordpress-setup"],
+    queryFn: () => getWordpressSetup(),
+  });
+
   useEffect(() => {
     const earliest = bmSetupQuery.data?.rangeEarliestDate;
     const latest = bmSetupQuery.data?.rangeLatestDate;
@@ -369,6 +389,7 @@ function Page() {
   const indiamart = channels.find((c) => c.type === "indiamart");
   const tradeindia = channels.find((c) => c.type === "tradeindia");
   const brainmine = channels.find((c) => c.type === "brainmine");
+  const wordpress = channels.find((c) => c.type === "wordpress");
   const webhookUrl =
     waSetupQuery.data?.webhookUrl ||
     `${String(appUrl).replace(/\/$/, "")}/api/webhooks/whatsapp`;
@@ -403,6 +424,7 @@ function Page() {
       queryClient.invalidateQueries({ queryKey: ["indiamart-setup"] }),
       queryClient.invalidateQueries({ queryKey: ["tradeindia-setup"] }),
       queryClient.invalidateQueries({ queryKey: ["brainmine-setup"] }),
+      queryClient.invalidateQueries({ queryKey: ["wordpress-setup"] }),
     ]);
   };
 
@@ -428,6 +450,9 @@ function Page() {
       }
       if (channel.type === "brainmine" && enabled && !bmSetupQuery.data?.configured) {
         throw new Error("Configure Brainmine API URL and key first.");
+      }
+      if (channel.type === "wordpress" && enabled && !wpSetupQuery.data?.configured) {
+        throw new Error("Save the WordPress site URL first (Configure on the WordPress card).");
       }
       return setChannelEnabled({
         channelId: channel.id,
@@ -602,6 +627,28 @@ function Page() {
         });
       }
 
+      if (editing.type === "wordpress") {
+        const existing = (editing.config || {}) as {
+          site_url?: string;
+          consumer_key?: string;
+          consumer_secret?: string;
+        };
+        const site =
+          wpSiteUrl.trim() ||
+          existing.site_url ||
+          wpSetupQuery.data?.siteUrl ||
+          WORDPRESS_DEFAULT_SITE;
+        if (!site) throw new Error("WordPress site URL is required");
+        return saveWordpressChannelConfig({
+          data: {
+            siteUrl: site,
+            consumerKey: wpConsumerKey.trim() || undefined,
+            consumerSecret: wpConsumerSecret.trim() || undefined,
+            enable: true,
+          },
+        });
+      }
+
       const health = Number(formHealth);
       if (!Number.isFinite(health) || health < 0 || health > 100) {
         throw new Error("Health must be 0–100");
@@ -730,6 +777,16 @@ function Page() {
       setBmAuthStyle(c.auth_style || (bmSetupQuery.data?.authStyle as BrainmineAuthStyle) || "token");
       setBmLeadsPath(c.leads_path || bmSetupQuery.data?.leadsPath || "/api/resource/Lead");
       setBmSyncLimit(String(c.sync_limit || bmSetupQuery.data?.syncLimit || 30));
+    }
+    if (channel.type === "wordpress") {
+      const c = cfg as {
+        site_url?: string;
+        consumer_key?: string;
+        consumer_secret?: string;
+      };
+      setWpSiteUrl(c.site_url || wpSetupQuery.data?.siteUrl || WORDPRESS_DEFAULT_SITE);
+      setWpConsumerKey("");
+      setWpConsumerSecret("");
     }
   }
 
@@ -1026,6 +1083,52 @@ function Page() {
       toast.error(error instanceof Error ? error.message : "Brainmine write-back failed"),
   });
 
+  const ensureWpMutation = useMutation({
+    mutationFn: () => ensureWordpressChannel(),
+    onSuccess: async (result) => {
+      await invalidate();
+      if (!result.ok) {
+        toast.error(result.error || "Could not create WordPress channel");
+        return;
+      }
+      toast.success(result.created ? "WordPress channel card created" : "WordPress channel already exists");
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not create channel"),
+  });
+
+  const inspectWpMutation = useMutation({
+    mutationFn: () => inspectWordpressCatalog(),
+    onSuccess: (result) => {
+      setWpInspectResult(result);
+      setWpInspectOpen(true);
+      toast.success(
+        result.storeApiOk || result.restV3Ok
+          ? `Inspected ${result.sample.length} sample products${result.estimatedTotal ? ` (≈${result.estimatedTotal} published)` : ""}`
+          : "Inspect finished — see details",
+      );
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not inspect WordPress catalog"),
+  });
+
+  const syncWpMutation = useMutation({
+    mutationFn: () => syncWordpressCatalog(),
+    onSuccess: async (result) => {
+      await invalidate();
+      await queryClient.invalidateQueries({ queryKey: ["products"] });
+      toast.success(
+        `WordPress sync: ${result.created} new · ${result.updated} updated · ${result.fetched} pulled`,
+      );
+      if (result.deactivated) {
+        toast.message(`${result.deactivated} Woo products no longer published — marked inactive`);
+      }
+      if (result.errors.length) {
+        toast.message("Some products failed", { description: result.errors[0] });
+      }
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "WordPress sync failed"),
+  });
+
   const ensureBmMutation = useMutation({
     mutationFn: () => ensureBrainmineChannel(),
     onSuccess: async (result) => {
@@ -1076,11 +1179,23 @@ function Page() {
     queryClient,
   ]);
 
+  useEffect(() => {
+    if (wpSetupQuery.data?.channelCreated || (wpSetupQuery.data?.channelReady && !wordpress)) {
+      void queryClient.invalidateQueries({ queryKey: ["channels", orgId] });
+    }
+  }, [
+    wpSetupQuery.data?.channelCreated,
+    wpSetupQuery.data?.channelReady,
+    wordpress,
+    orgId,
+    queryClient,
+  ]);
+
   return (
     <>
       <PageHeader
         title="Channels"
-        description="Manage customer touchpoints including Meta, IndiaMART, TradeIndia, and Brainmine CRM+ lead sync."
+        description="Manage customer touchpoints including Meta, IndiaMART, TradeIndia, Brainmine CRM+, and WordPress product catalog."
         meta={
           <div className="flex flex-wrap gap-2">
             <Pill tone={website?.is_enabled ? "success" : "warning"} dot>
@@ -2424,6 +2539,82 @@ function Page() {
           </div>
         </Panel>
 
+        <Panel
+          title="WordPress / WooCommerce (product catalog)"
+          description="WordPress is the catalog master. Pull published Woo products into Engage /products for WhatsApp and AI cards. Files stay on WP as public HTTPS URLs."
+        >
+          <ol className="mb-3 list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+            <li>
+              Default site:{" "}
+              <code className="text-xs">{WORDPRESS_DEFAULT_SITE}</code>. Woo Store API is public —
+              Inspect works before keys.
+            </li>
+            <li>
+              Optional: WooCommerce → Settings → Advanced → REST API → add a Read key. Paste
+              Consumer Key + Secret below for prices, descriptions, and download PDFs.
+            </li>
+            <li>
+              <span className="font-medium text-foreground">Inspect</span> samples names, photos, SKU
+              coverage, and catalogue PDFs.{" "}
+              <span className="font-medium text-foreground">Sync now</span> upserts by SKU (or{" "}
+              <code className="text-xs">WOO-{"{id}"}</code> / slug when SKU is empty). Sale price
+              wins over regular. Unpublished Woo products are marked inactive — manual Engage rows
+              are left alone.
+            </li>
+          </ol>
+          <div className="flex flex-wrap items-center gap-2">
+            {wordpress ? (
+              <Button size="sm" onClick={() => openEdit(wordpress)}>
+                Configure WordPress
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                disabled={ensureWpMutation.isPending}
+                onClick={() => ensureWpMutation.mutate()}
+              >
+                {ensureWpMutation.isPending ? "Creating…" : "Create WordPress card"}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={inspectWpMutation.isPending}
+              onClick={() => inspectWpMutation.mutate()}
+            >
+              {inspectWpMutation.isPending ? "Inspecting…" : "Inspect catalog"}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!wpSetupQuery.data?.configured || syncWpMutation.isPending}
+              onClick={() => syncWpMutation.mutate()}
+            >
+              {syncWpMutation.isPending ? "Syncing…" : "Sync now"}
+            </Button>
+            <Button size="sm" variant="outline" asChild>
+              <Link to="/products">Open products</Link>
+            </Button>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Status:{" "}
+            {wordpress
+              ? wpSetupQuery.data?.configured
+                ? wpSetupQuery.data.lastSyncAt
+                  ? `Connected. Last sync ${new Date(wpSetupQuery.data.lastSyncAt).toLocaleString()}${
+                      wpSetupQuery.data.lastSyncResult ? ` · ${wpSetupQuery.data.lastSyncResult}` : ""
+                    }.`
+                  : wpSetupQuery.data.hasKeys
+                    ? "REST keys saved — run Inspect, then Sync now."
+                    : "Site URL ready. Inspect works now; add REST keys later for prices and PDFs."
+                : "Channel card ready — click Configure WordPress."
+              : "WordPress card missing. Click Create WordPress card (requires migration 034 + 034b)."}
+          </p>
+          {wpSetupQuery.data?.lastSyncError ? (
+            <p className="mt-1 text-xs text-destructive">{wpSetupQuery.data.lastSyncError}</p>
+          ) : null}
+        </Panel>
+
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {channelsQuery.isLoading ? (
             <Panel>
@@ -2476,6 +2667,8 @@ function Page() {
                                   ? "Inquiry API"
                                   : c.type === "brainmine"
                                   ? "CRM sync"
+                                  : c.type === "wordpress"
+                                    ? "Woo catalog"
                                 : "Live"}
                       </Pill>
                     ) : (
@@ -2523,6 +2716,9 @@ function Page() {
             <li>
               <span className="font-medium text-foreground">TradeIndia</span> — My Inquiry API pull → Leads + Inbox follow-up.
             </li>
+            <li>
+              <span className="font-medium text-foreground">WordPress / WooCommerce</span> — pull-only product catalog into /products (WP is source of truth).
+            </li>
           </ul>
         </Panel>
       </div>
@@ -2544,6 +2740,8 @@ function Page() {
                         ? "Paste TradeIndia My Inquiry API userid, profile_id, and key. Sync pulls inquiries into Leads + Inbox."
                         : editing?.type === "brainmine"
                           ? "Connect Brainmine CRM+ (read-only). Sync pulls leads into the master Leads sheet."
+                          : editing?.type === "wordpress"
+                            ? "WordPress is the catalog master. Save the site URL now; add Woo REST keys later for prices and download PDFs."
                       : editing && isLiveChannel(editing.type)
                         ? "Website chat is live. Adjust display name, detail, and health."
                         : "Provider API is not connected yet. You can still rename and mark intent to enable."}
@@ -2927,6 +3125,55 @@ function Page() {
                   : null}
               </p>
             </div>
+          ) : editing?.type === "wordpress" ? (
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="wp-site">Site URL</Label>
+                <Input
+                  id="wp-site"
+                  value={wpSiteUrl}
+                  onChange={(e) => setWpSiteUrl(e.target.value)}
+                  placeholder={WORDPRESS_DEFAULT_SITE}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="wp-ck">Consumer key (optional)</Label>
+                <Input
+                  id="wp-ck"
+                  type="password"
+                  value={wpConsumerKey}
+                  onChange={(e) => setWpConsumerKey(e.target.value)}
+                  placeholder={
+                    wpSetupQuery.data?.hasKeys
+                      ? "Leave blank to keep existing / .env key"
+                      : "ck_… from WooCommerce REST API"
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="wp-cs">Consumer secret (optional)</Label>
+                <Input
+                  id="wp-cs"
+                  type="password"
+                  value={wpConsumerSecret}
+                  onChange={(e) => setWpConsumerSecret(e.target.value)}
+                  placeholder={
+                    wpSetupQuery.data?.hasKeys
+                      ? "Leave blank to keep existing / .env secret"
+                      : "cs_… from WooCommerce REST API"
+                  }
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Keys are stored in the channel config (service role), not git. Override with{" "}
+                <code className="text-[10px]">WOO_SITE_URL</code> /{" "}
+                <code className="text-[10px]">WOO_CONSUMER_KEY</code> /{" "}
+                <code className="text-[10px]">WOO_CONSUMER_SECRET</code> on Render.
+                {wpSetupQuery.data?.fromEnv?.key || wpSetupQuery.data?.fromEnv?.siteUrl
+                  ? " Env credentials detected."
+                  : null}
+              </p>
+            </div>
           ) : (
             <div className="space-y-3">
               <div className="space-y-2">
@@ -2986,7 +3233,8 @@ function Page() {
                     editing?.type === "instagram" ||
                     editing?.type === "indiamart" ||
                     editing?.type === "tradeindia" ||
-                    editing?.type === "brainmine"
+                    editing?.type === "brainmine" ||
+                    editing?.type === "wordpress"
                   ? "Save & connect"
                   : "Save"}
             </Button>
@@ -3181,6 +3429,74 @@ function Page() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setBmInspectOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={wpInspectOpen}
+        onOpenChange={(open) => {
+          setWpInspectOpen(open);
+          if (!open) setWpInspectResult(null);
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Inspect WordPress catalog</DialogTitle>
+            <DialogDescription>
+              {wpInspectResult?.siteUrl || WORDPRESS_DEFAULT_SITE}
+              {wpInspectResult?.estimatedTotal != null
+                ? ` · ≈${wpInspectResult.estimatedTotal} published`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {!wpInspectResult ? (
+            <p className="text-sm text-muted-foreground">No inspection result yet.</p>
+          ) : (
+            <div className="space-y-3 text-sm">
+              <p className="rounded-md border border-border bg-secondary/40 px-3 py-2 text-xs text-foreground">
+                {wpInspectResult.hint}
+              </p>
+              <p className="text-xs text-muted-foreground">{wpInspectResult.pdfHint}</p>
+              <div className="flex flex-wrap gap-2 text-xs">
+                <Pill tone={wpInspectResult.storeApiOk ? "success" : "danger"}>
+                  Store API {wpInspectResult.storeApiOk ? "ok" : "fail"}
+                </Pill>
+                <Pill tone={wpInspectResult.restV3Ok ? "success" : "warning"}>
+                  REST v3 {wpInspectResult.restV3Ok ? "ok" : `HTTP ${wpInspectResult.restV3Status ?? "—"}`}
+                </Pill>
+                <Pill tone={wpInspectResult.hasKeys ? "success" : "neutral"}>
+                  {wpInspectResult.hasKeys ? "Keys saved" : "No REST keys"}
+                </Pill>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Sample: {wpInspectResult.withImage} photos · {wpInspectResult.withPrice} prices ·{" "}
+                {wpInspectResult.withPdf} PDFs · {wpInspectResult.skuEmpty} missing SKU
+              </p>
+              {wpInspectResult.sample.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No sample products returned.</p>
+              ) : (
+                <ul className="max-h-56 space-y-2 overflow-y-auto rounded-md border border-border p-2 text-xs">
+                  {wpInspectResult.sample.map((p) => (
+                    <li key={p.id}>
+                      <span className="font-medium text-foreground">{p.name}</span>
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · {p.mappedSku}
+                        {p.priceLabel ? ` · ${p.priceLabel}` : ""}
+                        {p.imageUrl ? " · photo" : ""}
+                        {p.catalogueUrl ? " · PDF" : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWpInspectOpen(false)}>
               Close
             </Button>
           </DialogFooter>

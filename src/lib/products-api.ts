@@ -165,9 +165,10 @@ export async function createProduct(input: ProductInput): Promise<DbProduct> {
 
 export async function updateProduct(productId: string, input: ProductInput): Promise<DbProduct> {
   const supabase = getBrowserSupabase();
+  const { specs: _specs, ai_weight: _aiWeight, is_active: _active, ...fields } = buildProductPayload(input);
   const { data, error } = await supabase
     .from("products")
-    .update(buildProductPayload(input))
+    .update(fields)
     .eq("id", productId)
     .select("*")
     .single();

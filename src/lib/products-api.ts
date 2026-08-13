@@ -1,7 +1,13 @@
 ﻿import { getBrowserSupabase } from "@/lib/supabase";
-import type { DbProduct, StockStatus } from "@/lib/db-types";
+import type { DbCategoryCatalogue, DbProduct, StockStatus } from "@/lib/db-types";
 import { downloadCsv } from "@/lib/csv";
-import { formatProductRecommendationCaption, productImagePublicUrl } from "@/lib/product-card";
+import {
+  formatProductRecommendationCaption,
+  inheritCategoryCatalogue,
+  normalizeCategoryKey,
+  productImagePublicUrl,
+  type CategoryCatalogueLookup,
+} from "@/lib/product-card";
 import { shortProductCatalogueUrl } from "@/lib/short-links";
 
 export { formatProductRecommendationCaption, productImagePublicUrl };
@@ -89,7 +95,18 @@ function mapProductMediaDbError(error: { message?: string }, kind: "image" | "pd
   if (kind === "pdf" && /catalog_pdf|column/i.test(msg)) {
     return new Error(`${msg} — run migration 004_knowledge_rag.sql in Supabase SQL Editor.`);
   }
+  if (/product_category_catalogues|category_key/i.test(msg)) {
+    return new Error(`${msg} — run migration 035_category_catalogues.sql in Supabase SQL Editor.`);
+  }
   return new Error(msg);
+}
+
+export function toCategoryCatalogueLookup(rows: DbCategoryCatalogue[]): CategoryCatalogueLookup {
+  const map: CategoryCatalogueLookup = new Map();
+  for (const row of rows) {
+    if (row.category_key) map.set(row.category_key, row);
+  }
+  return map;
 }
 
 export type ProductInput = {
@@ -266,10 +283,117 @@ export async function removeProductCataloguePdf(options: {
   return data as DbProduct;
 }
 
-export function productCatalogueHref(product: DbProduct): string | null {
-  if (!product.catalog_pdf_url && !product.catalog_pdf_path) return null;
-  if (product.sku?.trim()) return shortProductCatalogueUrl(product.sku);
-  return product.catalog_pdf_url || (product.catalog_pdf_path ? publicCatalogueUrl(product.catalog_pdf_path) : null);
+export function productCatalogueHref(
+  product: DbProduct,
+  categoryByKey?: CategoryCatalogueLookup | null,
+): string | null {
+  const resolved = inheritCategoryCatalogue(product, categoryByKey);
+  if (!resolved.catalog_pdf_url && !resolved.catalog_pdf_path) return null;
+  if (resolved.sku?.trim()) return shortProductCatalogueUrl(resolved.sku);
+  return (
+    resolved.catalog_pdf_url ||
+    (resolved.catalog_pdf_path ? publicCatalogueUrl(resolved.catalog_pdf_path) : null)
+  );
+}
+
+export async function listCategoryCatalogues(orgId: string): Promise<DbCategoryCatalogue[]> {
+  const supabase = getBrowserSupabase();
+  const { data, error } = await supabase
+    .from("product_category_catalogues")
+    .select("*")
+    .eq("org_id", orgId)
+    .order("category_label", { ascending: true });
+  if (error) {
+    if (/does not exist|schema cache|product_category_catalogues/i.test(error.message)) {
+      console.warn("product_category_catalogues missing — run 035_category_catalogues.sql");
+      return [];
+    }
+    throw error;
+  }
+  return (data ?? []) as DbCategoryCatalogue[];
+}
+
+export async function uploadCategoryCataloguePdf(options: {
+  orgId: string;
+  categoryLabel: string;
+  file: File;
+}): Promise<DbCategoryCatalogue> {
+  const { orgId, file } = options;
+  const label = options.categoryLabel.trim().replace(/\s+/g, " ");
+  const key = normalizeCategoryKey(label);
+  if (!key) throw new Error("Category name is required");
+  const lower = file.name.toLowerCase();
+  if (!lower.endsWith(".pdf") && file.type !== "application/pdf") {
+    throw new Error("Catalogue must be a PDF file");
+  }
+  if (file.size > 12 * 1024 * 1024) {
+    throw new Error("Catalogue PDF max size is 12 MB");
+  }
+
+  await ensureProductStorageReady();
+
+  const supabase = getBrowserSupabase();
+  const safeName = file.name.replace(/[^\w.\-]+/g, "_") || "catalogue.pdf";
+  const storagePath = `${orgId}/category-catalogues/${key}/${safeName}`;
+
+  const attempt = async () =>
+    supabase.storage.from(KNOWLEDGE_BUCKET).upload(storagePath, file, {
+      contentType: "application/pdf",
+      upsert: true,
+    });
+  let { error: upErr } = await attempt();
+  if (upErr) {
+    await supabase.storage.from(KNOWLEDGE_BUCKET).remove([storagePath]).catch(() => undefined);
+    ({ error: upErr } = await supabase.storage.from(KNOWLEDGE_BUCKET).upload(storagePath, file, {
+      contentType: "application/pdf",
+      upsert: false,
+    }));
+  }
+  if (upErr) {
+    const { uploadCategoryCatalogueServer } = await import("@/server/product-media");
+    return (await uploadCategoryCatalogueServer({
+      data: {
+        categoryLabel: label,
+        fileName: file.name,
+        contentType: "application/pdf",
+        base64: await fileToBase64(file),
+      },
+    })) as DbCategoryCatalogue;
+  }
+
+  const catalogUrl = publicCatalogueUrl(storagePath);
+  const row = {
+    org_id: orgId,
+    category_key: key,
+    category_label: label,
+    catalog_pdf_path: storagePath,
+    catalog_pdf_url: catalogUrl,
+  };
+  const { data, error } = await supabase
+    .from("product_category_catalogues")
+    .upsert(row, { onConflict: "org_id,category_key" })
+    .select("*")
+    .single();
+  if (error) throw mapProductMediaDbError(error, "pdf");
+  return data as DbCategoryCatalogue;
+}
+
+export async function removeCategoryCataloguePdf(options: {
+  orgId: string;
+  categoryKey: string;
+  storagePath?: string | null;
+}): Promise<void> {
+  const { orgId, categoryKey, storagePath } = options;
+  const supabase = getBrowserSupabase();
+  if (storagePath) {
+    await supabase.storage.from(KNOWLEDGE_BUCKET).remove([storagePath]);
+  }
+  const { error } = await supabase
+    .from("product_category_catalogues")
+    .delete()
+    .eq("org_id", orgId)
+    .eq("category_key", categoryKey);
+  if (error) throw mapProductMediaDbError(error, "pdf");
 }
 
 export function productImageHref(product: DbProduct): string | null {
@@ -363,7 +487,11 @@ export async function removeProductImage(options: {
   return data as DbProduct;
 }
 
-export function downloadProductsCsv(products: DbProduct[], filename?: string) {
+export function downloadProductsCsv(
+  products: DbProduct[],
+  filename?: string,
+  categoryByKey?: CategoryCatalogueLookup | null,
+) {
   const rows: string[][] = [
     [
       "SKU",
@@ -389,7 +517,7 @@ export function downloadProductsCsv(products: DbProduct[], filename?: string) {
       p.price_label ?? "",
       p.battery_spec ?? "",
       p.runtime_spec ?? "",
-      productCatalogueHref(p) ?? "",
+      productCatalogueHref(p, categoryByKey) ?? "",
       p.created_at ?? "",
       p.id,
     ]);

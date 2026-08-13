@@ -5,6 +5,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
+import { normalizeCategoryKey } from "@/lib/product-card";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const BUCKET = "knowledge";
@@ -126,4 +127,58 @@ export const uploadProductMediaServer = createServerFn({ method: "POST" })
     }
 
     return updated;
+  });
+
+export const uploadCategoryCatalogueServer = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      categoryLabel: z.string().min(1).max(160),
+      fileName: z.string().min(1).max(240),
+      contentType: z.string().max(120).optional(),
+      base64: z.string().min(1),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await ensureBucket();
+    const supabase = createServiceSupabase();
+    const buffer = Buffer.from(data.base64, "base64");
+    if (buffer.length > 12 * 1024 * 1024) throw new Error("Catalogue PDF max size is 12 MB");
+    const label = data.categoryLabel.trim().replace(/\s+/g, " ");
+    const key = normalizeCategoryKey(label);
+    if (!key) throw new Error("Category name is required");
+    const lower = data.fileName.toLowerCase();
+    if (!lower.endsWith(".pdf") && !String(data.contentType || "").includes("pdf")) {
+      throw new Error("Catalogue must be a PDF file");
+    }
+    const safeName = data.fileName.replace(/[^\w.\-]+/g, "_") || "catalogue.pdf";
+    const storagePath = `${ORG_ID}/category-catalogues/${key}/${safeName}`;
+    await supabase.storage.from(BUCKET).remove([storagePath]).catch(() => undefined);
+    const { error: uploadError } = await supabase.storage.from(BUCKET).upload(storagePath, buffer, {
+      contentType: "application/pdf",
+      upsert: true,
+    });
+    if (uploadError) {
+      throw new Error(`Storage upload failed: ${uploadError.message}`);
+    }
+    const publicUrl = publicFileUrl(storagePath);
+    const { data: row, error } = await supabase
+      .from("product_category_catalogues")
+      .upsert(
+        {
+          org_id: ORG_ID,
+          category_key: key,
+          category_label: label,
+          catalog_pdf_path: storagePath,
+          catalog_pdf_url: publicUrl,
+        },
+        { onConflict: "org_id,category_key" },
+      )
+      .select("*")
+      .single();
+    if (error) {
+      throw new Error(
+        `${error.message} — run migration 035_category_catalogues.sql in Supabase SQL Editor.`,
+      );
+    }
+    return row;
   });

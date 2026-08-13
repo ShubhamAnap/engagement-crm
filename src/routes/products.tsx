@@ -1,7 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, FileText, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import { Download, FileText, Layers, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,17 +34,22 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState, PageHeader, Panel, Pill, TablePagination, Toolbar } from "@/components/shared/ui-kit";
 import { useAuth } from "@/lib/auth";
-import type { DbProduct, StockStatus } from "@/lib/db-types";
+import type { DbCategoryCatalogue, DbProduct, StockStatus } from "@/lib/db-types";
+import { normalizeCategoryKey } from "@/lib/product-card";
 import {
   createProduct,
   deleteProduct,
   downloadProductsCsv,
+  listCategoryCatalogues,
   listProducts,
   productCatalogueHref,
   productImageHref,
+  removeCategoryCataloguePdf,
   removeProductCataloguePdf,
   removeProductImage,
+  toCategoryCatalogueLookup,
   updateProduct,
+  uploadCategoryCataloguePdf,
   uploadProductCataloguePdf,
   uploadProductImage,
 } from "@/lib/products-api";
@@ -121,10 +126,13 @@ function Page() {
   const catalogInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const categoryFileRef = useRef<HTMLInputElement>(null);
+  const pendingCategoryLabelRef = useRef<string | null>(null);
   const [search, setSearch] = useState("");
   const pageSize = 25;
   const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<DbProduct | null>(null);
   const [productToDelete, setProductToDelete] = useState<DbProduct | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -139,6 +147,52 @@ function Page() {
     enabled: Boolean(orgId),
     queryFn: () => listProducts(orgId!),
   });
+
+  const categoryQuery = useQuery({
+    queryKey: ["category-catalogues", orgId],
+    enabled: Boolean(orgId),
+    queryFn: () => listCategoryCatalogues(orgId!),
+  });
+
+  const catLookup = useMemo(
+    () => toCategoryCatalogueLookup(categoryQuery.data ?? []),
+    [categoryQuery.data],
+  );
+
+  const categoryRows = useMemo(() => {
+    const byKey = new Map<
+      string,
+      { key: string; label: string; count: number; catalogue: DbCategoryCatalogue | null }
+    >();
+    for (const product of productsQuery.data ?? []) {
+      const label = String(product.category || "").trim().replace(/\s+/g, " ");
+      const key = normalizeCategoryKey(label);
+      if (!key) continue;
+      const existing = byKey.get(key);
+      if (existing) existing.count += 1;
+      else {
+        byKey.set(key, {
+          key,
+          label,
+          count: 1,
+          catalogue: (categoryQuery.data ?? []).find((row) => row.category_key === key) ?? null,
+        });
+      }
+    }
+    for (const row of categoryQuery.data ?? []) {
+      const existing = byKey.get(row.category_key);
+      if (existing) existing.catalogue = row;
+      else {
+        byKey.set(row.category_key, {
+          key: row.category_key,
+          label: row.category_label,
+          count: 0,
+          catalogue: row,
+        });
+      }
+    }
+    return [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label));
+  }, [productsQuery.data, categoryQuery.data]);
 
   const wpSetupQuery = useQuery({
     queryKey: ["wordpress-setup"],
@@ -313,6 +367,39 @@ function Page() {
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not remove catalogue"),
   });
 
+  const uploadCategoryMutation = useMutation({
+    mutationFn: async ({ label, file }: { label: string; file: File }) => {
+      if (!orgId) throw new Error("Your profile is still loading");
+      await ensureKnowledgeStorage();
+      return uploadCategoryCataloguePdf({ orgId, categoryLabel: label, file });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["category-catalogues", orgId] });
+      toast.success("Category catalogue uploaded — SKUs in this category inherit it");
+      pendingCategoryLabelRef.current = null;
+      if (categoryFileRef.current) categoryFileRef.current.value = "";
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Category catalogue upload failed"),
+  });
+
+  const removeCategoryMutation = useMutation({
+    mutationFn: async (row: DbCategoryCatalogue) => {
+      if (!orgId) throw new Error("No product selected");
+      return removeCategoryCataloguePdf({
+        orgId,
+        categoryKey: row.category_key,
+        storagePath: row.catalog_pdf_path,
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["category-catalogues", orgId] });
+      toast.success("Category catalogue removed");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not remove category catalogue"),
+  });
+
   const removeImageMutation = useMutation({
     mutationFn: async () => {
       if (!orgId || !editingProduct) throw new Error("No product selected");
@@ -385,14 +472,15 @@ function Page() {
     setDialogOpen(true);
   };
 
-  const currentCatalogUrl = editingProduct ? productCatalogueHref(editingProduct) : null;
+  const hasOwnCatalog = Boolean(editingProduct?.catalog_pdf_url || editingProduct?.catalog_pdf_path);
+  const currentCatalogUrl = editingProduct ? productCatalogueHref(editingProduct, catLookup) : null;
   const currentImageUrl = editingProduct ? productImageHref(editingProduct) : null;
 
   return (
     <>
       <PageHeader
         title="Product Catalog"
-        description="UPS systems, batteries and accessories — WordPress is catalog master when connected. Attach an image for WhatsApp cards and a PDF catalogue for EnerBot."
+        description="UPS systems, batteries and accessories — WordPress is catalog master when connected. One PDF per category is inherited by every SKU unless a product has its own file."
         actions={
           <div className="flex flex-wrap gap-2">
             <Button
@@ -404,6 +492,9 @@ function Page() {
             >
               <RefreshCw className={`size-4 ${syncWpMutation.isPending ? "animate-spin" : ""}`} />
               {syncWpMutation.isPending ? "Syncing…" : "Sync from WordPress"}
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setCategoryDialogOpen(true)}>
+              <Layers className="size-4" /> Category catalogues
             </Button>
             <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setImportOpen(true)}>
               <Upload className="size-4" /> Bulk import
@@ -442,7 +533,7 @@ function Page() {
                     toast.message("Nothing to export");
                     return;
                   }
-                  downloadProductsCsv(filteredProducts);
+                  downloadProductsCsv(filteredProducts, undefined, catLookup);
                   toast.success(`Exported ${filteredProducts.length} products`);
                 }}
               >
@@ -468,8 +559,9 @@ function Page() {
                   </thead>
                   <tbody className="divide-y divide-border">
                     {pagedProducts.map((product) => {
-                      const catalogUrl = productCatalogueHref(product);
+                      const catalogUrl = productCatalogueHref(product, catLookup);
                       const imageUrl = productImageHref(product);
+                      const ownPdf = Boolean(product.catalog_pdf_url || product.catalog_pdf_path);
                       return (
                         <tr key={product.id} className="hover:bg-secondary/40">
                           <td className="num px-4 py-3 whitespace-nowrap">{product.sku}</td>
@@ -499,11 +591,18 @@ function Page() {
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             {catalogUrl ? (
-                              <Button size="sm" variant="outline" className="gap-1.5" asChild>
-                                <a href={catalogUrl} target="_blank" rel="noreferrer">
-                                  <FileText className="size-3.5" /> PDF
-                                </a>
-                              </Button>
+                              <div className="flex items-center gap-1.5">
+                                <Button size="sm" variant="outline" className="gap-1.5" asChild>
+                                  <a href={catalogUrl} target="_blank" rel="noreferrer">
+                                    <FileText className="size-3.5" /> PDF
+                                  </a>
+                                </Button>
+                                {!ownPdf ? (
+                                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                    category
+                                  </span>
+                                ) : null}
+                              </div>
                             ) : (
                               <span className="text-muted-foreground">—</span>
                             )}
@@ -561,7 +660,7 @@ function Page() {
             <DialogDescription>
               {editingProduct
                 ? "Update details, WhatsApp card image, and catalogue PDF."
-                : "Create a product. You can attach an image and catalogue PDF now or after saving."}
+                : "Create a product. You can attach an image and catalogue PDF now or after saving. Category catalogues are shared unless this SKU has its own PDF."}
             </DialogDescription>
           </DialogHeader>
 
@@ -624,8 +723,8 @@ function Page() {
             <div className="space-y-2 sm:col-span-2 rounded-lg border border-border bg-secondary/20 p-3">
               <Label htmlFor="product-catalog">Catalogue PDF</Label>
               <p className="text-xs text-muted-foreground">
-                Stored in Supabase Storage. Shared as a short link like{" "}
-                <code className="rounded bg-secondary px-1">/c/YOUR-SKU</code> in WhatsApp and chat.
+                Optional override for this SKU. Otherwise WhatsApp uses the category catalogue.
+                Short link: <code className="rounded bg-secondary px-1">/c/YOUR-SKU</code>.
               </p>
               {currentCatalogUrl ? (
                 <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -634,17 +733,25 @@ function Page() {
                       <FileText className="size-3.5" /> View current PDF
                     </a>
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="text-destructive hover:text-destructive"
-                    disabled={removeCatalogMutation.isPending}
-                    onClick={() => removeCatalogMutation.mutate()}
-                  >
-                    Remove PDF
-                  </Button>
+                  {hasOwnCatalog ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-destructive hover:text-destructive"
+                      disabled={removeCatalogMutation.isPending}
+                      onClick={() => removeCatalogMutation.mutate()}
+                    >
+                      Remove PDF
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Inherited from category</span>
+                  )}
                 </div>
-              ) : null}
+              ) : (
+                <p className="text-xs text-muted-foreground pt-1">
+                  No PDF yet. Upload one here, or set it once under Category catalogues.
+                </p>
+              )}
               <Input
                 id="product-catalog"
                 ref={catalogInputRef}
@@ -675,6 +782,99 @@ function Page() {
               disabled={saveMutation.isPending || catalogMutation.isPending || imageMutation.isPending}
             >
               {saveMutation.isPending ? "Saving…" : editingProduct ? "Update product" : "Create product"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={categoryDialogOpen}
+        onOpenChange={(open) => {
+          setCategoryDialogOpen(open);
+          if (!open) {
+            pendingCategoryLabelRef.current = null;
+            if (categoryFileRef.current) categoryFileRef.current.value = "";
+          }
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Category catalogues</DialogTitle>
+            <DialogDescription>
+              Upload one PDF per category. Every SKU in that category inherits it unless the product has
+              its own file. Woo sync does not overwrite these.
+            </DialogDescription>
+          </DialogHeader>
+          <input
+            ref={categoryFileRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0] ?? null;
+              const label = pendingCategoryLabelRef.current;
+              e.target.value = "";
+              if (!file || !label) return;
+              uploadCategoryMutation.mutate({ label, file });
+            }}
+          />
+          {categoryQuery.isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading categories…</p>
+          ) : categoryRows.length === 0 ? (
+            <EmptyState
+              title="No categories yet"
+              description="Add or sync products with a category, then upload one PDF here."
+            />
+          ) : (
+            <div className="divide-y divide-border rounded-lg border border-border">
+              {categoryRows.map((row) => {
+                const pdfUrl = row.catalogue?.catalog_pdf_url || null;
+                return (
+                  <div key={row.key} className="flex flex-wrap items-center gap-2 px-3 py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{row.label}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {row.count} {row.count === 1 ? "product" : "products"}
+                        {pdfUrl ? " · catalogue set" : " · no PDF"}
+                      </p>
+                    </div>
+                    {pdfUrl ? (
+                      <Button size="sm" variant="outline" className="gap-1.5" asChild>
+                        <a href={pdfUrl} target="_blank" rel="noreferrer">
+                          <FileText className="size-3.5" /> PDF
+                        </a>
+                      </Button>
+                    ) : null}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={uploadCategoryMutation.isPending}
+                      onClick={() => {
+                        pendingCategoryLabelRef.current = row.label;
+                        categoryFileRef.current?.click();
+                      }}
+                    >
+                      {pdfUrl ? "Replace" : "Upload"}
+                    </Button>
+                    {row.catalogue ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-destructive hover:text-destructive"
+                        disabled={removeCategoryMutation.isPending}
+                        onClick={() => removeCategoryMutation.mutate(row.catalogue!)}
+                      >
+                        Remove
+                      </Button>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCategoryDialogOpen(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

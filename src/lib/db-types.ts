@@ -72,6 +72,18 @@ export type DbProduct = {
   updated_at: string;
 };
 
+/** Shared catalogue PDF for every product in a category. */
+export type DbCategoryCatalogue = {
+  id: string;
+  org_id: string;
+  category_key: string;
+  category_label: string;
+  catalog_pdf_path?: string | null;
+  catalog_pdf_url?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type DbLead = {
   id: string;
   org_id: string;

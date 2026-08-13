@@ -5,6 +5,16 @@
 
 ---
 
+### Session 2026-08-13 — Category catalogue PDFs (one per category)
+
+**Approved:** Upload one catalogue PDF per product category. All SKUs in that category inherit it at read time (WhatsApp pack, `/c/{sku}`, Products table). A product-level PDF still overrides. Woo sync does not copy the file onto each row.
+
+**Ops:** Run `035_category_catalogues.sql` in Supabase SQL Editor. Then Products → Category catalogues → Upload.
+
+**Files:** `supabase/migrations/035_category_catalogues.sql`, `src/lib/product-card.ts`, `src/lib/products-api.ts`, `src/routes/products.tsx`, `src/routes/c.$sku.ts`, `src/server/product-pack.ts`, `src/server/product-media.ts`.
+
+---
+
 ### Session 2026-08-13 — Rating spec must not defer to sales
 
 **Bug:** After `requirement_submitted` (Ritesh assigned), `25kva 360vdc 3ph hybrid pcu` matched sales-owner defer (`kVA` = transactional) and never hit product pack. Catalog updates could not help.
@@ -95,7 +105,7 @@
 
 Run **EnerTech Engage** as a **working enterprise AI customer engagement platform** for EnerTech UPS Pvt. Ltd., with architecture that can later become multi-tenant SaaS.
 
-**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Team permissions** — run `033`. **Knowledge Base A+B+C** — run `032` if needed. **Agents/Tools** + **Leads A+B** deployed. **Website Widget A+B** ready (is_enabled, embed attach, EnerTech typing) — deploy when asked. **Ops:** `029`→`033` as needed; public `APP_URL` for photo links.
+**Current state:** Phases 0–9 largely live. Enterprise hardening Phases **1–3** shipped; **Phase 4 RAG quality** shipped. Soft Meta signature (advisory) until App Secret is verified. **Team permissions** — run `033`. **Knowledge Base A+B+C** — run `032` if needed. **Agents/Tools** + **Leads A+B** deployed. **Website Widget A+B** ready (is_enabled, embed attach, EnerTech typing) — deploy when asked. **Ops:** `029`→`035` as needed; public `APP_URL` for photo links. Category PDFs: run `035`.
 **Approach:** Prefer stabilize and ship focused improvements; new modules only when requested.
 
 ---
@@ -340,7 +350,7 @@ Embed on EnerTech website — live AI chat, lead capture (name/email/phone requi
 | AI Agents | `/agents` | Supabase | Master + specialists; test classify; Admin-only save; effective tools |
 | Tools | `/tools` | Supabase | Global enable + API-key hints + agents-using-tool; Admin-only; stale allow-list clean |
 | Knowledge Base | `/knowledge` | Supabase + Storage | Live collections + upload/index (pgvector RAG) |
-| Products | `/products` | Supabase + Storage | CRUD + card image + catalogue PDF (**short link** `/c/{SKU}`) |
+| Products | `/products` | Supabase + Storage | CRUD + card image + catalogue PDF (**short link** `/c/{SKU}`); category PDF inherit |
 | Customers | `/customers` | Supabase | List/create/update/delete |
 | Leads | `/leads` | Supabase | Master sheet: **paged** filters, CRM toggle, Add/Edit privileges, safe delete-by-source |
 | Pipeline | `/pipeline` | Supabase | Live Kanban from `leads` + drag/select stage updates |

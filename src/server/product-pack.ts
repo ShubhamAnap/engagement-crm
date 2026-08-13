@@ -15,6 +15,8 @@ import {
   resolveProductImageUrl,
   cleanProductDisplayName,
   cleanProductDescription,
+  inheritCategoryCatalogue,
+  type CategoryCatalogueLookup,
 } from "@/lib/product-card";
 
 export {
@@ -24,6 +26,33 @@ export {
 } from "@/lib/conversation-intent";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
+
+async function loadCategoryCatalogueLookup(): Promise<CategoryCatalogueLookup> {
+  const supabase = createServiceSupabase();
+  const map: CategoryCatalogueLookup = new Map();
+  const { data, error } = await supabase
+    .from("product_category_catalogues")
+    .select("category_key, catalog_pdf_url, catalog_pdf_path")
+    .eq("org_id", ORG_ID);
+  if (error) {
+    if (!/does not exist|schema cache|product_category_catalogues/i.test(error.message)) {
+      console.warn("loadCategoryCatalogueLookup", error.message);
+    }
+    return map;
+  }
+  for (const row of data || []) {
+    const key = String((row as { category_key?: string }).category_key || "");
+    if (key) map.set(key, row as { catalog_pdf_url?: string | null; catalog_pdf_path?: string | null });
+  }
+  return map;
+}
+
+function withInheritedCatalogues(
+  products: DbProduct[],
+  lookup: CategoryCatalogueLookup,
+): DbProduct[] {
+  return products.map((p) => inheritCategoryCatalogue(p, lookup));
+}
 
 const KW_RE = /(\d+(?:\.\d+)?)\s*(k\.?\s*w|k\.?\s*va|kw|kva)\b/i;
 const PRODUCT_WORD_RE =
@@ -410,6 +439,7 @@ export async function resolveProductPackRequest(
   if (isServiceIntent(q) && !/^\d{1,2}$/.test(q)) return { mode: "none" };
 
   const supabase = createServiceSupabase();
+  const catLookup = await loadCategoryCatalogueLookup();
 
   // Follow-up pick after clarify / carousel list
   if (options?.pendingProducts?.length) {
@@ -426,7 +456,7 @@ export async function resolveProductPackRequest(
           .eq("is_active", true)
           .maybeSingle();
         if (data) {
-          const product = data as DbProduct;
+          const product = inheritCategoryCatalogue(data as DbProduct, catLookup);
           return { mode: "match", products: [product], message: formatProductPackBody(product) };
         }
       }
@@ -444,7 +474,7 @@ export async function resolveProductPackRequest(
         .eq("is_active", true)
         .maybeSingle();
       if (data) {
-        const product = data as DbProduct;
+        const product = inheritCategoryCatalogue(data as DbProduct, catLookup);
         return { mode: "match", products: [product], message: formatProductPackBody(product) };
       }
     }
@@ -463,7 +493,7 @@ export async function resolveProductPackRequest(
     .limit(400);
 
   if (error) throw new Error(error.message);
-  const products = (data || []) as DbProduct[];
+  const products = withInheritedCatalogues((data || []) as DbProduct[], catLookup);
   if (!products.length) return { mode: "none" };
 
   // Website: all products in the matched category (swipe full range)
@@ -531,7 +561,9 @@ export async function loadActiveProductById(productId: string): Promise<DbProduc
     .eq("is_active", true)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  return (data as DbProduct) || null;
+  if (!data) return null;
+  const catLookup = await loadCategoryCatalogueLookup();
+  return inheritCategoryCatalogue(data as DbProduct, catLookup);
 }
 
 export type ProductPackMedia = {
@@ -599,7 +631,8 @@ export async function buildProductsContextForAi(query: string, limit = 10): Prom
     console.error("buildProductsContextForAi", error.message);
     return "";
   }
-  const products = (data || []) as DbProduct[];
+  const catLookup = await loadCategoryCatalogueLookup();
+  const products = withInheritedCatalogues((data || []) as DbProduct[], catLookup);
   if (!products.length) return "";
 
   const ranked = rankProductsForQuery(products, query);

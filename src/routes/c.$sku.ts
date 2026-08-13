@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createServiceSupabase } from "@/lib/supabase";
+import { normalizeCategoryKey } from "@/lib/product-card";
 import { proxyStorageObject } from "@/server/storage-proxy";
 
 /**
@@ -21,6 +22,7 @@ export const Route = createFileRoute("/c/$sku")({
           const supabase = createServiceSupabase();
           let product: {
             name?: string | null;
+            category?: string | null;
             catalog_pdf_url?: string | null;
             catalog_pdf_path?: string | null;
             is_active?: boolean | null;
@@ -28,7 +30,7 @@ export const Route = createFileRoute("/c/$sku")({
 
           const exact = await supabase
             .from("products")
-            .select("name, catalog_pdf_url, catalog_pdf_path, is_active")
+            .select("name, category, catalog_pdf_url, catalog_pdf_path, is_active")
             .eq("org_id", ORG_ID)
             .eq("sku", sku)
             .maybeSingle();
@@ -38,7 +40,7 @@ export const Route = createFileRoute("/c/$sku")({
           } else {
             const fuzzy = await supabase
               .from("products")
-              .select("name, catalog_pdf_url, catalog_pdf_path, is_active")
+              .select("name, category, catalog_pdf_url, catalog_pdf_path, is_active")
               .eq("org_id", ORG_ID)
               .ilike("sku", sku)
               .limit(1)
@@ -50,16 +52,30 @@ export const Route = createFileRoute("/c/$sku")({
             return new Response("Catalogue not found", { status: 404 });
           }
 
+          let pdfUrl = (product.catalog_pdf_url as string | null) || null;
           let storagePath = (product.catalog_pdf_path as string | null) || null;
-          if (!storagePath && product.catalog_pdf_url) {
-            const m = String(product.catalog_pdf_url).match(
+          if (!storagePath && !pdfUrl) {
+            const catKey = normalizeCategoryKey(product.category);
+            if (catKey) {
+              const cat = await supabase
+                .from("product_category_catalogues")
+                .select("catalog_pdf_url, catalog_pdf_path")
+                .eq("org_id", ORG_ID)
+                .eq("category_key", catKey)
+                .maybeSingle();
+              pdfUrl = (cat.data?.catalog_pdf_url as string | null) || null;
+              storagePath = (cat.data?.catalog_pdf_path as string | null) || null;
+            }
+          }
+          if (!storagePath && pdfUrl) {
+            const m = String(pdfUrl).match(
               /\/storage\/v1\/object\/public\/knowledge\/(.+?)(?:\?|#|$)/i,
             );
             storagePath = m?.[1] ? decodeURIComponent(m[1]) : null;
           }
 
-          if (!storagePath && product.catalog_pdf_url && /^https:\/\//i.test(product.catalog_pdf_url)) {
-            return Response.redirect(product.catalog_pdf_url, 302);
+          if (!storagePath && pdfUrl && /^https:\/\//i.test(pdfUrl)) {
+            return Response.redirect(pdfUrl, 302);
           }
 
           if (!storagePath) {

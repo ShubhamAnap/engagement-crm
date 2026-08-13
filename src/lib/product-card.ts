@@ -1,15 +1,64 @@
-import type { DbProduct } from "@/lib/db-types";
+import type { DbCategoryCatalogue, DbProduct } from "@/lib/db-types";
 import { shortProductCatalogueUrl } from "@/lib/short-links";
 
-export function resolveProductCatalogueUrl(product: DbProduct): string | null {
-  const raw = product.catalog_pdf_url || null;
-  const externalHttps =
-    raw && /^https:\/\//i.test(raw) && !/\/storage\/v1\/object\//i.test(raw) ? raw : null;
-  // Public WP/CDN PDFs: send the HTTPS URL so WhatsApp/Meta can fetch without Engage proxy.
-  if (externalHttps) return externalHttps;
-  if (!raw && !product.catalog_pdf_path) return null;
+export function normalizeCategoryKey(raw: string | null | undefined): string {
+  return String(raw || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+export type CategoryCatalogueLookup = Map<
+  string,
+  Pick<DbCategoryCatalogue, "catalog_pdf_url" | "catalog_pdf_path">
+>;
+
+function isExternalHttpsPdf(url: string | null | undefined): url is string {
+  return Boolean(url && /^https:\/\//i.test(url) && !/\/storage\/v1\/object\//i.test(url));
+}
+
+function categoryPdf(
+  product: DbProduct,
+  categoryByKey?: CategoryCatalogueLookup | null,
+): Pick<DbCategoryCatalogue, "catalog_pdf_url" | "catalog_pdf_path"> | null {
+  if (!categoryByKey) return null;
+  const key = normalizeCategoryKey(product.category);
+  if (!key) return null;
+  return categoryByKey.get(key) || null;
+}
+
+export function resolveProductCatalogueUrl(
+  product: DbProduct,
+  categoryByKey?: CategoryCatalogueLookup | null,
+): string | null {
+  const ownRaw = product.catalog_pdf_url || null;
+  if (isExternalHttpsPdf(ownRaw)) return ownRaw;
+  if (ownRaw || product.catalog_pdf_path) {
+    if (product.sku?.trim()) return shortProductCatalogueUrl(product.sku);
+    return ownRaw;
+  }
+
+  const inherited = categoryPdf(product, categoryByKey);
+  const catRaw = inherited?.catalog_pdf_url || null;
+  if (isExternalHttpsPdf(catRaw)) return catRaw;
+  if (!catRaw && !inherited?.catalog_pdf_path) return null;
   if (product.sku?.trim()) return shortProductCatalogueUrl(product.sku);
-  return raw;
+  return catRaw;
+}
+
+/** Copy category PDF onto the product object when the SKU has none (in-memory only). */
+export function inheritCategoryCatalogue(
+  product: DbProduct,
+  categoryByKey?: CategoryCatalogueLookup | null,
+): DbProduct {
+  if (product.catalog_pdf_url || product.catalog_pdf_path) return product;
+  const cat = categoryPdf(product, categoryByKey);
+  if (!cat?.catalog_pdf_url && !cat?.catalog_pdf_path) return product;
+  return {
+    ...product,
+    catalog_pdf_url: cat.catalog_pdf_url ?? null,
+    catalog_pdf_path: cat.catalog_pdf_path ?? null,
+  };
 }
 
 /** Public HTTPS image for chat / WhatsApp. */

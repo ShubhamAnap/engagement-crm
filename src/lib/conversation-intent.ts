@@ -122,6 +122,78 @@ export function isBusinessAutoReplyMessage(text: string): boolean {
   return false;
 }
 
+/** True when a parsed sales name is usable in customer-facing replies (never a single letter). */
+export function isPlausibleSalesDisplayName(name: string | null | undefined): boolean {
+  const s = String(name || "")
+    .replace(/\*/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (s.length < 2) return false;
+  const letters = s.replace(/[^A-Za-z]/g, "");
+  if (letters.length < 2) return false;
+  if (/^(mr|mrs|ms|miss|dr)\.?$/i.test(s)) return false;
+  return true;
+}
+
+/**
+ * Keep honorific + full given name: "Mr. Amol" not "A" or "Mr".
+ * Accepts WhatsApp bold markers around the name.
+ */
+export function normalizeSalesDisplayName(raw: string | null | undefined): string | null {
+  let s = String(raw || "")
+    .replace(/\*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  s = s.replace(/\s+will\b[\s\S]*$/i, "").replace(/[,.;:]+$/g, "").trim();
+  const titleMatch = s.match(/^(mr|mrs|ms|miss|dr)\.?\s*(.*)$/i);
+  if (titleMatch) {
+    const titleKey = titleMatch[1].toLowerCase();
+    const rest = titleMatch[2].trim();
+    const title =
+      titleKey === "miss"
+        ? "Miss"
+        : `${titleKey.charAt(0).toUpperCase()}${titleKey.slice(1)}.`;
+    s = rest ? `${title} ${rest}` : title;
+  }
+  if (!isPlausibleSalesDisplayName(s)) return null;
+  return s;
+}
+
+/**
+ * Pull assigned representative from requirement_submitted template body.
+ * Template example: Our representative *Mr. Amol* will contact you shortly.
+ */
+export function extractSalesPersonNameFromTemplate(body: string): string | null {
+  const text = String(body || "");
+
+  const starredPatterns = [
+    /Our representative\s+\*([^*]{2,80})\*/i,
+    /representative\s+\*([^*]{2,80})\*/i,
+  ];
+  for (const re of starredPatterns) {
+    const m = text.match(re);
+    if (m?.[1]) {
+      const name = normalizeSalesDisplayName(m[1]);
+      if (name) return name;
+    }
+  }
+
+  const plainPatterns = [
+    /Our representative\s+(Mr\.?\s*[A-Za-z][A-Za-z.'\s-]{1,40}?)\s+will\b/i,
+    /representative\s+(Mr\.?\s*[A-Za-z][A-Za-z.'\s-]{1,40}?)\s+will\b/i,
+    /\b((?:Mr|Mrs|Ms|Miss|Dr)\.?\s+[A-Za-z][A-Za-z.'-]{1,40})\s+will\b/i,
+  ];
+  for (const re of plainPatterns) {
+    const m = text.match(re);
+    if (m?.[1]) {
+      const name = normalizeSalesDisplayName(m[1]);
+      if (name) return name;
+    }
+  }
+
+  return null;
+}
+
 /**
  * Parse sales ownership from requirement_submitted (or similar) outbound in history.
  */
@@ -138,10 +210,6 @@ export function resolveSalesOwnedFromHistory(
       (/your requirement for/i.test(body) && /will contact you shortly/i.test(body));
     if (!isReqAck) continue;
 
-    const nameMatch =
-      body.match(/representative\s+\*?Mr\.?\s*([^*\n,]+?)\*?/i) ||
-      body.match(/Our representative\s+\*([^*]+)\*/i) ||
-      body.match(/\bMr\.?\s*([A-Za-z][A-Za-z.\s]{1,40}?)(?:\s+will|\*|,|\n|$)/i);
     const phoneMatch =
       body.match(/(?:reach him at|reach them at|at)\s*\*?(\+?\d[\d\s-]{8,18}\d)\*?/i) ||
       body.match(/\*?(\+?91\d{10})\*?/) ||
@@ -150,13 +218,13 @@ export function resolveSalesOwnedFromHistory(
       body.match(/requirement for\s+\*([^*]+)\*/i) ||
       body.match(/requirement for\s+(.+?)\s+has been submitted/i);
 
-    const salesName = nameMatch?.[1]?.replace(/\*/g, "").replace(/\s+/g, " ").trim() || null;
+    const salesName = extractSalesPersonNameFromTemplate(body);
     const salesPhone = phoneMatch?.[1] ? phoneMatch[1].replace(/\D/g, "") : null;
     const requirement = reqMatch?.[1]?.replace(/\*/g, "").replace(/\s+/g, " ").trim().slice(0, 160) || null;
 
     return {
       owned: true,
-      salesName: salesName || null,
+      salesName,
       salesPhone: salesPhone && salesPhone.length >= 10 ? salesPhone : null,
       requirement,
     };
@@ -184,11 +252,15 @@ export function wantsSalesOwnedCommercialDefer(text: string): boolean {
 export function salesPersonDeferReply(options: {
   lang?: string | null;
   salesName?: string | null;
+  salesNameFallback?: string | null;
   salesPhone?: string | null;
   requirement?: string | null;
 }): string {
   const lang = (options.lang || "en").toLowerCase();
-  const name = (options.salesName || "our sales representative").replace(/\s+/g, " ").trim();
+  const name =
+    normalizeSalesDisplayName(options.salesName) ||
+    normalizeSalesDisplayName(options.salesNameFallback) ||
+    "our sales representative";
   const phone = options.salesPhone ? options.salesPhone.replace(/\D/g, "") : "";
   const phoneBit = phone
     ? lang === "hi" || lang === "mixed"

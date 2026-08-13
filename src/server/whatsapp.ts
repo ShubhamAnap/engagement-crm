@@ -1092,6 +1092,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
 
           // Lead requirement for memory (same phone / linked lead)
           let leadRequirement: string | null = null;
+          let leadSalesPerson: string | null = null;
           try {
             const leadId =
               (convo as { lead_id?: string | null }).lead_id ||
@@ -1099,7 +1100,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             if (leadId) {
               const { data: lead } = await supabase
                 .from("leads")
-                .select("requirement, product_label")
+                .select("requirement, product_label, sales_person")
                 .eq("id", leadId)
                 .eq("org_id", ORG_ID)
                 .maybeSingle();
@@ -1107,6 +1108,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
                 (lead?.requirement as string) ||
                 (lead?.product_label as string) ||
                 null;
+              leadSalesPerson = (lead?.sales_person as string) || null;
             } else {
               const { normalizeWhatsAppDigits } = await import("@/lib/whatsapp-window");
               const digits = normalizeWhatsAppDigits(from);
@@ -1114,7 +1116,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
                 const last10 = digits.slice(-10);
                 const { data: lead } = await supabase
                   .from("leads")
-                  .select("requirement, product_label, phone")
+                  .select("requirement, product_label, phone, sales_person")
                   .eq("org_id", ORG_ID)
                   .not("phone", "is", null)
                   .order("updated_at", { ascending: false })
@@ -1125,6 +1127,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
                 });
                 leadRequirement =
                   (hit?.requirement as string) || (hit?.product_label as string) || null;
+                leadSalesPerson = (hit?.sales_person as string) || null;
               }
             }
           } catch (err) {
@@ -1140,6 +1143,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             reply = salesPersonDeferReply({
               lang: sessionLang,
               salesName: salesGate.salesName,
+              salesNameFallback: leadSalesPerson,
               salesPhone: salesGate.salesPhone,
               requirement: salesGate.requirement || leadRequirement,
             });

@@ -1119,7 +1119,7 @@ export async function processWidgetCustomerTurn(
         ? (
             await supabase
               .from("leads")
-              .select("requirement, product_label")
+              .select("requirement, product_label, sales_person")
               .eq("id", (convo as { lead_id: string }).lead_id)
               .eq("org_id", ORG_ID)
               .maybeSingle()
@@ -1129,6 +1129,7 @@ export async function processWidgetCustomerTurn(
       (leadRequirement?.requirement as string) ||
       (leadRequirement?.product_label as string) ||
       null;
+    const leadSalesPerson = (leadRequirement?.sales_person as string) || null;
 
     const historyForContext = priorHistory.map((m) => ({
       sender: m.sender as string,
@@ -1149,6 +1150,7 @@ export async function processWidgetCustomerTurn(
       const reply = salesPersonDeferReply({
         lang: sessionLang,
         salesName: salesGate.salesName,
+        salesNameFallback: leadSalesPerson,
         salesPhone: salesGate.salesPhone,
         requirement: salesGate.requirement || leadReqText,
       });

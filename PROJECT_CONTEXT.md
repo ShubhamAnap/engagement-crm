@@ -1,7 +1,17 @@
 # EnerTech Engage — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
-> **Last updated:** 2026-08-12
+> **Last updated:** 2026-08-13
+
+---
+
+### Session 2026-08-13 — Keep full sales name in defer replies (Mr. Amol, not A)
+
+**Bug:** `requirement_submitted` template `*Mr. Amol*` was parsed as `A` because a non-greedy regex stopped at one letter. Defer reply became “A is handling…”.
+
+**Fix:** Parse starred full names, require ≥2 letters, keep honorific; fallback to lead `sales_person`.
+
+**Files:** `src/lib/conversation-intent.ts`, `src/server/whatsapp.ts`, `src/server/widget-chat.ts`.
 
 ---
 

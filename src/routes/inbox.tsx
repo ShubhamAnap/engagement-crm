@@ -28,11 +28,15 @@ import {
   ArrowLeft,
   User,
   Bot,
+  Pause,
+  Timer,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import {
   ENERTECH_ORG_ID,
+  claimConversation,
+  clearInboxSnooze,
   formatClock,
   formatRelativeTime,
   getConversationById,
@@ -42,6 +46,7 @@ import {
   patchMessageMetadata,
   returnConversationToAi,
   sendAgentMessage,
+  setInboxSnooze,
   uploadAgentAttachment,
   type InboxConversation,
 } from "@/lib/chat-api";
@@ -69,9 +74,13 @@ import {
 } from "@/lib/whatsapp-window";
 import { formatDisplayPhone } from "@/lib/phone-country";
 import { useStickToBottomScroll } from "@/lib/chat-scroll";
+import { ChannelBrandMark } from "@/components/shared/ChannelBrandMark";
 import { RecommendProductDialog } from "@/components/inbox/RecommendProductDialog";
 import { SendWhatsAppTemplateDialog } from "@/components/inbox/SendWhatsAppTemplateDialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Input } from "@/components/ui/input";
+import { conversationMeta, formatLastSeen, inboxSnoozeState } from "@/lib/inbox-snooze";
 
 const filters = [
   "All",
@@ -340,6 +349,9 @@ function Page() {
   const [sendingProduct, setSendingProduct] = useState(false);
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [returningToAi, setReturningToAi] = useState(false);
+  const [pausingAi, setPausingAi] = useState(false);
+  const [snoozeOpen, setSnoozeOpen] = useState(false);
+  const [snoozeCustom, setSnoozeCustom] = useState("");
   const attachInputRef = useRef<HTMLInputElement>(null);
   const [leadStatus, setLeadStatus] = useState<LeadStatus>("New");
   const [leadPriority, setLeadPriority] = useState<PriorityLevel>("Medium");
@@ -543,6 +555,13 @@ function Page() {
     if (!selected) return false;
     return selected.status === "human" || selected.status === "escalated";
   }, [selected]);
+  const showPauseAi = Boolean(selected && selected.status === "ai");
+  const selectedSnooze = useMemo(
+    () => (selected ? inboxSnoozeState(conversationMeta(selected.metadata), nowTick) : null),
+    [selected, nowTick],
+  );
+  const lastSeenIso =
+    lastCustomerMessageAt || selected?.wa_last_customer_at || null;
 
   const waOutbound = Boolean(selected && conversationRepliesViaWhatsApp(selected));
   const waPhone = selected
@@ -953,6 +972,57 @@ function Page() {
     }
   }
 
+  async function refreshInboxThread(conversationId: string) {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["conversations", orgId] }),
+      queryClient.invalidateQueries({ queryKey: ["messages", conversationId] }),
+      queryClient.invalidateQueries({ queryKey: ["handoff-queue", orgId] }),
+    ]);
+  }
+
+  async function onPauseAi() {
+    if (!selected || !profile) return;
+    setPausingAi(true);
+    try {
+      await claimConversation({
+        conversationId: selected.id,
+        profileId: profile.id,
+        assigneeLabel: profile.fullName || profile.email || "Human agent",
+      });
+      await refreshInboxThread(selected.id);
+      toast.success("AI paused — you own this thread");
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "Could not pause AI");
+    } finally {
+      setPausingAi(false);
+    }
+  }
+
+  async function onApplySnooze(untilIso: string) {
+    if (!selected) return;
+    try {
+      await setInboxSnooze(selected.id, untilIso);
+      await refreshInboxThread(selected.id);
+      setSnoozeOpen(false);
+      toast.success("Follow-up reminder set on this chat");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not set reminder");
+    }
+  }
+
+  async function onClearSnooze() {
+    if (!selected) return;
+    try {
+      await clearInboxSnooze(selected.id);
+      await refreshInboxThread(selected.id);
+      setSnoozeOpen(false);
+      toast.success("Reminder cleared");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not clear reminder");
+    }
+  }
+
   const refreshing = conversationsQuery.isFetching || messagesQuery.isFetching;
 
   const conversationList = (
@@ -1072,18 +1142,35 @@ function Page() {
                         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                           <ChannelIcon
                             channel={(c.channel as ChannelType) || "website"}
-                            className="size-3.5 shrink-0 text-muted-foreground"
+                            className="shrink-0"
                           />
                           <Pill>{c.status}</Pill>
                           {isMarketplaceLeadChannel(c.channel) && listPhone ? (
                             <Pill tone="success">via WhatsApp</Pill>
                           ) : null}
                           {listWa ? (
-                            <Pill tone={waTone(listWa.tone)} className="gap-1">
+                            <Pill
+                              tone={c.channel === "whatsapp" ? "success" : waTone(listWa.tone)}
+                              className={cn(
+                                "gap-1",
+                                c.channel === "whatsapp" &&
+                                  "border-[#25D366]/40 bg-[#25D366]/15 text-[#128C7E]",
+                              )}
+                            >
                               <Clock className="size-3" />
                               {listWa.open ? listWa.label : "WA closed"}
                             </Pill>
                           ) : null}
+                          {(() => {
+                            const snooze = inboxSnoozeState(conversationMeta(c.metadata), nowTick);
+                            if (!snooze) return null;
+                            return (
+                              <Pill tone={snooze.due ? "warning" : "info"} className="gap-1">
+                                <Timer className="size-3" />
+                                {snooze.label}
+                              </Pill>
+                            );
+                          })()}
                           {(c.tags ?? []).slice(0, 2).map((t) => (
                             <Pill key={t}>{t}</Pill>
                           ))}
@@ -1125,9 +1212,14 @@ function Page() {
           >
             <ArrowLeft className="size-4" />
           </Button>
-          {selected ? (
-            <span className="inbox-wa-avatar" aria-hidden>
-              {threadInitial}
+                          {selected ? (
+            <span className="relative shrink-0">
+              <span className="inbox-wa-avatar" aria-hidden>
+                {threadInitial}
+              </span>
+              <span className="absolute -bottom-0.5 -right-0.5 ring-2 ring-background rounded-full">
+                <ChannelBrandMark channel={selected.channel} size="sm" />
+              </span>
             </span>
           ) : null}
           <div className="min-w-0 flex-1">
@@ -1139,6 +1231,17 @@ function Page() {
                   } · ${selected.external_ref || selected.id.slice(0, 8)} · ${selected.assignee_label || selected.status}`
                 : "Select a conversation"}
             </p>
+            {selected ? (
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] opacity-75">
+                <span>Last seen {formatLastSeen(lastSeenIso, nowTick)}</span>
+                <span>IST (UTC+05:30)</span>
+                {selectedSnooze ? (
+                  <span className={selectedSnooze.due ? "font-medium text-amber-700 dark:text-amber-400" : undefined}>
+                    {selectedSnooze.label}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
             <Button
@@ -1158,23 +1261,116 @@ function Page() {
               </Pill>
             ) : null}
             {waWindow ? (
-              <Pill tone={waTone(waWindow.tone)} className="gap-1.5">
+              <Pill
+                tone={selected?.channel === "whatsapp" ? "success" : waTone(waWindow.tone)}
+                className={cn(
+                  "gap-1.5",
+                  selected?.channel === "whatsapp" && "border-[#25D366]/40 bg-[#25D366]/15 text-[#128C7E]",
+                )}
+              >
                 <Clock className="size-3.5" />
                 {waWindow.label}
               </Pill>
             ) : null}
+            {selected ? (
+              <Popover open={snoozeOpen} onOpenChange={setSnoozeOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 gap-1.5 touch-manipulation"
+                    title="Follow-up reminder"
+                  >
+                    <Timer className="size-3.5" />
+                    <span className="hidden sm:inline">Remind</span>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-72 space-y-3 p-3">
+                  <p className="text-xs font-medium">Follow-up reminder</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Reminds you on this chat only — does not change Lead or Brainmine follow-up.
+                  </p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[
+                      [1, "1 hour later"],
+                      [6, "6 hours later"],
+                      [12, "12 hours later"],
+                      [24, "24 hours later"],
+                    ].map(([hours, label]) => (
+                      <Button
+                        key={String(hours)}
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs"
+                        onClick={() =>
+                          void onApplySnooze(new Date(Date.now() + Number(hours) * 3_600_000).toISOString())
+                        }
+                      >
+                        {label}
+                      </Button>
+                    ))}
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] text-muted-foreground">Pick a date & time</p>
+                    <Input
+                      type="datetime-local"
+                      className="h-8 text-xs"
+                      value={snoozeCustom}
+                      onChange={(e) => setSnoozeCustom(e.target.value)}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 w-full"
+                      disabled={!snoozeCustom}
+                      onClick={() => {
+                        const t = new Date(snoozeCustom);
+                        if (!Number.isFinite(t.getTime())) {
+                          toast.error("Pick a valid date and time");
+                          return;
+                        }
+                        void onApplySnooze(t.toISOString());
+                      }}
+                    >
+                      Set reminder
+                    </Button>
+                  </div>
+                  {selectedSnooze ? (
+                    <Button type="button" size="sm" variant="ghost" className="h-8 w-full text-xs" onClick={() => void onClearSnooze()}>
+                      Clear reminder
+                    </Button>
+                  ) : null}
+                </PopoverContent>
+              </Popover>
+            ) : null}
+            {showPauseAi ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5 touch-manipulation"
+                disabled={pausingAi || sending || !profile}
+                onClick={() => void onPauseAi()}
+                title="Pause AI"
+              >
+                <Pause className={`size-3.5 ${pausingAi ? "animate-pulse" : ""}`} />
+                Pause AI
+              </Button>
+            ) : null}
             {showReturnToAi ? (
               <Button
                 type="button"
-                size="icon"
-                variant="ghost"
-                className="size-9 touch-manipulation"
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5 touch-manipulation"
                 disabled={returningToAi || sending}
                 onClick={() => void onReturnToAi()}
                 title="Return to AI"
-                aria-label="Return to AI"
               >
-                <Bot className={`size-4 ${returningToAi ? "animate-pulse" : ""}`} />
+                <Bot className={`size-3.5 ${returningToAi ? "animate-pulse" : ""}`} />
+                Return to AI
               </Button>
             ) : null}
           </div>
@@ -1544,6 +1740,8 @@ function Page() {
                 ["Company", selected.customer?.company || selected.visitor_company || "—"],
                 ["Phone", formatDisplayPhone(selected.customer?.phone || selected.visitor_phone) || "—"],
                 ["Email", selected.customer?.email || selected.visitor_email || "—"],
+                ["Last seen", formatLastSeen(lastSeenIso, nowTick)],
+                ["Timezone", "IST (UTC+05:30)"],
                 ["Assigned", selected.assignee_label || "—"],
                 ["Status", selected.status],
               ].map(([k, v]) => (

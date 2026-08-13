@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
+import { withInboxSnoozeCleared } from "@/lib/inbox-snooze";
 import { buildPlaceholderAiReply } from "@/lib/chat-replies";
 import { isWidgetOriginAllowed, normalizeWidgetHost } from "@/lib/widget-origins";
 import { generateOpenAiReply } from "@/server/openai";
@@ -949,12 +950,17 @@ export async function processWidgetCustomerTurn(
     const unread = Number(convo.unread_count || 0) + 1;
     await supabase
       .from("conversations")
-      .update({
-        unread_count: unread,
-        preview: text.slice(0, 160),
-        last_message_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
+      .update(
+        withInboxSnoozeCleared(
+          {
+            unread_count: unread,
+            preview: text.slice(0, 160),
+            last_message_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          convo.metadata,
+        ),
+      )
       .eq("id", data.conversationId);
 
     await ensureConversationLinks(supabase, convo, text);
@@ -1953,12 +1959,17 @@ export const widgetSelectProduct = createServerFn({ method: "POST" })
     const unread = Number(convo.unread_count || 0) + 1;
     await supabase
       .from("conversations")
-      .update({
-        unread_count: unread,
-        preview: customerBody.slice(0, 160),
-        last_message_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
+      .update(
+        withInboxSnoozeCleared(
+          {
+            unread_count: unread,
+            preview: customerBody.slice(0, 160),
+            last_message_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          convo.metadata,
+        ),
+      )
       .eq("id", data.conversationId);
 
     if (aiPaused) {
@@ -2065,7 +2076,7 @@ export const widgetUploadAttachment = createServerFn({ method: "POST" })
 
     const { data: convo, error: convoError } = await supabase
       .from("conversations")
-      .select("id, status")
+      .select("id, status, metadata")
       .eq("id", data.conversationId)
       .eq("org_id", ORG_ID)
       .maybeSingle();
@@ -2122,6 +2133,20 @@ export const widgetUploadAttachment = createServerFn({ method: "POST" })
       },
     });
     if (msgErr) throw new Error(msgErr.message);
+
+    await supabase
+      .from("conversations")
+      .update(
+        withInboxSnoozeCleared(
+          {
+            last_message_at: new Date().toISOString(),
+            preview: body.slice(0, 160),
+            updated_at: new Date().toISOString(),
+          },
+          convo.metadata,
+        ),
+      )
+      .eq("id", data.conversationId);
 
     const aiPaused =
       convo.status === "human" ||

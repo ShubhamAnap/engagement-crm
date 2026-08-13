@@ -22,6 +22,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { ChannelBrandMark } from "@/components/shared/ChannelBrandMark";
 
 export function PageHeader({
   title,
@@ -193,9 +194,8 @@ export const channelMeta: Record<
 };
 
 export function ChannelIcon({ channel, className }: { channel: string; className?: string }) {
-  const meta = channelMeta[channel] ?? channelMeta.website;
-  const Icon = meta.icon;
-  return <Icon className={cn("size-4", className)} aria-label={meta.label} />;
+  const size = /\bsize-(8|9|10)\b/.test(className || "") ? "md" : "sm";
+  return <ChannelBrandMark channel={channel} size={size} className={className} />;
 }
 
 export function ScoreBar({ score }: { score: number }) {

@@ -2,6 +2,11 @@
 import type { DbConversation, DbMessage, ChannelType, DbCustomer, DbLead, PriorityLevel } from "@/lib/db-types";
 import { buildPlaceholderAiReply } from "@/lib/chat-replies";
 import { normalizeWhatsAppDigits } from "@/lib/whatsapp-window";
+import {
+  conversationMeta,
+  INBOX_SNOOZE_UNTIL_KEY,
+  stripInboxSnooze,
+} from "@/lib/inbox-snooze";
 
 export { buildPlaceholderAiReply };
 export const ENERTECH_ORG_ID = "a0000000-0000-4000-8000-000000000001";
@@ -178,6 +183,12 @@ export async function sendAgentMessage(
   if (error) throw error;
 
   const label = assigneeLabel?.trim() || "Human agent";
+  const { data: convoRow } = await supabase
+    .from("conversations")
+    .select("metadata")
+    .eq("id", conversationId)
+    .maybeSingle();
+  const nextMeta = stripInboxSnooze(conversationMeta(convoRow?.metadata));
   await supabase
     .from("conversations")
     .update({
@@ -187,10 +198,44 @@ export async function sendAgentMessage(
       unread_count: 0,
       last_message_at: new Date().toISOString(),
       preview: body.slice(0, 160),
+      metadata: nextMeta,
     })
     .eq("id", conversationId);
 
   return data as DbMessage;
+}
+
+async function patchConversationMetadata(
+  conversationId: string,
+  mutate: (meta: Record<string, unknown>) => Record<string, unknown>,
+): Promise<void> {
+  const supabase = getBrowserSupabase();
+  const { data: row, error: readError } = await supabase
+    .from("conversations")
+    .select("metadata")
+    .eq("id", conversationId)
+    .maybeSingle();
+  if (readError) throw readError;
+  const next = mutate(conversationMeta(row?.metadata));
+  const { error } = await supabase
+    .from("conversations")
+    .update({ metadata: next })
+    .eq("id", conversationId);
+  if (error) throw error;
+}
+
+/** Desk reminder on the thread. Does not touch leads / Brainmine. */
+export async function setInboxSnooze(conversationId: string, untilIso: string): Promise<void> {
+  const t = Date.parse(untilIso);
+  if (!Number.isFinite(t)) throw new Error("Pick a valid date and time");
+  await patchConversationMetadata(conversationId, (meta) => ({
+    ...meta,
+    [INBOX_SNOOZE_UNTIL_KEY]: new Date(t).toISOString(),
+  }));
+}
+
+export async function clearInboxSnooze(conversationId: string): Promise<void> {
+  await patchConversationMetadata(conversationId, (meta) => stripInboxSnooze(meta));
 }
 
 export async function patchMessageMetadata(

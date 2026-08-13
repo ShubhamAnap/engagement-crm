@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
+import { withInboxSnoozeCleared } from "@/lib/inbox-snooze";
 import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
@@ -683,13 +684,18 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           const unread = Number(convo.unread_count || 0) + 1;
           await supabase
             .from("conversations")
-            .update({
-              wa_last_customer_at: nowIso,
-              last_message_at: nowIso,
-              preview: body.slice(0, 160),
-              unread_count: unread,
-              updated_at: nowIso,
-            })
+            .update(
+              withInboxSnoozeCleared(
+                {
+                  wa_last_customer_at: nowIso,
+                  last_message_at: nowIso,
+                  preview: body.slice(0, 160),
+                  unread_count: unread,
+                  updated_at: nowIso,
+                },
+                convo.metadata,
+              ),
+            )
             .eq("id", convo.id);
 
           results.push({
@@ -798,13 +804,18 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           const unread = Number(convo.unread_count || 0) + 1;
           await supabase
             .from("conversations")
-            .update({
-              wa_last_customer_at: nowIso,
-              last_message_at: nowIso,
-              preview: body.slice(0, 160),
-              unread_count: unread,
-              updated_at: nowIso,
-            })
+            .update(
+              withInboxSnoozeCleared(
+                {
+                  wa_last_customer_at: nowIso,
+                  last_message_at: nowIso,
+                  preview: body.slice(0, 160),
+                  unread_count: unread,
+                  updated_at: nowIso,
+                },
+                convo.metadata,
+              ),
+            )
             .eq("id", convo.id);
 
           if (customerMsg?.id) {
@@ -879,13 +890,18 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
         const unread = Number(convo.unread_count || 0) + 1;
         const { error: winErr } = await supabase
           .from("conversations")
-          .update({
-            wa_last_customer_at: nowIso,
-            last_message_at: nowIso,
-            preview: text.slice(0, 160),
-            unread_count: unread,
-            updated_at: nowIso,
-          })
+          .update(
+            withInboxSnoozeCleared(
+              {
+                wa_last_customer_at: nowIso,
+                last_message_at: nowIso,
+                preview: text.slice(0, 160),
+                unread_count: unread,
+                updated_at: nowIso,
+              },
+              convo.metadata,
+            ),
+          )
           .eq("id", convo.id);
         if (winErr) {
           // Migration 017 not applied yet — still refresh preview/unread

@@ -5,6 +5,22 @@
 
 ---
 
+### Session 2026-08-13 — Channel brand identity (Channels + Inbox)
+
+**Change:** Each channel uses official brand color + a small original mark (WA green bubble, IndiaMART IM, etc.). Channels cards get an accent bar + avatar; Inbox list/thread chips match. Connect/send logic unchanged. No Meta embedded onboarding.
+
+**Files:** `src/lib/channel-brand.ts`, `src/components/shared/ChannelBrandMark.tsx`, `src/components/shared/ui-kit.tsx`, `src/routes/channels.tsx`, `src/routes/inbox.tsx`.
+
+---
+
+### Session 2026-08-13 — Inbox snooze, Pause AI, last-seen strip
+
+**Change:** Inbox thread header: last seen + IST, labeled Pause AI / Return to AI, and a Remind popover (1h/6h/12h/24h + datetime). Snooze is `conversations.metadata.inbox_snooze_until` only — not Lead/Brainmine. Cleared on customer inbound or agent send.
+
+**Files:** `src/routes/inbox.tsx`, `src/lib/chat-api.ts`, `src/lib/inbox-snooze.ts`, `src/server/whatsapp.ts`, `src/server/widget-chat.ts`.
+
+---
+
 ### Session 2026-08-13 — Sale price + MRP on products and chat
 
 **Change:** Woo selling/sale price stays on `price_label`; regular price stored as `mrp_label`. Products table/form show both. WhatsApp/chat: `Price: ₹45,000 (MRP ₹52,000)` when they differ.

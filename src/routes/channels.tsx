@@ -23,7 +23,6 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
-  ChannelIcon,
   EmptyState,
   PageHeader,
   Panel,
@@ -31,6 +30,8 @@ import {
   ScoreBar,
   StatCard,
 } from "@/components/shared/ui-kit";
+import { ChannelBrandMark } from "@/components/shared/ChannelBrandMark";
+import { getChannelBrand } from "@/lib/channel-brand";
 import { useAuth } from "@/lib/auth";
 import { ENERTECH_ORG_ID } from "@/lib/chat-api";
 import {
@@ -2632,11 +2633,14 @@ function Page() {
               const live = isLiveChannel(c.type);
               const toggling = toggleMutation.isPending && toggleMutation.variables?.channel.id === c.id;
               return (
-                <Panel key={c.id} bodyClassName="p-4">
-              <div className="flex items-start gap-3">
-                    <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-secondary">
-                      <ChannelIcon channel={c.type} className="text-muted-foreground" />
-              </div>
+                <Panel key={c.id} className="overflow-hidden" bodyClassName="relative overflow-hidden p-4">
+              <div
+                className="absolute inset-y-0 left-0 w-1"
+                style={{ background: getChannelBrand(c.type).accent }}
+                aria-hidden
+              />
+              <div className="flex items-start gap-3 pl-1">
+                    <ChannelBrandMark channel={c.type} size="md" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold">{c.name}</p>
                       <p className="truncate text-xs text-muted-foreground">{c.detail || c.type}</p>
@@ -2726,7 +2730,10 @@ function Page() {
       <Dialog open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Configure {editing?.name}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2.5">
+              {editing ? <ChannelBrandMark channel={editing.type} size="md" /> : null}
+              Configure {editing?.name}
+            </DialogTitle>
             <DialogDescription>
               {editing?.type === "whatsapp"
                 ? "Paste Meta WhatsApp Cloud API credentials. Inbound messages will create Inbox conversations."

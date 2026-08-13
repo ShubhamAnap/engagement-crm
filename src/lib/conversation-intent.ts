@@ -5,6 +5,9 @@
 
 const KW_RE = /(\d+(?:\.\d+)?)\s*(k\.?\s*w|k\.?\s*va|kw|kva)\b/i;
 const PRICE_RE = /\b(price|pricing|cost|rate|quote|quotation|kitna|kitne|rs\.?|₹|inr)\b/i;
+/** Electrical rating paste: 360vdc, 3ph, PCU, hybrid… */
+const ELECTRICAL_SPEC_RE =
+  /\b(\d+\s*v\s*d\.?c|\d+\s*vdc|\d+\s*v\s*a\.?c|\d+\s*vac|3\s*ph|1\s*ph|three[\s-]?phase|single[\s-]?phase|\bpcu\b|\bhybrids?\b|\binverters?\b|\bups\b|\bbess\b)\b/i;
 
 /** Informational / educational — answer with Knowledge Base, do not dump packs/PDFs/photos. */
 const DEFINITION_ASK_RE =
@@ -260,6 +263,22 @@ export function resolveSalesOwnedFromHistory(
   return { owned: false, salesName: null, salesPhone: null, requirement: null };
 }
 
+/**
+ * Customer pasted a machine rating (e.g. "25kva 360vdc 3ph hybrid pcu").
+ * That is catalog matching — not a sales-owned price/quote dump.
+ */
+export function isProductRatingSpecAsk(text: string): boolean {
+  const q = String(text || "").trim();
+  if (!q || q.length > 180) return false;
+  if (isEducateOnlyAsk(q)) return false;
+  if (wantsSiteInstallOrReferencePhotos(q)) return false;
+  const hasKw = KW_RE.test(q);
+  const hasElectrical = ELECTRICAL_SPEC_RE.test(q);
+  if (hasKw && hasElectrical) return true;
+  if (/\bpcu\b/i.test(q) && (hasKw || hasElectrical || /\bhybrids?\b/i.test(q))) return true;
+  return false;
+}
+
 /** Price / quote / catalogue asks that belong to the assigned sales person. */
 export function wantsSalesOwnedCommercialDefer(text: string): boolean {
   const q = String(text || "").trim();
@@ -267,6 +286,8 @@ export function wantsSalesOwnedCommercialDefer(text: string): boolean {
   if (isEducateOnlyAsk(q)) return false;
   // Site / install / petrol-pump reference photos are KB — do not bounce to sales.
   if (wantsSiteInstallOrReferencePhotos(q)) return false;
+  // Rating / spec paste (kVA + VDC / phase / hybrid PCU) → product pack, not Ritesh defer.
+  if (isProductRatingSpecAsk(q)) return false;
   if (PRICE_RE.test(q)) return true;
   if (/\b(quotation|quote|proforma|commercial offer|best price)\b/i.test(q)) return true;
   if (/\b(send|share|bhejo)\b[\s\S]{0,40}\b(price|rate|quote|quotation)\b/i.test(q)) return true;

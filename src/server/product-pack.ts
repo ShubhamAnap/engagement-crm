@@ -27,7 +27,7 @@ const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
 const KW_RE = /(\d+(?:\.\d+)?)\s*(k\.?\s*w|k\.?\s*va|kw|kva)\b/i;
 const PRODUCT_WORD_RE =
-  /\b(inverters?|ups|hybrids?|batter(?:y|ies)|bess|ongrid|on[\s-]?grid|off[\s-]?grid|solar|e[\s-]?series|reefi|stabilizers?|chargers?|sfc|products?|models?|hf|lf)\b/i;
+  /\b(inverters?|ups|hybrids?|pcu|batter(?:y|ies)|bess|ongrid|on[\s-]?grid|off[\s-]?grid|solar|e[\s-]?series|reefi|stabilizers?|chargers?|sfc|products?|models?|hf|lf)\b/i;
 const DETAIL_RE =
   /\b(price|pricing|cost|rate|quote|quotation|kitna|kitne|rs\.?|₹|inr|details?|specs?|specification|send|bhejo|dikhao|info|information|available|stock)\b/i;
 const PRICE_RE = /\b(price|pricing|cost|rate|quote|quotation|kitna|kitne|rs\.?|₹|inr)\b/i;
@@ -36,7 +36,7 @@ const USE_CASE_RE =
   /\b(home|house|residential|resident|domestic|office|shop|clinic|hospital|farm|poultry|commercial|industrial|villa|apartment|flat)\b/i;
 /** Category / series labels from catalogue */
 const CATEGORY_LABEL_RE =
-  /\b(hf|lf|high\s*frequency|low\s*frequency|e[\s-]?series|reefi|hybrid|ongrid|off[\s-]?grid|bess|sfc|servo|online|offline)\b/i;
+  /\b(hf|lf|high\s*frequency|low\s*frequency|e[\s-]?series|reefi|hybrid|pcu|ongrid|off[\s-]?grid|bess|sfc|servo|online|offline|3\s*ph|1\s*ph|three[\s-]?phase|vdc)\b/i;
 
 export type ProductPackResult =
   | { mode: "none" }
@@ -75,6 +75,14 @@ export function extractRequestedKw(text: string): number | null {
   if (!m) return null;
   const n = Number(m[1]);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Battery / DC bus voltage from "360vdc" / "360 V DC". */
+export function extractRequestedVdc(text: string): number | null {
+  const m = String(text || "").match(/(\d{2,4})\s*v\s*d\.?c\b|(\d{2,4})\s*vdc\b/i);
+  if (!m) return null;
+  const n = Number(m[1] || m[2]);
+  return Number.isFinite(n) && n >= 12 && n <= 1000 ? n : null;
 }
 
 /** Infer kW/kVA from product fields (name "3kW Hybrid", SKU EN-3000 → 3). */
@@ -119,7 +127,7 @@ export function categoryHint(text: string): string | null {
   const t = text.toLowerCase();
   if (/\bhf\b|high\s*frequency/.test(t)) return "hf";
   if (/\blf\b|low\s*frequency/.test(t)) return "lf";
-  if (/\bhybrids?\b/.test(t)) return "hybrid";
+  if (/\bhybrids?\b|\bpcu\b/.test(t)) return "hybrid";
   if (/\bongrid|on[\s-]?grid|grid[\s-]?tie\b/.test(t)) return "ongrid";
   if (/\boff[\s-]?grid\b/.test(t)) return "offgrid";
   if (/\bbess\b/.test(t)) return "bess";
@@ -193,14 +201,23 @@ function scoreProduct(product: DbProduct, query: string, requestedKw: number | n
 
   if (hint) {
     if (blob.includes(hint)) score += 35;
-    else if (hint === "inverter" && /inverter|hybrid|solar|ongrid|offgrid|\bhf\b/.test(blob)) score += 20;
+    else if (hint === "inverter" && /inverter|hybrid|solar|ongrid|offgrid|\bhf\b|\bpcu\b/.test(blob)) score += 20;
     else if (hint === "hf" && /\bhf\b|hybrid|high\s*freq|inverter|residential|home/.test(blob)) score += 40;
     else if (hint === "lf" && /\blf\b|low\s*freq/.test(blob)) score += 40;
     else if (hint === "ups" && /\bups\b/.test(blob)) score += 35;
-    else if (hint === "hybrid" && /hybrid|hf|solar|inverter/.test(blob)) score += 30;
-    else if (hint === "solar" && /solar|hybrid|ongrid|offgrid/.test(blob)) score += 25;
+    else if (hint === "hybrid" && /hybrid|hf|solar|inverter|\bpcu\b/.test(blob)) score += 30;
+    else if (hint === "solar" && /solar|hybrid|ongrid|offgrid|\bpcu\b/.test(blob)) score += 25;
     else if (hint === "e-series" && /e[\s-]?series|eseries/.test(blob)) score += 40;
     else if (hint === "reefi" && /reefi/.test(blob)) score += 40;
+  }
+
+  const vdc = extractRequestedVdc(query);
+  if (vdc != null) {
+    if (blob.includes(String(vdc)) && /vdc|v\s*dc|\bdc\b/.test(blob)) score += 45;
+    else if (blob.includes(String(vdc))) score += 15;
+  }
+  if (/\b(3\s*ph|three[\s-]?phase)\b/i.test(query) && /\b(3\s*ph|three[\s-]?phase|3ph)\b/i.test(blob)) {
+    score += 20;
   }
 
   const tokens = query

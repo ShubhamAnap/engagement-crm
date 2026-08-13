@@ -5,6 +5,16 @@
 
 ---
 
+### Session 2026-08-13 — Rating spec must not defer to sales
+
+**Bug:** After `requirement_submitted` (Ritesh assigned), `25kva 360vdc 3ph hybrid pcu` matched sales-owner defer (`kVA` = transactional) and never hit product pack. Catalog updates could not help.
+
+**Fix:** `isProductRatingSpecAsk` skips sales defer so WhatsApp/widget run product match. PCU / VDC / 3ph added to product scoring. Petrol-pump reference photos still skip sales (existing).
+
+**Files:** `src/lib/conversation-intent.ts`, `src/server/product-pack.ts`.
+
+---
+
 ### Session 2026-08-13 — Woo sync empty because theme HTML prefixed REST JSON
 
 **Bug:** Sync showed “No published Woo products found” even though the Store API has products. YITH/Wishlist (and similar) print HTML before JSON; `JSON.parse` failed and we treated it as zero products.

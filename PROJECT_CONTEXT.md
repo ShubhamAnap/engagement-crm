@@ -5,6 +5,14 @@
 
 ---
 
+### Session 2026-08-13 — Sidebar Collapse on top; Products Filter/Sort
+
+**Change:** Sidebar Collapse moved from the footer to the header (next to the logo). Product Catalog Filter and Sort are wired: category / stock / WordPress vs manual, and name / SKU / category / price / newest. Previously Toolbar rendered disabled placeholder buttons.
+
+**Files:** `src/components/layout/AppSidebar.tsx`, `src/routes/products.tsx`.
+
+---
+
 ### Session 2026-08-13 — Channel brand identity (Channels + Inbox)
 
 **Change:** Each channel uses official brand color + a small original mark (WA green bubble, IndiaMART IM, etc.). Channels cards get an accent bar + avatar; Inbox list/thread chips match. Connect/send logic unchanged. No Meta embedded onboarding.

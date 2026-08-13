@@ -1,9 +1,19 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, FileText, Layers, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import { ArrowUpDown, Download, FileText, Layers, Pencil, Plus, RefreshCw, SlidersHorizontal, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,6 +44,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState, PageHeader, Panel, Pill, TablePagination, Toolbar } from "@/components/shared/ui-kit";
 import { useAuth } from "@/lib/auth";
+import { cn } from "@/lib/utils";
 import type { DbCategoryCatalogue, DbProduct, StockStatus } from "@/lib/db-types";
 import { normalizeCategoryKey } from "@/lib/product-card";
 import {
@@ -62,6 +73,38 @@ import { ensureKnowledgeStorage } from "@/server/knowledge";
 import { getWordpressSetup, syncWordpressCatalog } from "@/server/wordpress-catalog";
 
 const stockOptions: StockStatus[] = ["In Stock", "Low Stock", "Made to Order", "Out of Stock"];
+
+type ProductSourceFilter = "all" | "wordpress" | "manual";
+type ProductStockFilter = "all" | StockStatus;
+type ProductSort =
+  | "name-asc"
+  | "name-desc"
+  | "sku-asc"
+  | "category-asc"
+  | "price-asc"
+  | "price-desc"
+  | "newest"
+  | "oldest";
+
+const sortOptions: { value: ProductSort; label: string }[] = [
+  { value: "name-asc", label: "Name A–Z" },
+  { value: "name-desc", label: "Name Z–A" },
+  { value: "sku-asc", label: "SKU A–Z" },
+  { value: "category-asc", label: "Category" },
+  { value: "price-asc", label: "Price: low to high" },
+  { value: "price-desc", label: "Price: high to low" },
+  { value: "newest", label: "Newest" },
+  { value: "oldest", label: "Oldest" },
+];
+
+function isWordpressProduct(product: DbProduct): boolean {
+  return (product.specs as { source?: string } | null)?.source === "wordpress";
+}
+
+function productCategoryLabel(product: DbProduct): string {
+  const label = product.category?.trim();
+  return label ? label : "Uncategorized";
+}
 
 type ProductFormState = {
   sku: string;
@@ -132,6 +175,10 @@ function Page() {
   const categoryFileRef = useRef<HTMLInputElement>(null);
   const pendingCategoryLabelRef = useRef<string | null>(null);
   const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [stockFilter, setStockFilter] = useState<ProductStockFilter>("all");
+  const [sourceFilter, setSourceFilter] = useState<ProductSourceFilter>("all");
+  const [sortKey, setSortKey] = useState<ProductSort>("name-asc");
   const pageSize = 25;
   const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -433,16 +480,53 @@ function Page() {
     },
   });
 
+  const categoryOptions = useMemo(() => {
+    const labels = new Set<string>();
+    for (const product of productsQuery.data ?? []) {
+      labels.add(productCategoryLabel(product));
+    }
+    return [...labels].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  }, [productsQuery.data]);
+
+  const filterCount =
+    (categoryFilter !== "all" ? 1 : 0) + (stockFilter !== "all" ? 1 : 0) + (sourceFilter !== "all" ? 1 : 0);
+
   const filteredProducts = useMemo(() => {
-    const items = productsQuery.data ?? [];
     const q = search.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((product) =>
-      [product.sku, product.name, product.category, product.battery_spec, product.runtime_spec, product.price_label, product.mrp_label]
+    const items = (productsQuery.data ?? []).filter((product) => {
+      if (categoryFilter !== "all" && productCategoryLabel(product) !== categoryFilter) return false;
+      if (stockFilter !== "all" && product.stock_status !== stockFilter) return false;
+      if (sourceFilter === "wordpress" && !isWordpressProduct(product)) return false;
+      if (sourceFilter === "manual" && isWordpressProduct(product)) return false;
+      if (!q) return true;
+      return [product.sku, product.name, product.category, product.battery_spec, product.runtime_spec, product.price_label, product.mrp_label]
         .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(q)),
-    );
-  }, [productsQuery.data, search]);
+        .some((value) => String(value).toLowerCase().includes(q));
+    });
+
+    const sorted = [...items];
+    sorted.sort((a, b) => {
+      if (sortKey === "name-asc" || sortKey === "name-desc") {
+        const cmp = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+        return sortKey === "name-desc" ? -cmp : cmp;
+      }
+      if (sortKey === "sku-asc") {
+        return a.sku.localeCompare(b.sku, undefined, { numeric: true, sensitivity: "base" });
+      }
+      if (sortKey === "category-asc") {
+        return productCategoryLabel(a).localeCompare(productCategoryLabel(b), undefined, { sensitivity: "base" });
+      }
+      if (sortKey === "price-asc" || sortKey === "price-desc") {
+        const av = a.price_paise ?? Number.POSITIVE_INFINITY;
+        const bv = b.price_paise ?? Number.POSITIVE_INFINITY;
+        return sortKey === "price-desc" ? bv - av : av - bv;
+      }
+      const at = new Date(a.created_at).getTime();
+      const bt = new Date(b.created_at).getTime();
+      return sortKey === "oldest" ? at - bt : bt - at;
+    });
+    return sorted;
+  }, [productsQuery.data, search, categoryFilter, stockFilter, sourceFilter, sortKey]);
 
   const pageCount = Math.max(1, Math.ceil(filteredProducts.length / pageSize));
   const safePage = Math.min(Math.max(1, page), pageCount);
@@ -452,9 +536,8 @@ function Page() {
   }, [filteredProducts, safePage]);
 
   useEffect(() => {
-    // Keep pagination stable when users search.
     setPage(1);
-  }, [search]);
+  }, [search, categoryFilter, stockFilter, sourceFilter, sortKey]);
 
   const openCreate = () => {
     setEditingProduct(null);
@@ -528,6 +611,92 @@ function Page() {
             placeholder="Search SKU, name or category…"
             value={search}
             onChange={setSearch}
+            filter={
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className={cn("h-9 gap-1.5", filterCount > 0 && "border-primary text-primary")}
+                    type="button"
+                  >
+                    <SlidersHorizontal className="size-4" /> Filter
+                    {filterCount > 0 ? (
+                      <span className="num rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold">
+                        {filterCount}
+                      </span>
+                    ) : null}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="max-h-80 w-56 overflow-y-auto">
+                  <DropdownMenuLabel>Category</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup value={categoryFilter} onValueChange={setCategoryFilter}>
+                    <DropdownMenuRadioItem value="all">All categories</DropdownMenuRadioItem>
+                    {categoryOptions.map((label) => (
+                      <DropdownMenuRadioItem key={label} value={label}>
+                        {label}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>Stock</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup
+                    value={stockFilter}
+                    onValueChange={(v) => setStockFilter(v as ProductStockFilter)}
+                  >
+                    <DropdownMenuRadioItem value="all">All stock</DropdownMenuRadioItem>
+                    {stockOptions.map((status) => (
+                      <DropdownMenuRadioItem key={status} value={status}>
+                        {status}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>Source</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup
+                    value={sourceFilter}
+                    onValueChange={(v) => setSourceFilter(v as ProductSourceFilter)}
+                  >
+                    <DropdownMenuRadioItem value="all">All sources</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="wordpress">WordPress</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="manual">Manual</DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                  {filterCount > 0 ? (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          setCategoryFilter("all");
+                          setStockFilter("all");
+                          setSourceFilter("all");
+                        }}
+                      >
+                        Clear filters
+                      </DropdownMenuItem>
+                    </>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            }
+            sort={
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-9 gap-1.5" type="button">
+                    <ArrowUpDown className="size-4" /> Sort
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup value={sortKey} onValueChange={(v) => setSortKey(v as ProductSort)}>
+                    {sortOptions.map((option) => (
+                      <DropdownMenuRadioItem key={option.value} value={option.value}>
+                        {option.label}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            }
             right={
               <Button
                 size="sm"
@@ -549,7 +718,7 @@ function Page() {
           {productsQuery.isLoading ? (
             <div className="p-6 text-sm text-muted-foreground">Loading products…</div>
           ) : filteredProducts.length === 0 ? (
-            <div className="p-4"><EmptyState title={search ? "No matching products" : "No products yet"} description={search ? "Try a different search term." : "Add your first product to build the catalog."} /></div>
+            <div className="p-4"><EmptyState title={search || filterCount > 0 ? "No matching products" : "No products yet"} description={search || filterCount > 0 ? "Try a different search or clear filters." : "Add your first product to build the catalog."} /></div>
           ) : (
             <>
               <div className="overflow-x-auto">

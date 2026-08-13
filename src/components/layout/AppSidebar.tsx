@@ -126,11 +126,19 @@ export function AppSidebar({
         mobile && "w-[248px]",
       )}
     >
-      <div className="flex h-14 items-center gap-2.5 border-b border-sidebar-border px-4">
+      <div
+        className={cn(
+          "flex shrink-0 items-center border-b border-sidebar-border",
+          collapsed && !mobile ? "flex-col gap-1 px-2 py-2.5" : "h-14 gap-2 px-3",
+        )}
+      >
         <Link
           to="/"
           onClick={() => onNavigate?.()}
-          className="flex min-w-0 items-center gap-2.5"
+          className={cn(
+            "flex min-w-0 items-center gap-2.5",
+            collapsed && !mobile ? "justify-center" : "flex-1",
+          )}
           aria-label="Go to dashboard"
         >
           {logoUrl ? (
@@ -153,6 +161,21 @@ export function AppSidebar({
             </div>
           )}
         </Link>
+        {!mobile && (
+          <Button
+            variant="ghost"
+            size={collapsed ? "icon" : "sm"}
+            onClick={onToggle}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className={cn(
+              "shrink-0 text-muted-foreground",
+              collapsed ? "size-8" : "ml-auto h-8 gap-1.5 px-2",
+            )}
+          >
+            <ChevronsLeft className={cn("size-4 transition-transform", collapsed && "rotate-180")} />
+            {!collapsed && <span className="text-xs">Collapse</span>}
+          </Button>
+        )}
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2.5 py-3" aria-label="Main">
@@ -210,24 +233,6 @@ export function AppSidebar({
           </div>
         ))}
       </nav>
-
-      <div className="border-t border-sidebar-border p-2.5">
-        {!mobile && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onToggle}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className={cn(
-              "w-full justify-start gap-2 text-muted-foreground",
-              collapsed && "justify-center",
-            )}
-          >
-            <ChevronsLeft className={cn("size-4 transition-transform", collapsed && "rotate-180")} />
-            {!collapsed && <span className="text-xs">Collapse</span>}
-          </Button>
-        )}
-      </div>
     </aside>
   );
 }

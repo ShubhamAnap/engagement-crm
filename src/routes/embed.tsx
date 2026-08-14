@@ -720,6 +720,9 @@ function EmbedChat() {
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-white">EnerTech</p>
+            <p className="mt-0.5 line-clamp-2 text-[11px] leading-tight text-white/85">
+              Ask Anything About Our Products &amp; Services
+            </p>
           </div>
           <div className="ml-auto flex items-center gap-0.5">
             {profileReady && !showContactForm ? (

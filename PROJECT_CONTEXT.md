@@ -5,6 +5,14 @@
 
 ---
 
+### Session 2026-08-14 — ASK header subtitle
+
+**Change:** Chat header under **EnerTech** shows: “Ask Anything About Our Products & Services”. Same on live `/embed` and in-app ASK preview. Copy only — send/replies unchanged.
+
+**Files:** `src/routes/embed.tsx`, `src/components/ChatWidget.tsx`.
+
+---
+
 ### Session 2026-08-14 — ASK launcher gentle pulse
 
 **Change:** Website ASK EnerTech button (`widget.js`) slowly scales 1.00→1.08 while closed so it is easier to notice. Stops when the chat opens, after ~20s, or if the visitor prefers reduced motion. Same pulse on the in-app ASK preview. Chat send/replies unchanged.

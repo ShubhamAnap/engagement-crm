@@ -11,6 +11,8 @@
 
 **Files:** `public/widget.js`, `src/lib/ask-launcher-pulse.ts`, `src/components/ChatWidget.tsx`, `src/styles.css`.
 
+**Fix (2026-08-14):** Pulse import had landed inside the visitor-profile import and broke Render `vite build`. Restored a valid import.
+
 ---
 
 ### Session 2026-08-13 — Knowledge: one upload surface when empty

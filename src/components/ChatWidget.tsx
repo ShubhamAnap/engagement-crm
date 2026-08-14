@@ -34,6 +34,7 @@ import {
   isWidgetProfileComplete,
   widgetProfileIncompleteMessage,
   type WidgetVisitorProfile,
+} from "@/lib/widget-visitor-profile";
 import { useAskLauncherPulse } from "@/lib/ask-launcher-pulse";
 
 type ServerMessage = {

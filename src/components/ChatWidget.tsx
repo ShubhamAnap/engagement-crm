@@ -34,7 +34,7 @@ import {
   isWidgetProfileComplete,
   widgetProfileIncompleteMessage,
   type WidgetVisitorProfile,
-} from "@/lib/widget-visitor-profile";
+import { useAskLauncherPulse } from "@/lib/ask-launcher-pulse";
 
 type ServerMessage = {
   id: string;
@@ -205,6 +205,7 @@ function applyHistory(messages: ServerMessage[]): UiMsg[] {
 export function ChatWidget() {
   const { session } = useAuth();
   const [open, setOpen] = useState(false);
+  const pulseAsk = useAskLauncherPulse(open);
   const [lang, setLang] = useState("EN");
   const [msgs, setMsgs] = useState<UiMsg[]>([welcome]);
   const [typing, setTyping] = useState(false);
@@ -915,7 +916,10 @@ export function ChatWidget() {
 
       <Button
         onClick={() => setOpen((v) => !v)}
-        className="fixed z-50 h-[72px] w-[72px] flex-col gap-0.5 rounded-full border-2 border-white px-2 text-white shadow-lg"
+        className={cn(
+          "fixed z-50 h-[72px] w-[72px] flex-col gap-0.5 rounded-full border-2 border-white px-2 text-white shadow-lg",
+          pulseAsk && "et-ask-pulse",
+        )}
         style={{
           backgroundColor: BRAND,
           right: "max(0.5rem, env(safe-area-inset-right))",

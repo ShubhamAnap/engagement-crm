@@ -1,7 +1,15 @@
 # EnerTech Engage — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
-> **Last updated:** 2026-08-13
+> **Last updated:** 2026-08-14
+
+---
+
+### Session 2026-08-14 — ASK launcher gentle pulse
+
+**Change:** Website ASK EnerTech button (`widget.js`) slowly scales 1.00→1.08 while closed so it is easier to notice. Stops when the chat opens, after ~20s, or if the visitor prefers reduced motion. Same pulse on the in-app ASK preview. Chat send/replies unchanged.
+
+**Files:** `public/widget.js`, `src/lib/ask-launcher-pulse.ts`, `src/components/ChatWidget.tsx`, `src/styles.css`.
 
 ---
 

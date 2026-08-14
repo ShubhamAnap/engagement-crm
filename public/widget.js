@@ -26,6 +26,39 @@
 
   var BRAND = "#0B2388";
   var INK = "#FFFFFF";
+  var SEEN_KEY = "enertech-ask-seen";
+  var PULSE_MS = 20000;
+
+  var pulseStyle = document.createElement("style");
+  pulseStyle.textContent =
+    "@keyframes et-ask-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}" +
+    ".et-ask-pulse{animation:et-ask-pulse 2.2s ease-in-out infinite;transform-origin:center}" +
+    "@media (prefers-reduced-motion:reduce){.et-ask-pulse{animation:none!important}}";
+  document.head.appendChild(pulseStyle);
+
+  var pulseUntil = Date.now() + PULSE_MS;
+
+  function prefersReducedMotion() {
+    try {
+      return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    } catch (_) {
+      return false;
+    }
+  }
+  function markAskSeen() {
+    try {
+      sessionStorage.setItem(SEEN_KEY, "1");
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  function askWasSeen() {
+    try {
+      return sessionStorage.getItem(SEEN_KEY) === "1";
+    } catch (_) {
+      return false;
+    }
+  }
 
   var open = false;
   var btn = document.createElement("button");
@@ -52,6 +85,12 @@
     "align-items:center",
     "justify-content:center",
   ].join(";");
+
+  function syncPulse() {
+    var allow = !open && !prefersReducedMotion() && !askWasSeen() && Date.now() < pulseUntil;
+    if (allow) btn.classList.add("et-ask-pulse");
+    else btn.classList.remove("et-ask-pulse");
+  }
 
   function renderLabel(isOpen) {
     btn.innerHTML = "";
@@ -108,6 +147,8 @@
 
   function setOpen(next) {
     open = !!next;
+    if (open) markAskSeen();
+    syncPulse();
     frameWrap.style.display = open ? "block" : "none";
     renderLabel(open);
     try {
@@ -142,4 +183,6 @@
 
   document.body.appendChild(frameWrap);
   document.body.appendChild(btn);
+  syncPulse();
+  window.setTimeout(syncPulse, PULSE_MS);
 })();

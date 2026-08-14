@@ -653,3 +653,24 @@
   --wa-list-active: #222a3c;
 }
 
+@keyframes et-ask-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+.et-ask-pulse {
+  animation: et-ask-pulse 2.2s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .et-ask-pulse {
+    animation: none !important;
+  }
+}
+

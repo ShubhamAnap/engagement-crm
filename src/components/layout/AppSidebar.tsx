@@ -148,8 +148,8 @@ export function AppSidebar({
               className="size-8 shrink-0 rounded-lg object-contain"
             />
           ) : (
-            <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
-              <Cpu className="size-4.5" />
+            <div className="grid size-8 shrink-0 place-items-center rounded-lg border border-sidebar-border bg-sidebar-accent/70 text-sidebar-foreground">
+              <Cpu className="size-4" />
             </div>
           )}
           {!collapsed && (
@@ -182,7 +182,7 @@ export function AppSidebar({
         {groups.map((group) => (
           <div key={group.label} className="mb-4">
             {!collapsed && (
-              <p className="px-2 pb-1.5 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+              <p className="px-2 pb-1.5 text-[10px] font-medium tracking-[0.12em] text-muted-foreground/80 uppercase">
                 {group.label}
               </p>
             )}
@@ -195,9 +195,9 @@ export function AppSidebar({
                     to={item.to}
                     onClick={() => onNavigate?.()}
                     className={cn(
-                      "group flex h-9 items-center gap-2.5 rounded-lg px-2 text-sm font-medium transition-colors",
+                      "group relative flex h-9 items-center gap-2.5 rounded-lg px-2 text-sm font-medium transition-colors duration-150",
                       active
-                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground before:absolute before:inset-y-1.5 before:left-0 before:w-[3px] before:rounded-full before:bg-primary"
                         : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
                       collapsed && "justify-center px-0",
                     )}

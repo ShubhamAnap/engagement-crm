@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { ENERTECH_NAVY_HEX } from "@/lib/brand";
 
 export type ChatProductCard = {
   id: string;
@@ -14,7 +15,7 @@ export function ChatProductCarousel(props: {
   onNeedThis: (productId: string) => void;
   className?: string;
 }) {
-  const brand = props.brand || "#0B2388";
+  const brand = props.brand || ENERTECH_NAVY_HEX;
   if (!props.products.length) return null;
 
   return (

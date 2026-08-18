@@ -5,6 +5,14 @@
 
 ---
 
+### Session 2026-08-18 — World-class EnerTech theme
+
+**Change:** One navy accent, quiet navy-black surfaces, locked semantic colors. Palettes (Forest/Ocean/Sunrise/Teal/Slate) and the TopBar rainbow picker are gone. Light / Dark / System remain. Org `brand_primary` hex is converted to oklch (never written raw onto tokens). Settings brand picker defaults to EnerTech navy `#0B2388`. Inbox WhatsApp/IndiaMART skins stay on the **thread** only; conversation list + profile use app surfaces. Hardcoded `amber-*` warnings now use `text-warning` / `bg-warning`.
+
+**Files:** `src/styles.css`, `src/lib/theme.tsx`, `src/lib/color.ts`, `src/lib/brand.ts`, `src/lib/auth.tsx`, `src/lib/channel-brand.ts`, `src/components/layout/TopBar.tsx`, `src/components/layout/AppSidebar.tsx`, `src/components/ui/tooltip.tsx`, `src/routes/login.tsx`, `src/routes/settings.tsx`, `src/routes/inbox.tsx`, plus semantic-token swaps on agents/tools/channels/leads/knowledge/pipeline.
+
+---
+
 ### Session 2026-08-18 — Inbox sidebar actions (not timezone)
 
 **Change:** Inbox right panel is now an action desk. Dropped hardcoded timezone, duplicate last-seen/assigned/status, truncated IDs, session id, and the fake AI confidence bar. Added assign (EnerBot or a teammate — pauses AI), labels (presets + freeform on `conversations.tags`), and a private internal note (`metadata.internal_note`). Open customer / Open lead jumps to that record. Lead status/priority, Brainmine follow-up, and conversation summary stay.
@@ -103,7 +111,7 @@
 
 - Inbox thread skins follow the open channel (WA / IndiaMART / email / TradeIndia / FB / IG / website). List avatars use brand color.
 - Products default to a photo card grid (table toggle kept).
-- Default chrome palette is EnerTech navy (Forest still in the picker if chosen).
+- Default chrome is EnerTech navy (one accent). Rainbow palettes removed in the 2026-08-18 theme pass.
 - Login mark is EnerTech “E”. Staff ChatWidget hidden on Inbox and Channels (white overlay).
 - Leads/Pipeline/Human Support: source/stage color accents. Dashboard + Analytics charts use brand hex.
 - Knowledge collections look like albums. Broadcast templates preview as a WhatsApp bubble. Customers get avatars; dummy Filter/Sort hidden. Command Center live dot.
@@ -265,7 +273,7 @@ Run **EnerTech Engage** as a **working enterprise AI customer engagement platfor
 |---------|----------|
 | SSR + client routing | TanStack Start / Router |
 | App shell (sidebar, top bar) | `src/routes/__root.tsx`, layout components |
-| Theme (dark/light/system) + 5 color palettes + localStorage | `src/lib/theme.tsx`, TopBar + ChatWidget/embed pickers |
+| Theme (dark/light/system) + localStorage | `src/lib/theme.tsx`, TopBar |
 | Command palette (Cmd/Ctrl+K) | `src/components/layout/TopBar.tsx` |
 | Chat widget UI + live OpenAI reply | `src/components/ChatWidget.tsx` |
 | Toast feedback | Sonner |
@@ -891,7 +899,7 @@ Brief notes from each working session — append, don't delete.
 - **Human takeover:** Inbox agent reply sets conversation `status=human` and pauses OpenAI for that thread. Widget polls messages so human replies appear live (labeled “Human agent”). Customer messages while human/escalated are stored without AI replies.
 - **Same-contact Inbox merge:** Website chat reuses the contact’s latest open conversation (match by customer/email/phone) instead of creating duplicate Inbox threads. Empty placeholder threads are removed; updated threads rise to the top by `last_message_at`.
 - **Inbox resizable layout:** Omnichannel Inbox columns (list / chat / profile) are drag-resizable on desktop; sizes persist in localStorage. Mobile uses a stacked responsive layout. Chat widget sizing improved for small screens.
-- **Color palettes:** Five themes (Forest, Ocean, Sunrise, Slate, Teal) work with light and dark mode. Pick via TopBar palette icon or chatbot palette menu; applies site-wide including EnerBot.
+- **Theme:** Dark-first EnerTech navy. Light / Dark / System only — no Forest/Ocean/Sunrise/Teal/Slate palettes. Org brand hex (optional) converts to oklch and becomes the only primary.
 - **Knowledge Base + RAG started:** Added `004_knowledge_rag.sql` (pgvector, chunks, match RPC, Storage bucket). `/knowledge` uploads PDF/TXT/MD, embeds with OpenAI, stores vectors in Supabase. EnerBot retrieves chunks and returns catalogue/PDF download links when asked.
 - **Upload fix:** Knowledge uploads now prepare a DB row → upload to Storage (browser, with service-role fallback) → index. Added `005_knowledge_storage_fix.sql` for bucket/policies. Word `.doc/.docx` rejected with a clear error; PDF/TXT/MD supported.
 - **Collection image galleries:** Collections (e.g. Cold Storage, Petrol Pump) support multi-image upload + gallery view alongside PDFs/TXT. EnerBot can share image links when visitors ask for photos.

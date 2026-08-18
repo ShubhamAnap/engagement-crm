@@ -53,7 +53,7 @@ function NodeIcon({ type }: { type: string }) {
   if (type === "wait") return <Timer className="size-3.5 text-sky-600" />;
   if (type === "if_else") return <GitBranch className="size-3.5 text-violet-600" />;
   if (type.startsWith("send_") || type === "notify_team") {
-    return <Zap className="size-3.5 text-amber-600" />;
+    return <Zap className="size-3.5 text-warning" />;
   }
   return <GitBranch className="size-3.5" />;
 }

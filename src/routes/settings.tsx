@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader, Panel, Pill } from "@/components/shared/ui-kit";
 import { useAuth } from "@/lib/auth";
+import { ENERTECH_NAVY_HEX } from "@/lib/brand";
 import {
   removeMyAvatar,
   removeOrgLogo,
@@ -376,19 +377,19 @@ function Page() {
                         value={brandPrimary}
                         disabled={!isAdmin}
                         onChange={(e) => setBrandPrimary(e.target.value)}
-                        placeholder="#0B6E4F"
+                        placeholder={ENERTECH_NAVY_HEX}
                       />
                       <input
                         type="color"
                         aria-label="Pick brand color"
                         className="h-9 w-12 cursor-pointer rounded border border-border bg-transparent p-1 disabled:opacity-50"
                         disabled={!isAdmin}
-                        value={/^#[0-9A-Fa-f]{6}$/.test(brandPrimary) ? brandPrimary : "#0B6E4F"}
+                        value={/^#[0-9A-Fa-f]{6}$/.test(brandPrimary) ? brandPrimary : ENERTECH_NAVY_HEX}
                         onChange={(e) => setBrandPrimary(e.target.value.toUpperCase())}
                       />
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Applied as the app primary accent when set.
+                      Optional. When set, this is the only primary accent (EnerTech navy is the default).
                     </p>
                   </div>
                 </div>

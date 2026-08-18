@@ -108,9 +108,9 @@ export function AutomationApprovalBanner() {
   if (!profile || pending.length === 0) return null;
 
   return (
-    <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2.5" data-automation-approvals>
+    <div className="border-b border-warning/30 bg-warning/10 px-4 py-2.5" data-automation-approvals>
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <ShieldAlert className="size-4 shrink-0 text-amber-700 dark:text-amber-400" />
+        <ShieldAlert className="size-4 shrink-0 text-warning" />
         <p className="text-sm font-semibold text-foreground">
           Automation approval needed
           <span className="ml-1.5 font-normal text-muted-foreground">({pending.length})</span>

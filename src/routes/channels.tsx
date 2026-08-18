@@ -1360,7 +1360,7 @@ function Page() {
             different browser session keys — test the real site (or demo) for production behavior.
           </p>
           {!widgetKey ? (
-            <p className="mb-3 text-sm text-amber-700 dark:text-amber-400">
+            <p className="mb-3 text-sm text-warning">
               Set <code className="rounded bg-secondary px-1">WIDGET_PUBLIC_KEY</code> and{" "}
               <code className="rounded bg-secondary px-1">VITE_WIDGET_PUBLIC_KEY</code> to the <strong>same</strong> value
               in <code className="rounded bg-secondary px-1">.env</code> (and Render), then restart / redeploy.
@@ -1403,7 +1403,7 @@ function Page() {
             Empty list blocks customer sites — add your live domain before go-live.
           </p>
           {!website ? (
-            <p className="text-sm text-amber-700 dark:text-amber-400">
+            <p className="text-sm text-warning">
               Website channel row missing — run the core schema seed in Supabase.
             </p>
           ) : (
@@ -3382,7 +3382,7 @@ function Page() {
           ) : (
             <div className="space-y-4 text-sm">
               {"diagnosis" in bmInspectResult && bmInspectResult.diagnosis ? (
-                <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-foreground">
+                <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
                   {bmInspectResult.diagnosis}
                 </p>
               ) : null}
@@ -3520,7 +3520,7 @@ function Page() {
             <p className="text-sm text-muted-foreground">No quotation probe result yet.</p>
           ) : (
             <div className="space-y-4 text-sm">
-              <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-foreground">
+              <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
                 {bmQuoteInspectResult.diagnosis}
               </p>
               <p className="text-xs text-muted-foreground">{bmQuoteInspectResult.hint}</p>
@@ -3698,7 +3698,7 @@ function Page() {
             <p className="text-sm text-muted-foreground">No inspection result yet.</p>
           ) : (
             <div className="space-y-4 text-sm">
-              <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-foreground">
+              <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
                 {bmWritebackInspectResult.diagnosis}
               </p>
               <p className="text-xs text-muted-foreground">

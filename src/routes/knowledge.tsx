@@ -438,7 +438,7 @@ function Page() {
                       <span
                         className={`grid size-11 shrink-0 place-items-center rounded-lg ${
                           c.purpose === "site_photos"
-                            ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                            ? "bg-warning/15 text-warning"
                             : c.purpose === "datasheets"
                               ? "bg-sky-500/15 text-sky-700 dark:text-sky-400"
                               : "bg-primary/10 text-primary"

@@ -10,6 +10,8 @@ import type { Session, User } from "@supabase/supabase-js";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getBrowserSupabase } from "@/lib/supabase";
 import { AuthContext, type AuthState } from "@/lib/auth-context";
+import { hexToOklchCss, contrastingForegroundOklch } from "@/lib/color";
+import { useTheme } from "@/lib/theme";
 import { syncStaffAccessCookie } from "@/lib/staff-access-cookie";
 import { initialsFromName, type Profile, type SessionUser } from "@/lib/types";
 import {
@@ -18,14 +20,16 @@ import {
   normalizePermissions,
 } from "@/lib/permissions";
 
-function contrastingForeground(hex: string): string {
-  const raw = hex.replace("#", "");
-  const r = parseInt(raw.slice(0, 2), 16) / 255;
-  const g = parseInt(raw.slice(2, 4), 16) / 255;
-  const b = parseInt(raw.slice(4, 6), 16) / 255;
-  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  return luminance > 0.55 ? "#0A0F0C" : "#FFFFFF";
-}
+const BRAND_STYLE_KEYS = [
+  "--primary",
+  "--primary-foreground",
+  "--ring",
+  "--sidebar-primary",
+  "--sidebar-primary-foreground",
+  "--sidebar-ring",
+  "--chart-1",
+  "--accent",
+];
 
 async function fetchSessionUser(userId: string): Promise<SessionUser | null> {
   const supabase = getBrowserSupabase();
@@ -95,6 +99,7 @@ async function fetchSessionUser(userId: string): Promise<SessionUser | null> {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
+  const { resolved } = useTheme();
   const [session, setSession] = useState<Session | null>(null);
   const [bootstrapping, setBootstrapping] = useState(true);
 
@@ -129,27 +134,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     retry: 1,
   });
 
-  // Apply optional org brand accent over theme primary
+  // Org brand accent is the only primary when set. Convert hex → oklch so mixes/tints stay clean.
   useEffect(() => {
     const hex = profileQuery.data?.org.brandPrimary?.trim();
     const root = document.documentElement;
-    const keys = ["--primary", "--ring", "--sidebar-primary", "--sidebar-ring", "--chart-1"];
     if (!hex || !/^#[0-9A-Fa-f]{6}$/.test(hex)) {
-      for (const key of keys) root.style.removeProperty(key);
-      root.style.removeProperty("--primary-foreground");
-      root.style.removeProperty("--sidebar-primary-foreground");
+      for (const key of BRAND_STYLE_KEYS) root.style.removeProperty(key);
       return;
     }
-    const fg = contrastingForeground(hex);
-    for (const key of keys) root.style.setProperty(key, hex);
+    const oklch = hexToOklchCss(hex, { minLightness: resolved === "dark" ? 0.68 : undefined });
+    const fg =
+      resolved === "dark" ? "oklch(0.16 0.03 254)" : contrastingForegroundOklch(hex);
+    root.style.setProperty("--primary", oklch);
     root.style.setProperty("--primary-foreground", fg);
+    root.style.setProperty("--ring", oklch);
+    root.style.setProperty("--sidebar-primary", oklch);
     root.style.setProperty("--sidebar-primary-foreground", fg);
+    root.style.setProperty("--sidebar-ring", oklch);
+    root.style.setProperty("--chart-1", oklch);
+    root.style.setProperty("--accent", "color-mix(in oklab, var(--primary) 14%, var(--background))");
     return () => {
-      for (const key of keys) root.style.removeProperty(key);
-      root.style.removeProperty("--primary-foreground");
-      root.style.removeProperty("--sidebar-primary-foreground");
+      for (const key of BRAND_STYLE_KEYS) root.style.removeProperty(key);
     };
-  }, [profileQuery.data?.org.brandPrimary]);
+  }, [profileQuery.data?.org.brandPrimary, resolved]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const supabase = getBrowserSupabase();

@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, MessageCircle, Pencil, Plus, Trash2, Upload, UserPlus } from "lucide-react";
@@ -1210,9 +1210,9 @@ function Page() {
                                 <span
                                   className={`block text-[10px] ${
                                     pending
-                                      ? "text-amber-600 dark:text-amber-400"
+                                      ? "text-warning"
                                       : crmAt
-                                        ? "text-emerald-600 dark:text-emerald-400"
+                                        ? "text-success"
                                         : "text-muted-foreground/80"
                                   }`}
                                   title={

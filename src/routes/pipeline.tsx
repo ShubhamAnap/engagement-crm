@@ -32,9 +32,9 @@ const PIPELINE_STAGES: Array<{ status: LeadStatus; title: string; tint: string }
   { status: "New", title: "New", tint: "bg-sky-500/8 border-sky-500/25" },
   { status: "Contacted", title: "Contacted", tint: "bg-indigo-500/8 border-indigo-500/25" },
   { status: "Qualified", title: "Qualified", tint: "bg-violet-500/8 border-violet-500/25" },
-  { status: "Proposal", title: "Proposal", tint: "bg-amber-500/8 border-amber-500/25" },
+  { status: "Proposal", title: "Proposal", tint: "bg-warning/8 border-warning/25" },
   { status: "Negotiation", title: "Negotiation", tint: "bg-orange-500/8 border-orange-500/25" },
-  { status: "Won", title: "Won", tint: "bg-emerald-500/10 border-emerald-500/30" },
+  { status: "Won", title: "Won", tint: "bg-success/10 border-success/30" },
   { status: "Lost", title: "Lost", tint: "bg-muted/60 border-border" },
 ];
 

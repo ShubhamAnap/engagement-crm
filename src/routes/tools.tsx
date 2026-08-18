@@ -178,7 +178,7 @@ function Page() {
               if this page errors.
             </li>
             {!isAdmin ? (
-              <li className="text-amber-700 dark:text-amber-400">Only Admin can toggle tools on or off.</li>
+              <li className="text-warning">Only Admin can toggle tools on or off.</li>
             ) : null}
           </ol>
         </Panel>
@@ -269,7 +269,7 @@ function Page() {
                     {using.length ? using.join(", ") : "none yet — tick under Agents → Configure"}
                   </p>
                   {stale ? (
-                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                    <p className="mt-1 text-xs text-warning">
                       Stale allow-list while disabled — toggle off again and choose “Remove” to clean, or
                       re-enable the tool.
                     </p>

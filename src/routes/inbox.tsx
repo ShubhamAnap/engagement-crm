@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -1096,7 +1096,7 @@ function Page() {
                     onClick={() => openConversation(c.id)}
                     className={cn(
                       "w-full px-3 py-3.5 text-left touch-manipulation lg:py-3",
-                      active ? "inbox-wa-list-item-active" : "hover:bg-black/5 dark:hover:bg-white/5",
+                      active ? "inbox-wa-list-item-active" : "hover:bg-secondary",
                     )}
                   >
                   <div className="flex items-center gap-2.5">
@@ -1245,7 +1245,7 @@ function Page() {
               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] opacity-75">
                 <span>Last seen {formatLastSeen(lastSeenIso, nowTick)}</span>
                 {selectedSnooze ? (
-                  <span className={selectedSnooze.due ? "font-medium text-amber-700 dark:text-amber-400" : undefined}>
+                  <span className={selectedSnooze.due ? "font-medium text-warning" : undefined}>
                     {selectedSnooze.label}
                   </span>
                 ) : null}
@@ -1612,7 +1612,7 @@ function Page() {
               </div>
             ) : null}
             {needsTemplate ? (
-              <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-2.5 text-sm sm:p-3">
+              <div className="mb-3 rounded-lg border border-warning/30 bg-warning/5 p-2.5 text-sm sm:p-3">
                 <p className="font-medium text-foreground">
                   {marketplaceLead
                     ? "Send a WhatsApp template to start"
@@ -1805,7 +1805,7 @@ function Page() {
                 maxSize="42%"
                 className="min-h-0 min-w-0"
               >
-                <div className="flex h-full min-h-0 flex-col overflow-hidden border-r border-border">
+                <div className="flex h-full min-h-0 flex-col overflow-hidden border-r border-border bg-card">
                   {conversationList}
                 </div>
               </ResizablePanel>
@@ -1824,7 +1824,7 @@ function Page() {
                 collapsible
                 className="min-h-0 min-w-0"
               >
-                <div className="h-full min-h-0 overflow-hidden border-l border-border">
+                <div className="h-full min-h-0 overflow-hidden border-l border-border bg-card">
                   {profileSidebar}
                 </div>
               </ResizablePanel>

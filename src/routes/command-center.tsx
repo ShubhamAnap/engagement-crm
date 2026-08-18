@@ -266,7 +266,7 @@ function CommandCenter() {
                       )}
                     >
                       <span className="relative">
-                        <span className="absolute -top-0.5 -left-0.5 size-2 rounded-full bg-emerald-500 ring-2 ring-background" />
+                        <span className="absolute -top-0.5 -left-0.5 size-2 rounded-full bg-energy ring-2 ring-background" />
                         <ChannelIcon channel={s.channel} className="text-muted-foreground" />
                       </span>
                       <div className="min-w-0">

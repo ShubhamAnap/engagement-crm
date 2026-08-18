@@ -1,3 +1,4 @@
+import { ENERTECH_NAVY_HEX } from "@/lib/brand";
 import { getBrowserSupabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/types";
 
@@ -33,7 +34,7 @@ function normalizeHexColor(raw: string | null | undefined): string | null {
     const b = v[3];
     return `#${r}${r}${g}${g}${b}${b}`.toUpperCase();
   }
-  throw new Error("Brand color must be a hex value like #0B6E4F");
+  throw new Error(`Brand color must be a hex value like ${ENERTECH_NAVY_HEX}`);
 }
 
 export async function updateMyProfile(input: ProfileUpdateInput) {

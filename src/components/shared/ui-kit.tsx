@@ -39,7 +39,7 @@ export function PageHeader({
         <div className="border-b border-border bg-background/80 px-4 py-3 backdrop-blur sm:px-6 sm:py-5">
           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 sm:gap-4">
             <div className="min-w-0">
-              <h1 className="truncate text-base font-semibold tracking-tight text-foreground sm:text-[19px]">
+              <h1 className="truncate text-base font-semibold tracking-[-0.02em] text-foreground sm:text-[19px]">
                 {title}
               </h1>
               {description ? (

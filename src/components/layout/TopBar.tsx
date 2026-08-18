@@ -10,7 +10,6 @@ import {
   Menu,
   Monitor,
   Moon,
-  Palette,
   Plus,
   Search,
   Settings,
@@ -37,7 +36,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
-import { COLOR_PALETTES, useTheme } from "@/lib/theme";
+import { useTheme } from "@/lib/theme";
 import { useAuth } from "@/lib/auth";
 import { Pill } from "@/components/shared/ui-kit";
 import {
@@ -71,7 +70,7 @@ const searchTargets = [
 
 export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
   const [open, setOpen] = useState(false);
-  const { theme, setTheme, palette, setPalette } = useTheme();
+  const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { profile, signOut } = useAuth();
@@ -185,7 +184,7 @@ export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
         >
           <ShieldAlert className="size-[18px]" />
           {pendingApprovals > 0 ? (
-            <span className="absolute top-1.5 right-1.5 flex size-4 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-white ring-2 ring-background">
+            <span className="absolute top-1.5 right-1.5 flex size-4 items-center justify-center rounded-full bg-warning text-[9px] font-bold text-warning-foreground ring-2 ring-background">
               {pendingApprovals > 9 ? "9+" : pendingApprovals}
             </span>
           ) : null}
@@ -270,32 +269,6 @@ export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
             </ul>
           </PopoverContent>
         </Popover>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Choose color theme">
-              <Palette className="size-[18px]" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel>Color theme</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {COLOR_PALETTES.map((item) => (
-              <DropdownMenuItem key={item.id} onSelect={() => setPalette(item.id)}>
-                <span
-                  className="size-3.5 shrink-0 rounded-full border border-border"
-                  style={{ backgroundColor: item.swatch }}
-                  aria-hidden
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm leading-tight">{item.label}</span>
-                  <span className="block text-[11px] leading-tight text-muted-foreground">{item.description}</span>
-                </span>
-                {palette === item.id ? <Check className="ml-auto size-3.5" /> : null}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

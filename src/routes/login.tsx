@@ -43,13 +43,21 @@ function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-md rounded-xl border border-border bg-card p-8 shadow-sm">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4">
+      <div
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,color-mix(in_oklab,var(--primary)_16%,transparent),transparent_58%)]"
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.28] [background-image:radial-gradient(circle_at_1px_1px,color-mix(in_oklab,var(--foreground)_14%,transparent)_1px,transparent_0)] [background-size:22px_22px]"
+        aria-hidden
+      />
+      <div className="relative w-full max-w-md rounded-xl border border-border bg-card/90 p-8 shadow-sm backdrop-blur-sm">
         <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-4 grid size-12 place-items-center rounded-xl bg-primary text-lg font-semibold tracking-tight text-primary-foreground">
+          <div className="mb-4 grid size-12 place-items-center rounded-xl border border-border bg-background text-lg font-semibold tracking-[-0.02em] text-primary">
             E
           </div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">EnerTech Engage</h1>
+          <h1 className="text-xl font-semibold tracking-[-0.02em] text-foreground">EnerTech Engage</h1>
           <p className="mt-1 text-sm text-muted-foreground">EnerTech UPS workspace</p>
         </div>
 

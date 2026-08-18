@@ -376,7 +376,7 @@ function Page() {
               prompt fallback for the email channel — not the SMTP channel on/off.
             </li>
             {!isAdmin ? (
-              <li className="text-amber-700 dark:text-amber-400">
+              <li className="text-warning">
                 Only Admin can save prompts, tools, or pause/activate agents.
               </li>
             ) : null}
@@ -446,7 +446,7 @@ function Page() {
                 <span className="mt-1 block text-xs text-muted-foreground">{classifyPreview.when}</span>
               ) : null}
               {classifyPreview.shortcut ? (
-                <span className="mt-1 block text-xs text-amber-700 dark:text-amber-400">
+                <span className="mt-1 block text-xs text-warning">
                   Channel shortcut: {classifyPreview.shortcut}
                 </span>
               ) : null}
@@ -501,17 +501,17 @@ function Page() {
                     Fires when: {hint}
                   </p>
                   {a.key === "followup" ? (
-                    <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
+                    <p className="mt-1 text-[11px] text-warning">
                       Chat prompt only — daily WA campaigns live under Automation, not this card.
                     </p>
                   ) : null}
                   {a.key === "email" ? (
-                    <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
+                    <p className="mt-1 text-[11px] text-warning">
                       Prompt fallback for inbound email. Does not enable/disable the Email channel.
                     </p>
                   ) : null}
                   {a.status === "Degraded" ? (
-                    <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
+                    <p className="mt-1 text-[11px] text-warning">
                       Legacy “Degraded” — treated as Paused. Switch Active to resume.
                     </p>
                   ) : null}

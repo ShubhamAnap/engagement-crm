@@ -35,10 +35,11 @@ import {
   widgetProfileIncompleteMessage,
   type WidgetVisitorProfile,
 } from "@/lib/widget-visitor-profile";
+import { ENERTECH_NAVY_HEX } from "@/lib/brand";
 
 const SESSION_KEY = "enertech-embed-session";
 const PROFILE_KEY = "enertech-embed-profile";
-const BRAND = "#0B2388";
+const BRAND = ENERTECH_NAVY_HEX;
 const INK = "#FFFFFF";
 
 type ServerMessage = {

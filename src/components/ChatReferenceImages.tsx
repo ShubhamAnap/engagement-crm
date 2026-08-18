@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { ENERTECH_NAVY_HEX } from "@/lib/brand";
 
 export type ChatDownloadLink = {
   url: string;
@@ -48,7 +49,7 @@ export function ChatReferenceImages(props: {
   brand?: string;
   className?: string;
 }) {
-  const brand = props.brand || "#0B2388";
+  const brand = props.brand || ENERTECH_NAVY_HEX;
   if (!props.images.length) return null;
 
   return (
@@ -93,7 +94,7 @@ export function ChatDownloadLinks(props: {
   brand?: string;
   className?: string;
 }) {
-  const brand = props.brand || "#0B2388";
+  const brand = props.brand || ENERTECH_NAVY_HEX;
   if (!props.links.length) return null;
 
   return (

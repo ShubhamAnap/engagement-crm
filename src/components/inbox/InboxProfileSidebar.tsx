@@ -209,7 +209,7 @@ export function InboxProfileSidebar({
   const leadId = selected?.lead?.id || selected?.lead_id || null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto p-1">
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto bg-card p-1">
       <CardPanel title="Customer" className="shrink-0">
         {selected ? (
           <>

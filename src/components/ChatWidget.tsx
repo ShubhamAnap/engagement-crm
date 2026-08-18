@@ -36,6 +36,7 @@ import {
   type WidgetVisitorProfile,
 } from "@/lib/widget-visitor-profile";
 import { useAskLauncherPulse } from "@/lib/ask-launcher-pulse";
+import { ENERTECH_NAVY_HEX } from "@/lib/brand";
 
 type ServerMessage = {
   id: string;
@@ -58,7 +59,7 @@ type VisitorProfile = WidgetVisitorProfile;
 
 const SESSION_KEY = "enertech-widget-session";
 const PROFILE_KEY = "enertech-widget-profile";
-const BRAND = "#0B2388";
+const BRAND = ENERTECH_NAVY_HEX;
 const INK = "#FFFFFF";
 const suggested = ["Which UPS suits a 3 kVA load?", "Battery runtime calculator", "Please call me", "I need a quotation"];
 const welcome: UiMsg = {

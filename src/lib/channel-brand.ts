@@ -1,3 +1,5 @@
+import { ENERTECH_NAVY_HEX } from "@/lib/brand";
+
 /** Partner brand colors for channel identity. App chrome stays EnerTech navy. */
 
 export type ChannelBrand = {
@@ -13,10 +15,10 @@ const BRANDS: Record<string, ChannelBrand> = {
   email: { accent: "#EA4335", fg: "#FFFFFF", label: "Email" },
   facebook: { accent: "#1877F2", fg: "#FFFFFF", label: "Facebook" },
   instagram: { accent: "#E4405F", fg: "#FFFFFF", label: "Instagram" },
-  website: { accent: "#0B2388", fg: "#FFFFFF", label: "Website" },
+  website: { accent: ENERTECH_NAVY_HEX, fg: "#FFFFFF", label: "Website" },
   wordpress: { accent: "#21759B", fg: "#FFFFFF", label: "WordPress" },
-  brainmine: { accent: "#0B2388", fg: "#FFFFFF", label: "Brainmine" },
-  api: { accent: "#0B2388", fg: "#FFFFFF", label: "API" },
+  brainmine: { accent: ENERTECH_NAVY_HEX, fg: "#FFFFFF", label: "Brainmine" },
+  api: { accent: ENERTECH_NAVY_HEX, fg: "#FFFFFF", label: "API" },
   webhook: { accent: "#C2410C", fg: "#FFFFFF", label: "Webhook" },
 };
 

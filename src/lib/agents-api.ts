@@ -74,38 +74,41 @@ export async function listAgentsWithStats(orgId: string = ENERTECH_ORG_ID): Prom
   if (agents.length === 0) return [];
 
   const supabase = getBrowserSupabase();
-  const ids = agents.map((a) => a.id);
+  const ids = new Set(agents.map((a) => a.id));
 
   const { data: convos, error: convoErr } = await supabase
     .from("conversations")
     .select("id, agent_id, metadata")
     .eq("org_id", orgId)
-    .in("agent_id", ids);
+    .limit(5000);
   if (convoErr) throw convoErr;
 
   const convoIdsByAgent = new Map<string, string[]>();
+  const routedIdsByKey = new Map<string, string[]>();
   for (const c of convos ?? []) {
-    if (!c.agent_id) continue;
-    const list = convoIdsByAgent.get(c.agent_id) || [];
-    list.push(c.id);
-    convoIdsByAgent.set(c.agent_id, list);
+    if (c.agent_id && ids.has(c.agent_id)) {
+      const list = convoIdsByAgent.get(c.agent_id) || [];
+      list.push(c.id);
+      convoIdsByAgent.set(c.agent_id, list);
+    }
+    const meta =
+      c.metadata && typeof c.metadata === "object" && !Array.isArray(c.metadata)
+        ? (c.metadata as Record<string, unknown>)
+        : null;
+    const specialistKey =
+      typeof meta?.specialist_key === "string" ? meta.specialist_key.trim() : "";
+    if (specialistKey) {
+      const list = routedIdsByKey.get(specialistKey) || [];
+      list.push(c.id);
+      routedIdsByKey.set(specialistKey, list);
+    }
   }
 
   const results: Array<DbAgent & { conversationCount: number; aiMessageCount: number; lastRoutedCount: number }> = [];
   for (const a of agents) {
     const isMaster = a.key === "support" || parseAgentConfig(a.config).is_master;
-    let ownedIds = convoIdsByAgent.get(a.id) || [];
-    let routedIds: string[] = [];
-    if (!isMaster) {
-      const { data: routedRows, error: routedErr } = await supabase
-        .from("conversations")
-        .select("id")
-        .eq("org_id", orgId)
-        .contains("metadata", { specialist_key: a.key })
-        .limit(2000);
-      if (routedErr) throw routedErr;
-      routedIds = (routedRows || []).map((r) => r.id as string);
-    }
+    const ownedIds = convoIdsByAgent.get(a.id) || [];
+    const routedIds = isMaster ? [] : routedIdsByKey.get(a.key) || [];
     const countIds = isMaster ? ownedIds : routedIds;
     const aiMessageCount = await countAiOnConversations(supabase, orgId, countIds);
     results.push({

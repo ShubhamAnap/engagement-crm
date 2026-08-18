@@ -10,7 +10,11 @@ import {
   lastDocumentsSystemBlock,
   type ThreadHistoryRow,
 } from "@/lib/thread-documents";
-import { parseOpenAiUsage, recordSpendEvent } from "@/server/api-spend";
+import {
+  requestOpenAiChatCompletion,
+  resolveLlmModel,
+  type GatewayChatMessage,
+} from "@/server/llm-gateway";
 
 function languageInstructionFor(lang?: string): string {
   const l = (lang === "hi" || lang === "mr" || lang === "mixed" || lang === "en" ? lang : "en") as SessionLang;
@@ -26,18 +30,7 @@ type HistoryMessage = ThreadHistoryRow & {
   created_at: string;
 };
 
-type ChatMessage =
-  | { role: "system" | "user" | "assistant"; content: string }
-  | {
-      role: "assistant";
-      content: string | null;
-      tool_calls: Array<{
-        id: string;
-        type: "function";
-        function: { name: string; arguments: string };
-      }>;
-    }
-  | { role: "tool"; tool_call_id: string; content: string };
+type ChatMessage = GatewayChatMessage;
 
 type GenerateReplyInput = {
   visitorName: string;
@@ -68,14 +61,14 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
   model: string;
   toolsUsed: string[];
 }> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  const model = input.model || process.env.OPENAI_MODEL || "gpt-4o-mini";
+  const feature = input.agentName && input.agentName !== "EnerBot" ? "agents.reply" : "chat.reply";
+  const model = resolveLlmModel(feature, input.model);
   const agentLabel = input.agentName || "EnerBot";
   const toolKeys = (input.toolKeys || []).filter(Boolean);
   const tools: OpenAiToolDef[] = openAiToolDefinitions(toolKeys);
   const toolsUsed: string[] = [];
 
-  if (!apiKey) {
+  if (!process.env.OPENAI_API_KEY) {
     return {
       reply: buildPlaceholderAiReply(input.latestUserMessage),
       source: "fallback",
@@ -158,67 +151,21 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
     { role: "user", content: input.latestUserMessage },
   ];
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 45000);
-
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-  let promptTokens = 0;
-  let completionTokens = 0;
-
   try {
     let reply = "";
 
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
-      const body: Record<string, unknown> = {
+      const useTools = tools.length > 0 && round < MAX_TOOL_ROUNDS;
+      const { message } = await requestOpenAiChatCompletion({
+        feature,
         model,
         temperature: 0.3,
-        max_tokens: 480,
+        maxTokens: 480,
         messages,
-      };
-      if (tools.length > 0 && round < MAX_TOOL_ROUNDS) {
-        body.tools = tools;
-        body.tool_choice = "auto";
-      }
-
-      let response: Response | null = null;
-      let lastHttpError: Error | null = null;
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        response = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
-        if (response.ok) break;
-        const text = await response.text();
-        lastHttpError = new Error(`OpenAI API error ${response.status}: ${text}`);
-        if ((response.status === 429 || response.status >= 500) && attempt < 3) {
-          await sleep(350 * attempt * attempt);
-          continue;
-        }
-        throw lastHttpError;
-      }
-      if (!response?.ok) {
-        throw lastHttpError || new Error("OpenAI request failed");
-      }
-
-      const json = await response.json();
-      const usage = parseOpenAiUsage(json);
-      promptTokens += usage.promptTokens;
-      completionTokens += usage.completionTokens;
-      const message = json?.choices?.[0]?.message as
-        | {
-            content?: string | null;
-            tool_calls?: Array<{
-              id: string;
-              type: "function";
-              function: { name: string; arguments: string };
-            }>;
-          }
-        | undefined;
+        tools: useTools ? tools : undefined,
+        toolChoice: useTools ? "auto" : "none",
+        spendMetadata: { purpose: "chat", toolsUsed },
+      });
 
       const toolCalls = message?.tool_calls?.filter((c) => c?.function?.name) || [];
       if (toolCalls.length > 0 && tools.length > 0) {
@@ -274,18 +221,5 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
     const { rewriteStorageUrlsInText } = await import("@/server/shorten-urls");
     fallback = await rewriteStorageUrlsInText(fallback);
     return { reply: fallback, source: "fallback" as const, model, toolsUsed };
-  } finally {
-    clearTimeout(timer);
-    if (promptTokens + completionTokens > 0) {
-      void recordSpendEvent({
-        kind: "openai_chat",
-        vendor: "openai",
-        model,
-        promptTokens,
-        completionTokens,
-        totalTokens: promptTokens + completionTokens,
-        metadata: { purpose: "chat", toolsUsed },
-      });
-    }
   }
 }

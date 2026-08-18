@@ -10,7 +10,7 @@ import {
   nextFollowUpAtIso,
 } from "@/lib/follow-up";
 import { createServiceSupabase } from "@/lib/supabase";
-import { parseOpenAiUsage, recordSpendEvent } from "@/server/api-spend";
+import { requestOpenAiChatCompletion, resolveLlmModel } from "@/server/llm-gateway";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const MAX_MESSAGES = 40;
@@ -166,9 +166,8 @@ async function callOpenAiSummary(options: {
   requirement?: string | null;
   channel?: string | null;
 }): Promise<{ summary: string; source: "openai" | "fallback"; model: string }> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  if (!apiKey) {
+  const model = resolveLlmModel("conversation.summary");
+  if (!process.env.OPENAI_API_KEY) {
     return {
       summary: fallbackSummary(options.transcript, options.leadName),
       source: "fallback",
@@ -207,48 +206,18 @@ async function callOpenAiSummary(options: {
   ].join("\n");
 
   try {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.15,
-        max_tokens: 180,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-      }),
+    const { message } = await requestOpenAiChatCompletion({
+      feature: "conversation.summary",
+      model,
+      temperature: 0.15,
+      maxTokens: 180,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      spendMetadata: { purpose: "conversation_summary" },
     });
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      console.error("summary openai error", res.status, errText.slice(0, 200));
-      return {
-        summary: fallbackSummary(options.transcript, options.leadName),
-        source: "fallback",
-        model,
-      };
-    }
-    const json = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
-    };
-    const usage = parseOpenAiUsage(json);
-    if (usage.promptTokens + usage.completionTokens + usage.totalTokens > 0) {
-      void recordSpendEvent({
-        kind: "openai_chat",
-        vendor: "openai",
-        model,
-        promptTokens: usage.promptTokens,
-        completionTokens: usage.completionTokens,
-        totalTokens: usage.totalTokens,
-        metadata: { purpose: "conversation_summary" },
-      });
-    }
-    const content = String(json.choices?.[0]?.message?.content || "").trim();
+    const content = String(message?.content || "").trim();
     if (!content) {
       return {
         summary: fallbackSummary(options.transcript, options.leadName),

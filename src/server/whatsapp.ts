@@ -4,6 +4,7 @@ import { createServiceSupabase } from "@/lib/supabase";
 import { recordSpendEvent } from "@/server/api-spend";
 import { withInboxSnoozeCleared } from "@/lib/inbox-snooze";
 import { generateOpenAiReply } from "@/server/openai";
+import { resolveLlmModel } from "@/server/llm-gateway";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { specialistKeyFromMeta } from "@/lib/agent-routing";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
@@ -1099,7 +1100,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
         let inspector = buildAnswerInspector({
           chunks: [],
           replySource: "fallback",
-          model: "gpt-4o-mini",
+          model: resolveLlmModel("chat.reply"),
           agentName: "EnerBot",
           channel: "whatsapp",
         });
@@ -1396,7 +1397,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             inspector = buildAnswerInspector({
               chunks: [],
               replySource: "openai",
-              model: "gpt-4o-mini",
+              model: resolveLlmModel("chat.reply"),
               agentName: "EnerBot",
               channel: "whatsapp",
               visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
@@ -1594,7 +1595,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             inspector = buildAnswerInspector({
               chunks: [],
               replySource: "openai",
-              model: "gpt-4o-mini",
+              model: resolveLlmModel("chat.reply"),
               agentName: "EnerBot",
               channel: "whatsapp",
               visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
@@ -1771,7 +1772,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             inspector = buildAnswerInspector({
               chunks: [],
               replySource: "openai",
-              model: "gpt-4o-mini",
+              model: resolveLlmModel("chat.reply"),
               agentName: "EnerBot",
               channel: "whatsapp",
               visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",
@@ -1908,7 +1909,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             inspector = buildAnswerInspector({
               chunks: [],
               replySource: "fallback",
-              model: "gpt-4o-mini",
+              model: resolveLlmModel("chat.reply"),
               agentName: "EnerBot",
               channel: "whatsapp",
               visitorName: (convo.visitor_name as string) || contactName || "WhatsApp customer",

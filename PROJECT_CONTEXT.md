@@ -17,11 +17,11 @@
 
 ### Session 2026-08-18 — LLM gateway foundation
 
-**Change:** Added a lightweight internal LLM gateway so OpenAI calls are centralized behind one server-side wrapper. Existing behavior is preserved while chat completions, embeddings, and conversation summaries now share common timeout, retry, and spend-logging logic. The gateway also owns per-feature default model policy and optional fallback-model scaffolding.
+**Change:** Added a lightweight internal LLM gateway so OpenAI calls are centralized behind one server-side wrapper. Existing behavior is preserved while chat completions, embeddings, and conversation summaries now share common timeout, retry, and spend-logging logic. The gateway also owns per-feature default model policy and optional fallback-model scaffolding. WhatsApp, website, email, and Meta inspector labels now use `resolveLlmModel()` instead of hardcoded `gpt-4o-mini`.
 
 **Scope:** Phase 1 foundation only. OpenAI remains the active provider. No UI or agent behavior changes intended; this is an internal standardization layer for safer future routing, fallback, and observability work.
 
-**Files:** `src/server/llm-gateway.ts`, `src/server/openai.ts`, `src/server/embeddings.ts`, `src/server/conversation-summary.ts`.
+**Files:** `src/server/llm-gateway.ts`, `src/server/openai.ts`, `src/server/embeddings.ts`, `src/server/conversation-summary.ts`, `src/server/agents.ts`, `src/server/whatsapp.ts`, `src/server/widget-chat.ts`, `src/server/email-core.ts`, `src/server/meta-messenger.ts`.
 
 ---
 

@@ -5,6 +5,7 @@
 import nodemailer from "nodemailer";
 import { createServiceSupabase } from "@/lib/supabase";
 import { generateOpenAiReply } from "@/server/openai";
+import { resolveLlmModel } from "@/server/llm-gateway";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { specialistKeyFromMeta } from "@/lib/agent-routing";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
@@ -344,7 +345,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
   let inspector = buildAnswerInspector({
     chunks: [],
     replySource: "fallback",
-    model: "gpt-4o-mini",
+    model: resolveLlmModel("chat.reply"),
     agentName: "EnerBot",
     channel: "email",
   });
@@ -395,7 +396,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
       inspector = buildAnswerInspector({
         chunks: [],
         replySource: "openai",
-        model: "gpt-4o-mini",
+        model: resolveLlmModel("chat.reply"),
         agentName: agentCfg.agentName,
         channel: "email",
         visitorName: (convo.visitor_name as string) || fromName || fromEmail,
@@ -440,7 +441,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
       inspector = buildAnswerInspector({
         chunks: [],
         replySource: "fallback",
-        model: "gpt-4o-mini",
+        model: resolveLlmModel("chat.reply"),
         agentName: agentCfg.agentName,
         channel: "email",
         downloadCount: 0,
@@ -450,7 +451,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
       inspector = buildAnswerInspector({
         chunks: [],
         replySource: "openai",
-        model: "gpt-4o-mini",
+        model: resolveLlmModel("chat.reply"),
         agentName: agentCfg.agentName,
         channel: "email",
         downloadCount: 0,
@@ -463,7 +464,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
       inspector = buildAnswerInspector({
         chunks: [],
         replySource: "openai",
-        model: agentCfg.model || "gpt-4o-mini",
+        model: resolveLlmModel("agents.reply", agentCfg.model),
         agentName: agentCfg.agentName,
         channel: "email",
         visitorName: (convo.visitor_name as string) || fromName || fromEmail,
@@ -474,7 +475,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
       inspector = buildAnswerInspector({
         chunks: [],
         replySource: "fallback",
-        model: "gpt-4o-mini",
+        model: resolveLlmModel("chat.reply"),
         agentName: agentCfg.agentName,
         channel: "email",
         downloadCount: 0,

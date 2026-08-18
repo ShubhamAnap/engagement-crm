@@ -5,6 +5,7 @@ import { withInboxSnoozeCleared } from "@/lib/inbox-snooze";
 import { buildPlaceholderAiReply } from "@/lib/chat-replies";
 import { isWidgetOriginAllowed, normalizeWidgetHost } from "@/lib/widget-origins";
 import { generateOpenAiReply } from "@/server/openai";
+import { resolveLlmModel } from "@/server/llm-gateway";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { specialistKeyFromMeta } from "@/lib/agent-routing";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
@@ -1331,7 +1332,7 @@ export async function processWidgetCustomerTurn(
       const inspector = buildAnswerInspector({
         chunks: [],
         replySource: "openai",
-        model: "gpt-4o-mini",
+        model: resolveLlmModel("chat.reply"),
         agentName: "EnerBot",
         channel: (convo.channel as string) || "website",
         visitorName: convo.visitor_name || "Website visitor",
@@ -1404,7 +1405,7 @@ export async function processWidgetCustomerTurn(
       const inspector = buildAnswerInspector({
         chunks: [],
         replySource: "openai",
-        model: "gpt-4o-mini",
+        model: resolveLlmModel("chat.reply"),
         agentName: "EnerBot",
         channel: (convo.channel as string) || "website",
         visitorName: convo.visitor_name || "Website visitor",
@@ -1486,7 +1487,7 @@ export async function processWidgetCustomerTurn(
       const inspector = buildAnswerInspector({
         chunks: [],
         replySource: "openai",
-        model: "gpt-4o-mini",
+        model: resolveLlmModel("chat.reply"),
         agentName: "EnerBot",
         channel: (convo.channel as string) || "website",
         visitorName: convo.visitor_name || "Website visitor",
@@ -1617,7 +1618,7 @@ export async function processWidgetCustomerTurn(
       const inspector = buildAnswerInspector({
         chunks: [],
         replySource: "openai",
-        model: "gpt-4o-mini",
+        model: resolveLlmModel("chat.reply"),
         agentName: "EnerBot",
         channel: (convo.channel as string) || "website",
         visitorName: convo.visitor_name || "Website visitor",
@@ -1767,7 +1768,7 @@ export async function processWidgetCustomerTurn(
       const inspector = buildAnswerInspector({
         chunks: [],
         replySource: "fallback",
-        model: "gpt-4o-mini",
+        model: resolveLlmModel("chat.reply"),
         agentName: "EnerBot",
         channel: (convo.channel as string) || "website",
         visitorName: convo.visitor_name || "Website visitor",
@@ -2003,7 +2004,7 @@ export const widgetSelectProduct = createServerFn({ method: "POST" })
     const inspector = buildAnswerInspector({
       chunks: [],
       replySource: "openai",
-      model: "gpt-4o-mini",
+      model: resolveLlmModel("chat.reply"),
       agentName: "EnerBot",
       channel: (convo.channel as string) || "website",
       visitorName: (convo.visitor_name as string) || "Website visitor",

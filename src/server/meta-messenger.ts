@@ -6,6 +6,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import { generateOpenAiReply } from "@/server/openai";
+import { resolveLlmModel } from "@/server/llm-gateway";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
 import { specialistKeyFromMeta } from "@/lib/agent-routing";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
@@ -370,7 +371,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
     let inspector = buildAnswerInspector({
       chunks: [],
       replySource: "fallback",
-      model: "gpt-4o-mini",
+      model: resolveLlmModel("chat.reply"),
       agentName: "EnerBot",
       channel: type,
     });
@@ -396,7 +397,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
         inspector = buildAnswerInspector({
           chunks: [],
           replySource: "fallback",
-          model: "gpt-4o-mini",
+          model: resolveLlmModel("chat.reply"),
           agentName: "EnerBot",
           channel: type,
         });
@@ -457,7 +458,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
         inspector = buildAnswerInspector({
           chunks: [],
           replySource: "openai",
-          model: "gpt-4o-mini",
+          model: resolveLlmModel("chat.reply"),
           agentName: "EnerBot",
           channel: type,
           downloadCount: 0,
@@ -524,7 +525,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
         inspector = buildAnswerInspector({
           chunks: [],
           replySource: "fallback",
-          model: "gpt-4o-mini",
+          model: resolveLlmModel("chat.reply"),
           agentName: "EnerBot",
           channel: type,
           downloadCount: 0,
@@ -545,7 +546,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
         inspector = buildAnswerInspector({
           chunks: [],
           replySource: "openai",
-          model: "gpt-4o-mini",
+          model: resolveLlmModel("chat.reply"),
           agentName: "EnerBot",
           channel: type,
           downloadCount: 0,
@@ -564,7 +565,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
         inspector = buildAnswerInspector({
           chunks: [],
           replySource: "openai",
-          model: "gpt-4o-mini",
+          model: resolveLlmModel("chat.reply"),
           agentName: "EnerBot",
           channel: type,
           downloadCount: downloadLinks.length,
@@ -574,7 +575,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
         inspector = buildAnswerInspector({
           chunks: [],
           replySource: "fallback",
-          model: "gpt-4o-mini",
+          model: resolveLlmModel("chat.reply"),
           agentName: "EnerBot",
           channel: type,
           downloadCount: 0,

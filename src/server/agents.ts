@@ -8,6 +8,7 @@ import {
   effectiveSystemPrompt,
 } from "@/lib/agent-prompts";
 import { previewSpecialistKey, type ExtraRoutingMatcher } from "@/lib/agent-routing";
+import { resolveLlmModel } from "@/server/llm-gateway";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -161,7 +162,7 @@ export function agentReplyConfig(stack: AgentStack | DbAgent | null) {
       agentId: null as string | null,
       specialistId: null as string | null,
       agentName: "EnerBot",
-      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      model: resolveLlmModel("agents.reply"),
       systemPrompt: `${AGENT_MASTER_ORCHESTRATION}\n\n${defaultPromptForKey("support")}\n\n${AGENT_ENGAGEMENT_LOCK}`,
       memoryEnabled: true,
       assigneeLabel: "AI · Master Agent",
@@ -173,8 +174,7 @@ export function agentReplyConfig(stack: AgentStack | DbAgent | null) {
   }
 
   const owner = master || specialist!;
-  const model =
-    specialist?.model || master?.model || process.env.OPENAI_MODEL || "gpt-4o-mini";
+  const model = resolveLlmModel("agents.reply", specialist?.model || master?.model);
   const memoryEnabled = master?.memory_enabled ?? specialist?.memory_enabled ?? true;
 
   const parts: string[] = [AGENT_MASTER_ORCHESTRATION];

@@ -91,6 +91,7 @@ import {
   saveBrainmineChannelConfig,
   syncBrainmineLeads,
 } from "@/server/brainmine";
+import { inspectBrainmineQuotationProbe } from "@/server/brainmine-quotation";
 import { writeBrainmineFollowUpsNow, inspectBrainmineWritebackFields, saveBrainmineWritebackMap } from "@/server/brainmine-writeback";
 import {
   WORDPRESS_DEFAULT_SITE,
@@ -190,6 +191,12 @@ function Page() {
   const [bmInspectResult, setBmInspectResult] = useState<Awaited<
     ReturnType<typeof inspectBrainmineLeadFields>
   > | null>(null);
+  const [bmQuoteInspectOpen, setBmQuoteInspectOpen] = useState(false);
+  const [bmQuoteInspectResult, setBmQuoteInspectResult] = useState<Awaited<
+    ReturnType<typeof inspectBrainmineQuotationProbe>
+  > | null>(null);
+  const [bmQuoteId, setBmQuoteId] = useState("SAL-QTN-2026-01445");
+  const [bmQuoteDoctype, setBmQuoteDoctype] = useState("Quotation");
   const [bmWritebackInspectOpen, setBmWritebackInspectOpen] = useState(false);
   const [bmWritebackInspectResult, setBmWritebackInspectResult] = useState<Awaited<
     ReturnType<typeof inspectBrainmineWritebackFields>
@@ -1022,6 +1029,25 @@ function Page() {
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Could not inspect Brainmine fields"),
+  });
+
+  const inspectBmQuoteMutation = useMutation({
+    mutationFn: () =>
+      inspectBrainmineQuotationProbe({
+        data: {
+          quoteId: bmQuoteId.trim() || "SAL-QTN-2026-01445",
+          doctype: bmQuoteDoctype.trim() || "Quotation",
+        },
+      }),
+    onSuccess: (result) => {
+      setBmQuoteInspectResult(result);
+      setBmQuoteInspectOpen(true);
+      toast.success(
+        `${result.quoteId}: ${result.classification === "pdf_available" ? "PDF/file hints found" : result.classification === "quote_data_only" ? "quote data only" : "insufficient data"}`,
+      );
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not inspect Brainmine quotation"),
   });
 
   const inspectWbMutation = useMutation({
@@ -2323,6 +2349,15 @@ function Page() {
             <Button
               size="sm"
               variant="outline"
+              disabled={!bmSetupQuery.data?.configured || inspectBmQuoteMutation.isPending}
+              onClick={() => inspectBmQuoteMutation.mutate()}
+              title="Read-only quotation probe: checks Quotation document + linked File records"
+            >
+              {inspectBmQuoteMutation.isPending ? "Probing…" : "Probe quotation PDF"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
               disabled={!bmSetupQuery.data?.configured || inspectWbMutation.isPending}
               onClick={() => inspectWbMutation.mutate()}
               title="Discover Follow Up child table fieldnames for write-back"
@@ -2354,6 +2389,29 @@ function Page() {
                 : ""}
             </p>
           ) : null}
+          <div className="mt-3 grid gap-3 rounded-lg border border-border/60 bg-background/60 p-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Quotation id for probe</Label>
+              <Input
+                value={bmQuoteId}
+                onChange={(e) => setBmQuoteId(e.target.value)}
+                placeholder="SAL-QTN-2026-01445"
+                className="font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Quotation DocType</Label>
+              <Input
+                value={bmQuoteDoctype}
+                onChange={(e) => setBmQuoteDoctype(e.target.value)}
+                placeholder="Quotation"
+                className="font-mono text-xs"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground sm:col-span-2">
+              Separate read-only path. This does not change lead sync, write-back, automations, or WhatsApp sends.
+            </p>
+          </div>
 
           <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -3436,6 +3494,123 @@ function Page() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setBmInspectOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={bmQuoteInspectOpen}
+        onOpenChange={(open) => {
+          setBmQuoteInspectOpen(open);
+          if (!open) setBmQuoteInspectResult(null);
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Brainmine quotation probe</DialogTitle>
+            <DialogDescription>
+              Read-only quotation and File inspection. Quote:{" "}
+              <code className="text-xs">{bmQuoteInspectResult?.quoteId || bmQuoteId || "—"}</code>
+              {bmQuoteInspectResult ? ` · ${bmQuoteInspectResult.sampleFieldCount} fields` : null}
+            </DialogDescription>
+          </DialogHeader>
+          {!bmQuoteInspectResult ? (
+            <p className="text-sm text-muted-foreground">No quotation probe result yet.</p>
+          ) : (
+            <div className="space-y-4 text-sm">
+              <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-foreground">
+                {bmQuoteInspectResult.diagnosis}
+              </p>
+              <p className="text-xs text-muted-foreground">{bmQuoteInspectResult.hint}</p>
+              <div className="flex flex-wrap gap-2 text-xs">
+                <Pill
+                  tone={
+                    bmQuoteInspectResult.classification === "pdf_available"
+                      ? "success"
+                      : bmQuoteInspectResult.classification === "quote_data_only"
+                        ? "warning"
+                        : "danger"
+                  }
+                >
+                  {bmQuoteInspectResult.classification === "pdf_available"
+                    ? "PDF/file available"
+                    : bmQuoteInspectResult.classification === "quote_data_only"
+                      ? "Quote data only"
+                      : "Insufficient"}
+                </Pill>
+                <Pill tone="neutral">
+                  {bmQuoteInspectResult.rawFieldHints.linkishFieldCount} link-like fields
+                </Pill>
+                <Pill tone="neutral">
+                  {bmQuoteInspectResult.linkedFiles.length} linked file row
+                  {bmQuoteInspectResult.linkedFiles.length === 1 ? "" : "s"}
+                </Pill>
+              </div>
+              {bmQuoteInspectResult.internalPrintUrl ? (
+                <div>
+                  <p className="mb-1.5 font-medium text-foreground">Internal CRM print URL</p>
+                  <p className="rounded-md border border-border bg-secondary/40 px-3 py-2 font-mono text-[11px]">
+                    {bmQuoteInspectResult.internalPrintUrl}
+                  </p>
+                </div>
+              ) : null}
+              <div>
+                <p className="mb-1.5 font-medium text-foreground">Link-like quotation fields</p>
+                {bmQuoteInspectResult.linkishFields.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No direct PDF / URL / attachment hints were found on the quotation record itself.
+                  </p>
+                ) : (
+                  <ul className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border p-2 font-mono text-[11px]">
+                    {bmQuoteInspectResult.linkishFields.map((f) => (
+                      <li key={f.key}>
+                        <span className="text-foreground">{f.key}</span>
+                        {f.empty ? " = (empty)" : ` = ${f.valuePreview}`}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div>
+                <p className="mb-1.5 font-medium text-foreground">Linked File records</p>
+                {bmQuoteInspectResult.linkedFiles.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    {bmQuoteInspectResult.fileLookupError
+                      ? `File lookup did not return linked rows: ${bmQuoteInspectResult.fileLookupError}`
+                      : "No linked File rows found for this quotation id."}
+                  </p>
+                ) : (
+                  <ul className="max-h-40 space-y-2 overflow-y-auto rounded-md border border-border p-2 text-xs">
+                    {bmQuoteInspectResult.linkedFiles.map((f) => (
+                      <li key={f.name}>
+                        <span className="font-medium text-foreground">{f.fileName || f.name}</span>
+                        <span className="text-muted-foreground">
+                          {f.fileUrl ? ` · ${f.fileUrl}` : ""}
+                          {f.contentType ? ` · ${f.contentType}` : ""}
+                          {f.isPrivate ? ` · private=${f.isPrivate}` : ""}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div>
+                <p className="mb-1.5 font-medium text-foreground">All quotation fields</p>
+                <ul className="max-h-56 space-y-1 overflow-y-auto rounded-md border border-border p-2 font-mono text-[11px]">
+                  {bmQuoteInspectResult.allFields.map((f) => (
+                    <li key={f.key} className={f.empty ? "text-muted-foreground/70" : ""}>
+                      <span className="text-foreground">{f.key}</span>
+                      {f.empty ? " = (empty)" : ` = ${f.valuePreview}`}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBmQuoteInspectOpen(false)}>
               Close
             </Button>
           </DialogFooter>

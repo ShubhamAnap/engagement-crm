@@ -5,6 +5,26 @@
 
 ---
 
+### Session 2026-08-18 — Brainmine quotation probe
+
+**Change:** Added a separate read-only Brainmine quotation probe so staff can test whether a known Quotation record exposes direct PDF hints, file attachments, or only raw quote data. This path is isolated from lead sync and follow-up write-back.
+
+**Scope:** Probe uses a quote id + doctype, fetches the Quotation document, inspects link-like fields, checks linked `File` records, and classifies the result as `pdf_available`, `quote_data_only`, or `insufficient`.
+
+**Files:** `src/server/brainmine-quotation.ts`, `src/routes/channels.tsx`.
+
+---
+
+### Session 2026-08-18 — LLM gateway foundation
+
+**Change:** Added a lightweight internal LLM gateway so OpenAI calls are centralized behind one server-side wrapper. Existing behavior is preserved while chat completions, embeddings, and conversation summaries now share common timeout, retry, and spend-logging logic. The gateway also owns per-feature default model policy and optional fallback-model scaffolding.
+
+**Scope:** Phase 1 foundation only. OpenAI remains the active provider. No UI or agent behavior changes intended; this is an internal standardization layer for safer future routing, fallback, and observability work.
+
+**Files:** `src/server/llm-gateway.ts`, `src/server/openai.ts`, `src/server/embeddings.ts`, `src/server/conversation-summary.ts`.
+
+---
+
 ### Session 2026-08-18 — AI Agents backlog (honest UI + routing + bind)
 
 **Change:** Agents page now matches live chat. Specialist stats count last-routed `metadata.specialist_key` (not Master thread ownership). Memory switch is Master-only. Tools union is explained (specialist cannot disable Master tools). Configure shows always-on engagement lock (not weakened). Pause-Master copy matches fallback. Routing sticks on short follow-ups, splits battery-price vs sizing and service vs buy-new. Test classify warns about WhatsApp shortcuts. Optional Knowledge collections + product categories per agent. Extra routing keywords + Add specialist (no migration). Calculator can run Formulas-page expressions. Model list includes gpt-5-mini/nano.

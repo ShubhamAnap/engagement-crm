@@ -5,6 +5,7 @@ import { recordSpendEvent } from "@/server/api-spend";
 import { withInboxSnoozeCleared } from "@/lib/inbox-snooze";
 import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
+import { specialistKeyFromMeta } from "@/lib/agent-routing";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
 import { isOffTopicMessage, isAckOnlyMessage, isGreetingOnlyMessage, isSoftCustomerAckMessage } from "@/lib/enertech-scope";
@@ -1502,13 +1503,17 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
 
           // Product intent but no Products row: answer from Knowledge Base + catalogue context (never generic greeting)
           if (isProductIntent(text)) {
+            const stack = await resolveAgentStack({
+              channel: "whatsapp",
+              message: text,
+              previousSpecialistKey: specialistKeyFromMeta(prevMeta),
+            });
+            const agentCfg = agentReplyConfig(stack);
             const [chunks, productsContext] = await Promise.all([
-              retrieveKnowledgeContext(text, 8),
-              buildProductsContextForAi(text, 10),
+              retrieveKnowledgeContext(text, 8, { collectionIds: agentCfg.knowledgeCollectionIds }),
+              buildProductsContextForAi(text, 10, { categories: agentCfg.productCategories }),
             ]);
             const knowledgeContext = formatKnowledgeContext(chunks);
-            const stack = await resolveAgentStack({ channel: "whatsapp", message: text });
-            const agentCfg = agentReplyConfig(stack);
             const { sanitizeAssistantFileLinks } = await import("@/server/shorten-urls");
             const downloadLinks = downloadLinksFromChunks(chunks);
             const generated = await generateOpenAiReply({
@@ -1735,8 +1740,14 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               ? prevMeta.last_reference_collection
               : null;
           const askingMore = customerAskedForMorePhotos(text);
+          const stackEarly = await resolveAgentStack({
+            channel: "whatsapp",
+            message: text,
+            previousSpecialistKey: specialistKeyFromMeta(prevMeta),
+          });
+          const agentCfgEarly = agentReplyConfig(stackEarly);
           const [chunks, referenceImages] = await Promise.all([
-            retrieveKnowledgeContext(text, 6),
+            retrieveKnowledgeContext(text, 6, { collectionIds: agentCfgEarly.knowledgeCollectionIds }),
             findReferenceImages(text, 3, {
               excludeDocumentIds: sentPhotoIds,
               preferCollection: askingMore ? lastCollection : null,
@@ -1923,12 +1934,11 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           }
 
           const knowledgeContext = formatKnowledgeContext(chunks);
-          const productsContext = await buildProductsContextForAi(text);
-          const stack = await resolveAgentStack({
-            channel: "whatsapp",
-            message: text,
+          const productsContext = await buildProductsContextForAi(text, 10, {
+            categories: agentCfgEarly.productCategories,
           });
-          const agentCfg = agentReplyConfig(stack);
+          const stack = stackEarly;
+          const agentCfg = agentCfgEarly;
           const { sanitizeAssistantFileLinks } = await import("@/server/shorten-urls");
           // Definition asks: use KB text only — do not attach PDF download prompts
           const downloadLinks = educateOnly ? [] : downloadLinksFromChunks(chunks);

@@ -17,6 +17,7 @@ import {
   cleanProductDisplayName,
   cleanProductDescription,
   inheritCategoryCatalogue,
+  normalizeCategoryKey,
   type CategoryCatalogueLookup,
 } from "@/lib/product-card";
 
@@ -610,7 +611,11 @@ function formatProductContextLine(p: DbProduct): string {
  * Products catalogue text for OpenAI — always available alongside Knowledge Base.
  * Prefer query-ranked matches; otherwise top weighted active products.
  */
-export async function buildProductsContextForAi(query: string, limit = 10): Promise<string> {
+export async function buildProductsContextForAi(
+  query: string,
+  limit = 10,
+  options?: { categories?: string[] },
+): Promise<string> {
   const supabase = createServiceSupabase();
   const { data, error } = await supabase
     .from("products")
@@ -625,7 +630,12 @@ export async function buildProductsContextForAi(query: string, limit = 10): Prom
     return "";
   }
   const catLookup = await loadCategoryCatalogueLookup();
-  const products = withInheritedCatalogues((data || []) as DbProduct[], catLookup);
+  let products = withInheritedCatalogues((data || []) as DbProduct[], catLookup);
+  const want = (options?.categories || []).map((c) => normalizeCategoryKey(c)).filter(Boolean);
+  if (want.length) {
+    const scoped = products.filter((p) => want.includes(normalizeCategoryKey(p.category)));
+    if (scoped.length) products = scoped;
+  }
   if (!products.length) return "";
 
   const ranked = rankProductsForQuery(products, query);

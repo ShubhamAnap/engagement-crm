@@ -6,6 +6,7 @@ import nodemailer from "nodemailer";
 import { createServiceSupabase } from "@/lib/supabase";
 import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
+import { specialistKeyFromMeta } from "@/lib/agent-routing";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
 import { resolveCatalogueRequest, retrieveKnowledgeContext, formatKnowledgeContext, downloadLinksFromChunks, findReferenceImages, wantsReferenceImages, customerAskedForMorePhotos, formatReferencePhotoLinksReply } from "@/server/knowledge";
@@ -354,13 +355,16 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
       .eq("conversation_id", convo.id)
       .order("created_at", { ascending: true })
       .limit(20);
-    const [chunks] = await Promise.all([retrieveKnowledgeContext(text, 6)]);
-    const catalogue = await resolveCatalogueRequest(text);
     const stack = await resolveAgentStack({
       channel: "email",
       message: text,
+      previousSpecialistKey: specialistKeyFromMeta(prevMetaLang),
     });
     const agentCfg = agentReplyConfig(stack);
+    const [chunks] = await Promise.all([
+      retrieveKnowledgeContext(text, 6, { collectionIds: agentCfg.knowledgeCollectionIds }),
+    ]);
+    const catalogue = await resolveCatalogueRequest(text);
     const { sanitizeAssistantFileLinks, shortenDownloadLinks } = await import("@/server/shorten-urls");
 
     const sentPhotoIds = Array.isArray(prevMetaLang.sent_reference_ids)
@@ -478,7 +482,9 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
       (inspector.metadata as Record<string, unknown>).off_topic = true;
     } else {
       const { buildProductsContextForAi } = await import("@/server/product-pack");
-      const productsContext = await buildProductsContextForAi(text);
+      const productsContext = await buildProductsContextForAi(text, 10, {
+        categories: agentCfg.productCategories,
+      });
       const downloadLinks = downloadLinksFromChunks(chunks);
       const generated = await generateOpenAiReply({
         visitorName: (convo.visitor_name as string) || fromName || fromEmail,

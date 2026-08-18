@@ -764,6 +764,7 @@ export type RetrievedChunk = {
   storage_path: string | null;
   download_url: string | null;
   document_id?: string | null;
+  collection_id?: string | null;
   kind?: string | null;
   stub?: boolean;
 };
@@ -875,7 +876,11 @@ export function knowledgeIsUseful(chunks: RetrievedChunk[]): boolean {
  * Demotes image stubs and filename-only PDF stubs for Q&A grounding.
  * On failure returns [] (callers should treat as ungrounded).
  */
-export async function retrieveKnowledgeContext(query: string, limit = 6): Promise<RetrievedChunk[]> {
+export async function retrieveKnowledgeContext(
+  query: string,
+  limit = 6,
+  options?: { collectionIds?: string[] },
+): Promise<RetrievedChunk[]> {
   const supabase = createServiceSupabase();
   const keywords = queryKeywords(query);
   const fetchCount = Math.min(24, Math.max(limit * 3, limit + 4));
@@ -911,12 +916,18 @@ export async function retrieveKnowledgeContext(query: string, limit = 6): Promis
         storage_path: (row.storage_path as string) || null,
         download_url: shortFromDoc || (longUrl ? await shortenStorageUrl(longUrl) : null),
         document_id: docId || null,
+        collection_id: row.collection_id ? String(row.collection_id) : null,
         kind: meta.kind,
         stub: meta.stub,
       });
     }
     mapped.sort((a, b) => b.similarity - a.similarity);
-    const top = mapped.slice(0, limit);
+    const allow = (options?.collectionIds || []).filter(Boolean);
+    const scoped = allow.length
+      ? mapped.filter((c) => c.collection_id && allow.includes(c.collection_id))
+      : mapped;
+    const pool = scoped.length ? scoped : mapped;
+    const top = pool.slice(0, limit);
     if (!top.length) {
       console.warn("Knowledge retrieval: zero chunks above threshold", { query: query.slice(0, 80) });
     }

@@ -66,7 +66,7 @@ export function toolRuntimeHint(toolKey: string): {
   detail: string;
 } {
   if (toolKey === "calculator") {
-    return { ready: true, detail: "Runs on server — no extra API key" };
+    return { ready: true, detail: "Server math + saved Formulas page expressions — no extra API key" };
   }
   if (toolKey === "web_search") {
     return {

@@ -46,13 +46,22 @@ export function openAiToolDefinitions(keys: string[]): OpenAiToolDef[] {
       function: {
         name: "calculator",
         description:
-          "Evaluate arithmetic safely or estimate UPS backup minutes from load and battery capacity. Use for any numeric accuracy (runtime, Ah, kVA, percentages).",
+          "Evaluate arithmetic, run an EnerTech sizing formula from the Formulas page, or estimate UPS backup minutes from load and battery capacity. Prefer formula_name when the ask matches a saved formula (battery, inverter, solar, BESS).",
         parameters: {
           type: "object",
           properties: {
             expression: {
               type: "string",
               description: "Optional math expression using numbers and + - * / ( ) and decimals, e.g. (10*0.8)/0.9",
+            },
+            formula_name: {
+              type: "string",
+              description: "Optional exact name of a saved Formulas-page sizing formula",
+            },
+            formula_values: {
+              type: "object",
+              description: "Numeric values for that formula's variables (keys as defined on Formulas)",
+              additionalProperties: { type: "number" },
             },
             ups_kva: { type: "number", description: "UPS rating in kVA" },
             load_fraction: {
@@ -120,6 +129,60 @@ export async function runAiTool(
       if (expression) {
         const value = safeEvaluate(expression);
         return JSON.stringify({ ok: true, expression, value });
+      }
+
+      const formulaName = typeof args.formula_name === "string" ? args.formula_name.trim() : "";
+      const formulaValues =
+        args.formula_values && typeof args.formula_values === "object" && !Array.isArray(args.formula_values)
+          ? (args.formula_values as Record<string, unknown>)
+          : {};
+      if (formulaName) {
+        const { evaluateSizingExpression } = await import("@/server/formulas");
+        const supabase = createServiceSupabase();
+        const { data: formulas, error } = await supabase
+          .from("sizing_formulas")
+          .select("name, expression, result_label, result_unit, variables, notes, is_active")
+          .eq("org_id", ORG_ID)
+          .eq("is_active", true);
+        if (error) {
+          return JSON.stringify({ ok: false, error: error.message, hint: "Run 027_sizing_formulas.sql if missing." });
+        }
+        const needle = formulaName.toLowerCase();
+        const formula = (formulas || []).find((f) => String(f.name || "").toLowerCase() === needle)
+          || (formulas || []).find((f) => String(f.name || "").toLowerCase().includes(needle));
+        if (!formula) {
+          const names = (formulas || []).map((f) => f.name).slice(0, 12);
+          return JSON.stringify({
+            ok: false,
+            error: `No active formula named “${formulaName}”.`,
+            available: names,
+          });
+        }
+        const vars: Record<string, number> = {};
+        const defined = Array.isArray(formula.variables) ? formula.variables : [];
+        for (const v of defined as Array<{ key?: string; default_value?: number }>) {
+          const key = String(v.key || "");
+          if (!key) continue;
+          const raw = formulaValues[key];
+          const n = typeof raw === "number" ? raw : Number(raw);
+          if (Number.isFinite(n)) vars[key] = n;
+          else if (typeof v.default_value === "number") vars[key] = v.default_value;
+        }
+        for (const [k, raw] of Object.entries(formulaValues)) {
+          const n = typeof raw === "number" ? raw : Number(raw);
+          if (Number.isFinite(n) && !(k in vars)) vars[k] = n;
+        }
+        const value = evaluateSizingExpression(String(formula.expression), vars);
+        return JSON.stringify({
+          ok: true,
+          formula: formula.name,
+          expression: formula.expression,
+          values: vars,
+          result_label: formula.result_label,
+          result_unit: formula.result_unit,
+          notes: formula.notes,
+          value,
+        });
       }
 
       const upsKva = Number(args.ups_kva);

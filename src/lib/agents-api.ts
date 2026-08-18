@@ -1,6 +1,7 @@
 import { getBrowserSupabase } from "@/lib/supabase";
 import type { AgentStatus, DbAgent } from "@/lib/db-types";
 import { ENERTECH_ORG_ID } from "@/lib/chat-api";
+import { mergeAgentConfig, parseAgentConfig } from "@/lib/agent-config";
 
 export type AgentUpdateInput = {
   name: string;
@@ -11,10 +12,22 @@ export type AgentUpdateInput = {
   systemPrompt?: string;
   /** Tool keys this agent may use (must also be enabled on /tools). */
   allowedTools?: string[];
+  knowledgeCollectionIds?: string[];
+  productCategories?: string[];
+  routingKeywords?: string[];
+};
+
+export type AgentCreateInput = {
+  key: string;
+  name: string;
+  description?: string;
+  routingKeywords?: string[];
 };
 
 export {
   AGENT_MODEL_OPTIONS,
+  AGENT_ENGAGEMENT_LOCK,
+  AGENT_MASTER_ORCHESTRATION,
   DEFAULT_AGENT_PROMPTS,
   defaultPromptForKey,
   effectiveSystemPrompt,
@@ -32,8 +45,30 @@ export async function listAgents(orgId: string = ENERTECH_ORG_ID): Promise<DbAge
   return (data ?? []) as DbAgent[];
 }
 
+async function countAiOnConversations(
+  supabase: ReturnType<typeof getBrowserSupabase>,
+  orgId: string,
+  convoIds: string[],
+): Promise<number> {
+  if (convoIds.length === 0) return 0;
+  let total = 0;
+  const page = 100;
+  for (let i = 0; i < convoIds.length; i += page) {
+    const slice = convoIds.slice(i, i + page);
+    const { count, error } = await supabase
+      .from("messages")
+      .select("id", { count: "exact", head: true })
+      .eq("org_id", orgId)
+      .eq("sender", "ai")
+      .in("conversation_id", slice);
+    if (error) throw error;
+    total += count ?? 0;
+  }
+  return total;
+}
+
 export async function listAgentsWithStats(orgId: string = ENERTECH_ORG_ID): Promise<
-  Array<DbAgent & { conversationCount: number; aiMessageCount: number }>
+  Array<DbAgent & { conversationCount: number; aiMessageCount: number; lastRoutedCount: number }>
 > {
   const agents = await listAgents(orgId);
   if (agents.length === 0) return [];
@@ -41,11 +76,12 @@ export async function listAgentsWithStats(orgId: string = ENERTECH_ORG_ID): Prom
   const supabase = getBrowserSupabase();
   const ids = agents.map((a) => a.id);
 
-  const { data: convos } = await supabase
+  const { data: convos, error: convoErr } = await supabase
     .from("conversations")
-    .select("id, agent_id")
+    .select("id, agent_id, metadata")
     .eq("org_id", orgId)
     .in("agent_id", ids);
+  if (convoErr) throw convoErr;
 
   const convoIdsByAgent = new Map<string, string[]>();
   for (const c of convos ?? []) {
@@ -55,31 +91,71 @@ export async function listAgentsWithStats(orgId: string = ENERTECH_ORG_ID): Prom
     convoIdsByAgent.set(c.agent_id, list);
   }
 
-  const allConvoIds = (convos ?? []).map((c) => c.id);
-  let aiByConvo = new Map<string, number>();
-  if (allConvoIds.length > 0) {
-    const { data: msgs } = await supabase
-      .from("messages")
-      .select("conversation_id")
-      .eq("org_id", orgId)
-      .eq("sender", "ai")
-      .in("conversation_id", allConvoIds.slice(0, 500));
-    aiByConvo = new Map();
-    for (const m of msgs ?? []) {
-      const id = m.conversation_id as string;
-      aiByConvo.set(id, (aiByConvo.get(id) || 0) + 1);
+  const results: Array<DbAgent & { conversationCount: number; aiMessageCount: number; lastRoutedCount: number }> = [];
+  for (const a of agents) {
+    const isMaster = a.key === "support" || parseAgentConfig(a.config).is_master;
+    let ownedIds = convoIdsByAgent.get(a.id) || [];
+    let routedIds: string[] = [];
+    if (!isMaster) {
+      const { data: routedRows, error: routedErr } = await supabase
+        .from("conversations")
+        .select("id")
+        .eq("org_id", orgId)
+        .contains("metadata", { specialist_key: a.key })
+        .limit(2000);
+      if (routedErr) throw routedErr;
+      routedIds = (routedRows || []).map((r) => r.id as string);
     }
-  }
-
-  return agents.map((a) => {
-    const convoIds = convoIdsByAgent.get(a.id) || [];
-    const aiMessageCount = convoIds.reduce((sum, id) => sum + (aiByConvo.get(id) || 0), 0);
-    return {
+    const countIds = isMaster ? ownedIds : routedIds;
+    const aiMessageCount = await countAiOnConversations(supabase, orgId, countIds);
+    results.push({
       ...a,
-      conversationCount: convoIds.length,
+      conversationCount: isMaster ? ownedIds.length : routedIds.length,
+      lastRoutedCount: routedIds.length,
       aiMessageCount,
-    };
-  });
+    });
+  }
+  return results;
+}
+
+export function slugAgentKey(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+}
+
+export async function createAgent(orgId: string, input: AgentCreateInput): Promise<DbAgent> {
+  const supabase = getBrowserSupabase();
+  const key = slugAgentKey(input.key || input.name);
+  if (!key) throw new Error("Key is required (letters and numbers)");
+  const { data, error } = await supabase
+    .from("agents")
+    .insert({
+      org_id: orgId,
+      key,
+      name: input.name.trim(),
+      description: input.description?.trim() || null,
+      status: "Active",
+      model: "gpt-4o-mini",
+      memory_enabled: true,
+      system_prompt: null,
+      config: {
+        allowed_tools: [],
+        routing_keywords: (input.routingKeywords || []).map((k) => k.trim()).filter(Boolean),
+        knowledge_collection_ids: [],
+        product_categories: [],
+      },
+    })
+    .select("*")
+    .single();
+  if (error) {
+    if (/duplicate|unique/i.test(error.message)) throw new Error(`Agent key “${key}” already exists`);
+    throw error;
+  }
+  return data as DbAgent;
 }
 
 export async function updateAgent(agentId: string, input: AgentUpdateInput): Promise<DbAgent> {
@@ -96,9 +172,12 @@ export async function updateAgent(agentId: string, input: AgentUpdateInput): Pro
     current?.config && typeof current.config === "object" && !Array.isArray(current.config)
       ? ({ ...(current.config as Record<string, unknown>) } as Record<string, unknown>)
       : {};
-  if (input.allowedTools) {
-    prevConfig.allowed_tools = input.allowedTools.map((t) => t.trim()).filter(Boolean);
-  }
+  const next = mergeAgentConfig(prevConfig, {
+    allowed_tools: input.allowedTools,
+    knowledge_collection_ids: input.knowledgeCollectionIds,
+    product_categories: input.productCategories,
+    routing_keywords: input.routingKeywords,
+  });
 
   const { data, error } = await supabase
     .from("agents")
@@ -109,7 +188,7 @@ export async function updateAgent(agentId: string, input: AgentUpdateInput): Pro
       model: input.model.trim() || "gpt-4o-mini",
       memory_enabled: input.memoryEnabled,
       system_prompt: input.systemPrompt?.trim() || null,
-      config: prevConfig,
+      config: next,
     })
     .eq("id", agentId)
     .select("*")

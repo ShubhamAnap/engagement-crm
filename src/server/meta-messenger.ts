@@ -7,6 +7,7 @@ import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
+import { specialistKeyFromMeta } from "@/lib/agent-routing";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
 import { resolveCatalogueRequest, retrieveKnowledgeContext, formatKnowledgeContext, downloadLinksFromChunks, findReferenceImages, wantsReferenceImages, customerAskedForMorePhotos, formatReferencePhotoLinksReply } from "@/server/knowledge";
@@ -580,12 +581,20 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
         });
         (inspector.metadata as Record<string, unknown>).off_topic = true;
       } else {
-      const [chunks] = await Promise.all([retrieveKnowledgeContext(text, 6)]);
-      const stack = await resolveAgentStack({ channel: type, message: text });
+      const stack = await resolveAgentStack({
+        channel: type,
+        message: text,
+        previousSpecialistKey: specialistKeyFromMeta(prevMeta),
+      });
       const agentCfg = agentReplyConfig(stack);
+      const [chunks] = await Promise.all([
+        retrieveKnowledgeContext(text, 6, { collectionIds: agentCfg.knowledgeCollectionIds }),
+      ]);
       const { sanitizeAssistantFileLinks } = await import("@/server/shorten-urls");
       const { buildProductsContextForAi } = await import("@/server/product-pack");
-      const productsContext = await buildProductsContextForAi(text);
+      const productsContext = await buildProductsContextForAi(text, 10, {
+        categories: agentCfg.productCategories,
+      });
       const downloadLinks = downloadLinksFromChunks(chunks);
       const generated = await generateOpenAiReply({
         visitorName: (convo.visitor_name as string) || "Customer",

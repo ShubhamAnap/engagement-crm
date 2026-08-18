@@ -6,6 +6,7 @@ import { buildPlaceholderAiReply } from "@/lib/chat-replies";
 import { isWidgetOriginAllowed, normalizeWidgetHost } from "@/lib/widget-origins";
 import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
+import { specialistKeyFromMeta } from "@/lib/agent-routing";
 import { resolveAgentToolKeys } from "@/server/ai-tools";
 import { buildAnswerInspector } from "@/server/answer-inspector";
 import { isOffTopicMessage, isAckOnlyMessage, isGreetingOnlyMessage } from "@/lib/enertech-scope";
@@ -1586,9 +1587,15 @@ export async function processWidgetCustomerTurn(
         ? prevMeta.last_reference_collection
         : null;
     const askingMore = customerAskedForMorePhotos(text);
+    const stackEarly = await resolveAgentStack({
+      channel: (convo.channel as string) || "website",
+      message: text,
+      previousSpecialistKey: specialistKeyFromMeta(prevMeta),
+    });
+    const agentCfgEarly = agentReplyConfig(stackEarly);
 
     const [chunks, referenceImages] = await Promise.all([
-      retrieveKnowledgeContext(text, 6),
+      retrieveKnowledgeContext(text, 6, { collectionIds: agentCfgEarly.knowledgeCollectionIds }),
       findReferenceImages(text, 3, {
         excludeDocumentIds: sentPhotoIds,
         preferCollection: askingMore ? lastCollection : null,
@@ -1795,16 +1802,12 @@ export async function processWidgetCustomerTurn(
     }
 
     const knowledgeContext = formatKnowledgeContext(chunks);
-    const productsContext = await buildProductsContextForAi(text);
-
+    const productsContext = await buildProductsContextForAi(text, 10, {
+      categories: agentCfgEarly.productCategories,
+    });
     const { sanitizeAssistantFileLinks } = await import("@/server/shorten-urls");
     const downloadLinks = downloadLinksFromChunks(chunks);
-
-    const stack = await resolveAgentStack({
-      channel: (convo.channel as string) || "website",
-      message: text,
-    });
-    const agentCfg = agentReplyConfig(stack);
+    const agentCfg = agentCfgEarly;
 
     const ai = await generateOpenAiReply({
       visitorName: convo.visitor_name || "Website visitor",

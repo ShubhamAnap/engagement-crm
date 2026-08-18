@@ -5,6 +5,14 @@
 
 ---
 
+### Session 2026-08-18 — AI Agents backlog (honest UI + routing + bind)
+
+**Change:** Agents page now matches live chat. Specialist stats count last-routed `metadata.specialist_key` (not Master thread ownership). Memory switch is Master-only. Tools union is explained (specialist cannot disable Master tools). Configure shows always-on engagement lock (not weakened). Pause-Master copy matches fallback. Routing sticks on short follow-ups, splits battery-price vs sizing and service vs buy-new. Test classify warns about WhatsApp shortcuts. Optional Knowledge collections + product categories per agent. Extra routing keywords + Add specialist (no migration). Calculator can run Formulas-page expressions. Model list includes gpt-5-mini/nano.
+
+**Files:** `src/routes/agents.tsx`, `src/lib/agents-api.ts`, `src/lib/agent-routing.ts`, `src/lib/agent-prompts.ts`, `src/lib/agent-config.ts`, `src/server/agents.ts`, `src/server/knowledge.ts`, `src/server/product-pack.ts`, `src/server/ai-tools.ts`, WhatsApp/widget/Meta/email reply paths.
+
+---
+
 ### Session 2026-08-18 — API spend tracker (Dashboard)
 
 **Change:** Admin Operations Dashboard shows this-month OpenAI ₹, WhatsApp ₹, total ₹, vs last month, a daily IST table, and Export CSV. Spend is logged from real OpenAI `usage` and WhatsApp outbound send type — not Command Center token guesses or Inbox bubble counts.

@@ -329,6 +329,28 @@ export async function listLeads(orgId: string): Promise<LeadRow[]> {
   return result.rows;
 }
 
+export async function getLeadById(leadId: string, orgId: string): Promise<LeadRow | null> {
+  const supabase = getBrowserSupabase();
+  const select = "*, owner:profiles!leads_owner_id_fkey(full_name)";
+  const { data, error } = await supabase
+    .from("leads")
+    .select(select)
+    .eq("id", leadId)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (error) {
+    const fallback = await supabase
+      .from("leads")
+      .select("*")
+      .eq("id", leadId)
+      .eq("org_id", orgId)
+      .maybeSingle();
+    if (fallback.error) throw fallback.error;
+    return fallback.data ? normalizeLead(fallback.data as Record<string, unknown>) : null;
+  }
+  return data ? normalizeLead(data as Record<string, unknown>) : null;
+}
+
 export async function listOrgSalesPeople(
   orgId: string,
 ): Promise<Array<{ id: string; name: string }>> {

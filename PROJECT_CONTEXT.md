@@ -5,6 +5,14 @@
 
 ---
 
+### Session 2026-08-18 — Inbox sidebar actions (not timezone)
+
+**Change:** Inbox right panel is now an action desk. Dropped hardcoded timezone, duplicate last-seen/assigned/status, truncated IDs, session id, and the fake AI confidence bar. Added assign (EnerBot or a teammate — pauses AI), labels (presets + freeform on `conversations.tags`), and a private internal note (`metadata.internal_note`). Open customer / Open lead jumps to that record. Lead status/priority, Brainmine follow-up, and conversation summary stay.
+
+**Files:** `src/components/inbox/InboxProfileSidebar.tsx`, `src/routes/inbox.tsx`, `src/lib/chat-api.ts`, `src/lib/inbox-snooze.ts`, `src/lib/leads-api.ts`, `src/lib/customers-api.ts`, `src/routes/leads.tsx`, `src/routes/customers.tsx`.
+
+---
+
 ### Session 2026-08-18 — Settings → AI Gateway
 
 **Change:** Admin-only **AI Gateway** tab in Settings. Org-wide provider (OpenAI live; Claude/Gemini listed as coming soon), default chat model, fallback model, and summary model. Embeddings stay locked to `text-embedding-3-small` (pgvector 1536-d). The live gateway loads these from `llm_gateway_settings` with a short in-memory cache. Per-agent Model on `/agents` still wins; agents can choose **Org default** to follow this tab. New specialists are created as Org default.

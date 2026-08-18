@@ -4,7 +4,9 @@ import { buildPlaceholderAiReply } from "@/lib/chat-replies";
 import { normalizeWhatsAppDigits } from "@/lib/whatsapp-window";
 import {
   conversationMeta,
+  INBOX_INTERNAL_NOTE_KEY,
   INBOX_SNOOZE_UNTIL_KEY,
+  normalizeConversationTags,
   stripInboxSnooze,
 } from "@/lib/inbox-snooze";
 
@@ -499,6 +501,30 @@ export async function transferConversation(options: {
     })
     .eq("id", options.conversationId);
   if (error) throw error;
+}
+
+export async function updateConversationTags(conversationId: string, tags: string[]): Promise<string[]> {
+  const next = normalizeConversationTags(tags);
+  const supabase = getBrowserSupabase();
+  const { error } = await supabase
+    .from("conversations")
+    .update({ tags: next })
+    .eq("id", conversationId);
+  if (error) throw error;
+  return next;
+}
+
+export async function updateConversationInternalNote(
+  conversationId: string,
+  note: string,
+): Promise<void> {
+  const trimmed = note.trim().slice(0, 4000);
+  await patchConversationMetadata(conversationId, (meta) => {
+    const next = { ...meta };
+    if (trimmed) next[INBOX_INTERNAL_NOTE_KEY] = trimmed;
+    else delete next[INBOX_INTERNAL_NOTE_KEY];
+    return next;
+  });
 }
 
 export async function resolveConversation(conversationId: string): Promise<void> {

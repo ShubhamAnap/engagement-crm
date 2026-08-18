@@ -8,13 +8,11 @@ import {
   Pill,
   Toolbar,
   ChannelIcon,
-  ScoreBar,
   EmptyState,
   ListSkeleton,
 } from "@/components/shared/ui-kit";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Check,
   CheckCheck,
@@ -61,7 +59,6 @@ import type { ChannelType, DbMessage, DbProduct, LeadStatus, PriorityLevel } fro
 import { updateLeadStage } from "@/lib/leads-api";
 import { generateConversationSummary, saveConversationSummary } from "@/server/conversation-summary";
 import { writeBrainmineFollowUpsForLeads } from "@/server/brainmine-writeback";
-import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import {
   conversationRepliesViaWhatsApp,
@@ -72,12 +69,12 @@ import {
   whatsappMeUrl,
   type WhatsAppWindowState,
 } from "@/lib/whatsapp-window";
-import { formatDisplayPhone } from "@/lib/phone-country";
 import { useStickToBottomScroll } from "@/lib/chat-scroll";
 import { ChannelBrandMark } from "@/components/shared/ChannelBrandMark";
 import { getChannelBrand, inboxSkinFor } from "@/lib/channel-brand";
 import { RecommendProductDialog } from "@/components/inbox/RecommendProductDialog";
 import { SendWhatsAppTemplateDialog } from "@/components/inbox/SendWhatsAppTemplateDialog";
+import { InboxProfileSidebar } from "@/components/inbox/InboxProfileSidebar";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
@@ -258,8 +255,6 @@ function messageWaFailure(m: DbMessage): { code: string | null; text: string } |
   return { code, text: text || "Meta could not deliver this WhatsApp message" };
 }
 
-const leadStatuses: LeadStatus[] = ["New", "Contacted", "Qualified", "Proposal", "Negotiation", "Won", "Lost"];
-const leadPriorities: PriorityLevel[] = ["High", "Medium", "Low"];
 const LAYOUT_KEY = "enertech-inbox-layout-v1";
 
 function waTone(tone: WhatsAppWindowState["tone"]): "success" | "warning" | "danger" | "neutral" | "primary" {
@@ -1249,7 +1244,6 @@ function Page() {
             {selected ? (
               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] opacity-75">
                 <span>Last seen {formatLastSeen(lastSeenIso, nowTick)}</span>
-                <span>IST (UTC+05:30)</span>
                 {selectedSnooze ? (
                   <span className={selectedSnooze.due ? "font-medium text-amber-700 dark:text-amber-400" : undefined}>
                     {selectedSnooze.label}
@@ -1745,115 +1739,26 @@ function Page() {
   );
 
   const profileSidebar = (
-    <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto p-1">
-      <CardPanel title="Customer Profile" className="shrink-0">
-        {selected ? (
-          <>
-            <dl className="space-y-2 text-sm">
-              {[
-                ["Name", selected.customer?.name || selected.visitor_name || "—"],
-                ["Company", selected.customer?.company || selected.visitor_company || "—"],
-                ["Phone", formatDisplayPhone(selected.customer?.phone || selected.visitor_phone) || "—"],
-                ["Email", selected.customer?.email || selected.visitor_email || "—"],
-                ["Last seen", formatLastSeen(lastSeenIso, nowTick)],
-                ["Timezone", "IST (UTC+05:30)"],
-                ["Assigned", selected.assignee_label || "—"],
-                ["Status", selected.status],
-              ].map(([k, v]) => (
-                <div key={k} className="flex justify-between gap-2"><dt className="text-muted-foreground">{k}</dt><dd className="truncate font-medium">{v}</dd></div>
-              ))}
-            </dl>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => void navigate({ to: "/customers" })}><ExternalLink className="size-3.5" /> Open customers</Button>
-              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => void navigate({ to: "/leads" })}><ExternalLink className="size-3.5" /> Open leads</Button>
-            </div>
-            <div className="mt-3 border-t border-border pt-3">
-              <p className="mb-2 text-xs text-muted-foreground">Linked records</p>
-              <dl className="space-y-2 text-sm">
-                {[
-                  ["Customer ID", selected.customer?.id?.slice(0, 8) || "—"],
-                  ["Lead ID", selected.lead?.id?.slice(0, 8) || "—"],
-                  ["Lead name", selected.lead?.name || "—"],
-                  ["Interest", selected.lead?.product_label || "—"],
-                ].map(([k, v]) => (
-                  <div key={k} className="flex justify-between gap-2"><dt className="text-muted-foreground">{k}</dt><dd className="truncate font-medium">{v}</dd></div>
-                ))}
-              </dl>
-            </div>
-            <div className="mt-4 border-t border-border pt-3">
-              <p className="mb-2 text-xs text-muted-foreground">Lead workflow from conversation</p>
-              {selected.lead ? (
-                <div className="space-y-3">
-                  <div className="space-y-2"><p className="text-xs text-muted-foreground">Lead status</p><Select value={leadStatus} onValueChange={(value: LeadStatus) => setLeadStatus(value)}><SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger><SelectContent>{leadStatuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent></Select></div>
-                  <div className="space-y-2"><p className="text-xs text-muted-foreground">Priority</p><Select value={leadPriority} onValueChange={(value: PriorityLevel) => setLeadPriority(value)}><SelectTrigger><SelectValue placeholder="Select priority" /></SelectTrigger><SelectContent>{leadPriorities.map((priority) => <SelectItem key={priority} value={priority}>{priority}</SelectItem>)}</SelectContent></Select></div>
-                  <Button size="sm" className="w-full" onClick={() => updateLeadMutation.mutate()} disabled={updateLeadMutation.isPending}>{updateLeadMutation.isPending ? "Saving…" : "Update lead from inbox"}</Button>
-                  <label className="flex items-start gap-2 text-xs text-muted-foreground">
-                    <Checkbox
-                      checked={pushFollowUpToBrainmine}
-                      onCheckedChange={(v) => setPushFollowUpToBrainmine(v === true)}
-                      className="mt-0.5"
-                    />
-                    <span>Also push follow-up to Brainmine (uses the summary below)</span>
-                  </label>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">This conversation does not have a linked lead yet.</p>
-              )}
-            </div>
-            <div className="mt-4"><p className="mb-1 text-xs text-muted-foreground">AI confidence</p><ScoreBar score={Math.round((selected.confidence ?? 0.7) * 100)} /></div>
-          </>
-        ) : (
-          <p className="text-sm text-muted-foreground">Select a conversation to see profile.</p>
-        )}
-      </CardPanel>
-      <CardPanel title="Conversation Summary" className="shrink-0">
-        {selected ? (
-          <div className="space-y-2">
-            <Textarea
-              rows={4}
-              className="text-sm"
-              value={summaryDraft}
-              onChange={(e) => setSummaryDraft(e.target.value)}
-              placeholder="Edit this brief yourself, or click Generate summary. Keep to 2–3 lines."
-              disabled={generateSummaryMutation.isPending || saveSummaryMutation.isPending}
-            />
-            <p className="text-[11px] text-muted-foreground">
-              You can correct the AI text. Update lead and Brainmine use what you save here.
-            </p>
-            <div className="flex flex-col gap-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                className="w-full"
-                disabled={generateSummaryMutation.isPending || saveSummaryMutation.isPending}
-                onClick={() => generateSummaryMutation.mutate()}
-              >
-                {generateSummaryMutation.isPending ? "Generating…" : "Generate summary"}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="w-full"
-                disabled={
-                  generateSummaryMutation.isPending ||
-                  saveSummaryMutation.isPending ||
-                  !summaryDraft.trim() ||
-                  summaryDraft.trim() === inboxAiSummary(selected)
-                }
-                onClick={() => saveSummaryMutation.mutate()}
-              >
-                {saveSummaryMutation.isPending ? "Saving…" : "Save edits"}
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">Select a conversation to see summary.</p>
-        )}
-      </CardPanel>
-      <CardPanel title="Channel" className="shrink-0">
-        <p className="text-sm text-muted-foreground">{selected ? `${selected.channel} · session ${selected.widget_session_id?.slice(0, 8) || "—"}` : "—"}</p>
-      </CardPanel>
-    </div>
+    <InboxProfileSidebar
+      selected={selected}
+      orgId={orgId}
+      profileId={profile?.id}
+      profileName={profile?.fullName || profile?.email || "Human agent"}
+      leadStatus={leadStatus}
+      leadPriority={leadPriority}
+      onLeadStatusChange={setLeadStatus}
+      onLeadPriorityChange={setLeadPriority}
+      onUpdateLead={() => updateLeadMutation.mutate()}
+      updatingLead={updateLeadMutation.isPending}
+      pushFollowUpToBrainmine={pushFollowUpToBrainmine}
+      onPushFollowUpChange={setPushFollowUpToBrainmine}
+      summaryDraft={summaryDraft}
+      onSummaryDraftChange={setSummaryDraft}
+      onGenerateSummary={() => generateSummaryMutation.mutate()}
+      generatingSummary={generateSummaryMutation.isPending}
+      onSaveSummary={() => saveSummaryMutation.mutate()}
+      savingSummary={saveSummaryMutation.isPending}
+    />
   );
 
   return (

@@ -1,6 +1,16 @@
 /** Inbox thread snooze (desk reminder). Not lead/Brainmine follow-up. */
 
 export const INBOX_SNOOZE_UNTIL_KEY = "inbox_snooze_until";
+export const INBOX_INTERNAL_NOTE_KEY = "internal_note";
+
+export const INBOX_LABEL_PRESETS = [
+  "Hot",
+  "Callback",
+  "Quote sent",
+  "Service",
+  "Site visit",
+  "Follow-up",
+] as const;
 
 export function conversationMeta(raw: unknown): Record<string, unknown> {
   return raw && typeof raw === "object" && !Array.isArray(raw)
@@ -20,6 +30,27 @@ export function stripInboxSnooze(meta: Record<string, unknown>): Record<string, 
   const next = { ...meta };
   delete next[INBOX_SNOOZE_UNTIL_KEY];
   return next;
+}
+
+export function readInternalNote(meta: Record<string, unknown> | null | undefined): string {
+  const v = meta?.[INBOX_INTERNAL_NOTE_KEY];
+  return typeof v === "string" ? v : "";
+}
+
+export function normalizeConversationTags(raw: unknown): string[] {
+  const list = Array.isArray(raw) ? raw : [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of list) {
+    const tag = String(item || "").trim().replace(/\s+/g, " ").slice(0, 32);
+    if (!tag) continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag);
+    if (out.length >= 12) break;
+  }
+  return out;
 }
 
 /** Merge into a conversations.update payload when a snooze should be cleared. */

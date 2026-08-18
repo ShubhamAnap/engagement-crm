@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Plus, Trash2 } from "lucide-react";
@@ -28,7 +28,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { EmptyState, PageHeader, Panel, TablePagination, Toolbar } from "@/components/shared/ui-kit";
 import { useAuth } from "@/lib/auth";
 import type { DbCustomer } from "@/lib/db-types";
-import { createCustomer, deleteCustomer, downloadCustomersCsv, listCustomers, updateCustomer } from "@/lib/customers-api";
+import { createCustomer, deleteCustomer, downloadCustomersCsv, getCustomerById, listCustomers, updateCustomer } from "@/lib/customers-api";
 
 type CustomerFormState = {
   name: string;
@@ -57,6 +57,9 @@ export const Route = createFileRoute("/customers")({
       { property: "og:description", content: "Accounts, contacts, installed base and lifetime value across the EnerTech portfolio." },
     ],
   }),
+  validateSearch: (search: Record<string, unknown>) => ({
+    id: typeof search.id === "string" ? search.id : undefined,
+  }),
   component: Page,
 });
 
@@ -83,6 +86,7 @@ function formFromCustomer(customer: DbCustomer): CustomerFormState {
 function Page() {
   const queryClient = useQueryClient();
   const { profile } = useAuth();
+  const urlSearch = Route.useSearch();
   const orgId = profile?.org.id;
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -95,6 +99,27 @@ function Page() {
     enabled: Boolean(orgId),
     queryFn: () => listCustomers(orgId!),
   });
+
+  const deepCustomerId = urlSearch.id;
+  const deepCustomerQuery = useQuery({
+    queryKey: ["customer", orgId, deepCustomerId],
+    enabled: Boolean(orgId && deepCustomerId),
+    queryFn: () => getCustomerById(deepCustomerId!, orgId!),
+  });
+  const openedCustomerRef = useRef<string | null>(null);
+  useEffect(() => {
+    const customer = deepCustomerQuery.data;
+    if (!customer || openedCustomerRef.current === customer.id) return;
+    openedCustomerRef.current = customer.id;
+    setEditingCustomer(customer);
+    setForm(formFromCustomer(customer));
+    setDialogOpen(true);
+  }, [deepCustomerQuery.data]);
+  useEffect(() => {
+    if (deepCustomerQuery.isError) {
+      toast.error("Could not open that customer");
+    }
+  }, [deepCustomerQuery.isError]);
 
   const saveMutation = useMutation({
     mutationFn: async () => {

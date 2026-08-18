@@ -39,6 +39,18 @@ export async function listCustomers(orgId: string): Promise<DbCustomer[]> {
   return (data ?? []) as DbCustomer[];
 }
 
+export async function getCustomerById(customerId: string, orgId: string): Promise<DbCustomer | null> {
+  const supabase = getBrowserSupabase();
+  const { data, error } = await supabase
+    .from("customers")
+    .select("*")
+    .eq("id", customerId)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as DbCustomer | null) ?? null;
+}
+
 export async function createCustomer(input: CustomerInput): Promise<DbCustomer> {
   const supabase = getBrowserSupabase();
   const { data, error } = await supabase

@@ -58,6 +58,7 @@ import {
   listLeadFacets,
   listLeadsPage,
   listOrgSalesPeople,
+  getLeadById,
   updateLead,
   type LeadFollowUpFilter,
   type LeadRow,
@@ -172,6 +173,9 @@ export const Route = createFileRoute("/leads")({
       { property: "og:title", content: "Leads (Master) — EnerTech Engage" },
     ],
   }),
+  validateSearch: (search: Record<string, unknown>) => ({
+    id: typeof search.id === "string" ? search.id : undefined,
+  }),
   component: Page,
 });
 
@@ -214,6 +218,7 @@ function Page() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { profile } = useAuth();
+  const urlSearch = Route.useSearch();
   const orgId = profile?.org.id;
   const [waOpeningLeadId, setWaOpeningLeadId] = useState<string | null>(null);
   const canEdit = canLeadsCreate(profile?.role, profile?.permissions);
@@ -314,6 +319,31 @@ function Page() {
     enabled: Boolean(orgId),
     queryFn: () => listOrgSalesPeople(orgId!),
   });
+
+  const deepLeadId = urlSearch.id;
+  const deepLeadQuery = useQuery({
+    queryKey: ["lead", orgId, deepLeadId],
+    enabled: Boolean(orgId && deepLeadId),
+    queryFn: () => getLeadById(deepLeadId!, orgId!),
+  });
+  const openedLeadRef = useRef<string | null>(null);
+  useEffect(() => {
+    const lead = deepLeadQuery.data;
+    if (!lead || openedLeadRef.current === lead.id) return;
+    openedLeadRef.current = lead.id;
+    if (!canEdit) {
+      toast.message("Opened this lead — you can view the list, but cannot edit.");
+      return;
+    }
+    setEditingLead(lead);
+    setForm(formFromLead(lead));
+    setDialogOpen(true);
+  }, [deepLeadQuery.data, canEdit]);
+  useEffect(() => {
+    if (deepLeadQuery.isError) {
+      toast.error("Could not open that lead");
+    }
+  }, [deepLeadQuery.isError]);
 
   const pageRows = leadsQuery.data?.rows ?? [];
   const totalLeads = leadsQuery.data?.total ?? 0;

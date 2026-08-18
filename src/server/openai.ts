@@ -11,6 +11,7 @@ import {
   type ThreadHistoryRow,
 } from "@/lib/thread-documents";
 import {
+  ensureLlmGatewaySettingsLoaded,
   requestOpenAiChatCompletion,
   resolveLlmModel,
   type GatewayChatMessage,
@@ -61,6 +62,7 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
   model: string;
   toolsUsed: string[];
 }> {
+  await ensureLlmGatewaySettingsLoaded();
   const feature = input.agentName && input.agentName !== "EnerBot" ? "agents.reply" : "chat.reply";
   const model = resolveLlmModel(feature, input.model);
   const agentLabel = input.agentName || "EnerBot";

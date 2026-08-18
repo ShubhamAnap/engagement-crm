@@ -29,9 +29,11 @@ import { useAuth } from "@/lib/auth";
 import { ENERTECH_ORG_ID } from "@/lib/chat-api";
 import {
   AGENT_MODEL_OPTIONS,
+  AGENT_ORG_DEFAULT_MODEL,
   AGENT_ENGAGEMENT_LOCK,
   createAgent,
   defaultPromptForKey,
+  displayAgentModel,
   listAgentsWithStats,
   setAgentStatus,
   slugAgentKey,
@@ -82,7 +84,7 @@ function Page() {
   const [formName, setFormName] = useState("");
   const [formDesc, setFormDesc] = useState("");
   const [formStatus, setFormStatus] = useState<AgentStatus>("Active");
-  const [formModel, setFormModel] = useState("gpt-4o-mini");
+  const [formModel, setFormModel] = useState(AGENT_ORG_DEFAULT_MODEL);
   const [formMemory, setFormMemory] = useState(true);
   const [formPrompt, setFormPrompt] = useState("");
   const [formAllowedTools, setFormAllowedTools] = useState<string[]>([]);
@@ -231,7 +233,7 @@ function Page() {
     setFormName(agent.name);
     setFormDesc(agent.description || "");
     setFormStatus(agent.status === "Degraded" ? "Paused" : agent.status);
-    setFormModel(agent.model || "gpt-4o-mini");
+    setFormModel(agent.model || AGENT_ORG_DEFAULT_MODEL);
     setFormMemory(agent.memory_enabled);
     setFormPrompt(agent.system_prompt || "");
     setFormAllowedTools(allowedToolsFromAgentConfig(agent.config));
@@ -266,7 +268,7 @@ function Page() {
   }
 
   const modelOptions = useMemo(() => {
-    const set = new Set<string>([...AGENT_MODEL_OPTIONS]);
+    const set = new Set<string>([AGENT_ORG_DEFAULT_MODEL, ...AGENT_MODEL_OPTIONS]);
     if (editing?.model) set.add(editing.model);
     return Array.from(set);
   }, [editing?.model]);
@@ -523,7 +525,7 @@ function Page() {
                     <Pill tone={statusTone(a.status)} dot>
                       {a.status}
                     </Pill>
-                    <Pill tone="neutral">{a.model}</Pill>
+                    <Pill tone="neutral">{displayAgentModel(a.model)}</Pill>
                     {a.memory_enabled && a.key === MASTER_KEY ? (
                       <Pill tone="success">Memory on (thread)</Pill>
                     ) : a.key === MASTER_KEY ? (
@@ -642,11 +644,14 @@ function Page() {
                   <SelectContent>
                     {modelOptions.map((m) => (
                       <SelectItem key={m} value={m}>
-                        {m}
+                        {displayAgentModel(m)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">
+                  Org default follows Settings → AI Gateway. A specific model here always wins for this agent.
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-2">

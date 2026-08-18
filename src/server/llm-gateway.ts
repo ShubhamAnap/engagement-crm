@@ -8,18 +8,58 @@ export type LlmFeature =
 
 const DEFAULT_CHAT_MODEL = "gpt-4o-mini";
 const DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small";
-const DEFAULT_MODEL_BY_FEATURE: Record<LlmFeature, string> = {
-  "agents.reply": process.env.OPENAI_MODEL || DEFAULT_CHAT_MODEL,
-  "chat.reply": process.env.OPENAI_MODEL || DEFAULT_CHAT_MODEL,
-  "conversation.summary": process.env.OPENAI_MODEL || DEFAULT_CHAT_MODEL,
-  "knowledge.embedding": process.env.OPENAI_EMBEDDING_MODEL || DEFAULT_EMBEDDING_MODEL,
+const GATEWAY_CACHE_MS = 15_000;
+
+export type LlmGatewayRuntimePolicy = {
+  chatModel: string;
+  fallbackModel: string;
+  summaryModel: string;
+  embeddingModel: string;
 };
 
-const FALLBACK_MODEL_BY_FEATURE: Partial<Record<LlmFeature, string[]>> = {
-  "agents.reply": [process.env.OPENAI_FALLBACK_MODEL || ""],
-  "chat.reply": [process.env.OPENAI_FALLBACK_MODEL || ""],
-  "conversation.summary": [process.env.OPENAI_FALLBACK_MODEL || ""],
-};
+function envPolicy(): LlmGatewayRuntimePolicy {
+  return {
+    chatModel: process.env.OPENAI_MODEL || DEFAULT_CHAT_MODEL,
+    fallbackModel: process.env.OPENAI_FALLBACK_MODEL || "",
+    summaryModel: process.env.OPENAI_MODEL || DEFAULT_CHAT_MODEL,
+    embeddingModel: process.env.OPENAI_EMBEDDING_MODEL || DEFAULT_EMBEDDING_MODEL,
+  };
+}
+
+let runtimePolicy = envPolicy();
+let loadedAt = 0;
+let loading: Promise<void> | null = null;
+
+export function applyLlmGatewayPolicy(partial: Partial<LlmGatewayRuntimePolicy>) {
+  const env = envPolicy();
+  runtimePolicy = {
+    chatModel: String(partial.chatModel || "").trim() || env.chatModel,
+    fallbackModel:
+      partial.fallbackModel !== undefined ? String(partial.fallbackModel).trim() : env.fallbackModel,
+    summaryModel: String(partial.summaryModel || "").trim() || env.summaryModel,
+    embeddingModel: String(partial.embeddingModel || "").trim() || env.embeddingModel,
+  };
+  loadedAt = Date.now();
+}
+
+export async function ensureLlmGatewaySettingsLoaded() {
+  if (Date.now() - loadedAt < GATEWAY_CACHE_MS) return;
+  if (loading) return loading;
+  loading = (async () => {
+    try {
+      const { loadLlmGatewayRuntimePolicy } = await import("./llm-gateway-settings");
+      const saved = await loadLlmGatewayRuntimePolicy();
+      if (saved) applyLlmGatewayPolicy(saved);
+      else loadedAt = Date.now();
+    } catch (err) {
+      console.error("llm gateway settings cache failed", err);
+      loadedAt = Date.now();
+    } finally {
+      loading = null;
+    }
+  })();
+  return loading;
+}
 
 export type GatewayChatMessage =
   | { role: "system" | "user" | "assistant"; content: string | null }
@@ -171,6 +211,7 @@ export async function requestOpenAiChatCompletion(
   usage: { promptTokens: number; completionTokens: number; totalTokens: number };
   raw: unknown;
 }> {
+  await ensureLlmGatewaySettingsLoaded();
   const apiKey = getOpenAiApiKey();
   const feature = options.feature || "chat.reply";
   const model = resolveLlmModel(feature, options.model);
@@ -233,6 +274,7 @@ export async function requestOpenAiEmbeddings(
   usage: { promptTokens: number; completionTokens: number; totalTokens: number };
   raw: unknown;
 }> {
+  await ensureLlmGatewaySettingsLoaded();
   const apiKey = getOpenAiApiKey();
   const feature = options.feature || "knowledge.embedding";
   const model = resolveLlmModel(feature, options.model);
@@ -295,11 +337,14 @@ export async function requestOpenAiEmbeddings(
 
 export function resolveLlmModel(feature: LlmFeature, override?: string | null): string {
   const direct = String(override || "").trim();
-  if (direct) return direct;
-  return DEFAULT_MODEL_BY_FEATURE[feature];
+  if (direct && direct !== "org-default") return direct;
+  if (feature === "knowledge.embedding") return runtimePolicy.embeddingModel;
+  if (feature === "conversation.summary") return runtimePolicy.summaryModel;
+  return runtimePolicy.chatModel;
 }
 
 export function listFallbackModels(feature: Exclude<LlmFeature, "knowledge.embedding">): string[] {
   const primary = resolveLlmModel(feature);
-  return (FALLBACK_MODEL_BY_FEATURE[feature] || []).filter((model) => model && model !== primary);
+  const fallback = runtimePolicy.fallbackModel;
+  return fallback && fallback !== primary ? [fallback] : [];
 }

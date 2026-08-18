@@ -5,6 +5,16 @@
 
 ---
 
+### Session 2026-08-18 — Settings → AI Gateway
+
+**Change:** Admin-only **AI Gateway** tab in Settings. Org-wide provider (OpenAI live; Claude/Gemini listed as coming soon), default chat model, fallback model, and summary model. Embeddings stay locked to `text-embedding-3-small` (pgvector 1536-d). The live gateway loads these from `llm_gateway_settings` with a short in-memory cache. Per-agent Model on `/agents` still wins; agents can choose **Org default** to follow this tab. New specialists are created as Org default.
+
+**Ops:** Run `038_llm_gateway.sql` in the Supabase SQL Editor (after `037` if spend tables are not in yet). Until then the tab shows a “run SQL” empty state and chat keeps using env defaults (`OPENAI_MODEL` / `OPENAI_FALLBACK_MODEL`).
+
+**Files:** `supabase/migrations/038_llm_gateway.sql`, `src/server/llm-gateway-settings.ts`, `src/server/llm-gateway.ts`, `src/server/openai.ts`, `src/server/embeddings.ts`, `src/server/conversation-summary.ts`, `src/components/settings/LlmGatewaySettingsPanel.tsx`, `src/routes/settings.tsx`, `src/routes/agents.tsx`, `src/lib/agent-prompts.ts`, `src/lib/agents-api.ts`.
+
+---
+
 ### Session 2026-08-18 — Brainmine quotation probe
 
 **Change:** Added a separate read-only Brainmine quotation probe so staff can test whether a known Quotation record exposes direct PDF hints, file attachments, or only raw quote data. This path is isolated from lead sync and follow-up write-back.

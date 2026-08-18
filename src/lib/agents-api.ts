@@ -26,10 +26,12 @@ export type AgentCreateInput = {
 
 export {
   AGENT_MODEL_OPTIONS,
+  AGENT_ORG_DEFAULT_MODEL,
   AGENT_ENGAGEMENT_LOCK,
   AGENT_MASTER_ORCHESTRATION,
   DEFAULT_AGENT_PROMPTS,
   defaultPromptForKey,
+  displayAgentModel,
   effectiveSystemPrompt,
 } from "@/lib/agent-prompts";
 
@@ -142,7 +144,7 @@ export async function createAgent(orgId: string, input: AgentCreateInput): Promi
       name: input.name.trim(),
       description: input.description?.trim() || null,
       status: "Active",
-      model: "gpt-4o-mini",
+      model: "org-default",
       memory_enabled: true,
       system_prompt: null,
       config: {
@@ -188,7 +190,7 @@ export async function updateAgent(agentId: string, input: AgentUpdateInput): Pro
       name: input.name.trim(),
       description: input.description?.trim() || null,
       status: input.status,
-      model: input.model.trim() || "gpt-4o-mini",
+      model: input.model.trim() || "org-default",
       memory_enabled: input.memoryEnabled,
       system_prompt: input.systemPrompt?.trim() || null,
       config: next,

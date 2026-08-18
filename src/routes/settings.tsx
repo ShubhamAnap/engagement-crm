@@ -19,6 +19,7 @@ import {
   uploadOrgLogo,
 } from "@/lib/profile-api";
 import { TeamSettingsPanel } from "@/components/settings/TeamSettingsPanel";
+import { LlmGatewaySettingsPanel } from "@/components/settings/LlmGatewaySettingsPanel";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -26,7 +27,7 @@ export const Route = createFileRoute("/settings")({
       { title: "Settings — EnerTech Engage" },
       {
         name: "description",
-        content: "Your profile, company details, password, and workspace links.",
+        content: "Your profile, company details, password, team, and AI Gateway.",
       },
       { property: "og:title", content: "Settings — EnerTech Engage" },
     ],
@@ -40,12 +41,16 @@ export const Route = createFileRoute("/settings")({
 function Page() {
   const { profile, refreshProfile, loading, session } = useAuth();
   const search = Route.useSearch();
+  const isAdmin = profile?.role === "Admin";
+  const requestedTab =
+    search.tab === "ai" || search.tab === "ai-gateway" ? "gateway" : search.tab;
   const defaultTab =
-    search.tab === "company" ||
-    search.tab === "security" ||
-    search.tab === "channels" ||
-    search.tab === "team"
-      ? search.tab
+    requestedTab === "company" ||
+    requestedTab === "security" ||
+    requestedTab === "channels" ||
+    (isAdmin && requestedTab === "team") ||
+    (isAdmin && requestedTab === "gateway")
+      ? requestedTab
       : "profile";
 
   const [fullName, setFullName] = useState("");
@@ -163,13 +168,11 @@ function Page() {
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not update password"),
   });
 
-  const isAdmin = profile?.role === "Admin";
-
   return (
     <>
       <PageHeader
         title="Settings"
-        description="Update your profile, company details, and security. Channel credentials live under Channels."
+        description="Update your profile, company details, and security. Admins also manage Team and AI Gateway. Channel credentials live under Channels."
         meta={
           profile ? (
             <div className="flex flex-wrap gap-2">
@@ -208,6 +211,7 @@ function Page() {
               <TabsTrigger value="security">Security</TabsTrigger>
               <TabsTrigger value="channels">Channels</TabsTrigger>
               {isAdmin ? <TabsTrigger value="team">Team</TabsTrigger> : null}
+              {isAdmin ? <TabsTrigger value="gateway">AI Gateway</TabsTrigger> : null}
             </TabsList>
 
             <TabsContent value="profile" className="mt-4 space-y-4">
@@ -505,6 +509,12 @@ function Page() {
             {isAdmin ? (
               <TabsContent value="team" className="mt-4 space-y-4">
                 <TeamSettingsPanel />
+              </TabsContent>
+            ) : null}
+
+            {isAdmin ? (
+              <TabsContent value="gateway" className="mt-4 space-y-4">
+                <LlmGatewaySettingsPanel />
               </TabsContent>
             ) : null}
           </Tabs>

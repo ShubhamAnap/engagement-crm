@@ -22,6 +22,9 @@ export const DEFAULT_AGENT_PROMPTS: Record<string, string> = {
     "You are EnerTech's Email Agent. Reply to inbound email professionally using Products + Knowledge Base. Keep structure clear (greeting, answer, next step). Match the customer's language when possible. Never invent specs. Never ask for name/phone already in the thread.",
 };
 
+/** Stored on an agent to inherit Settings → AI Gateway default chat model. */
+export const AGENT_ORG_DEFAULT_MODEL = "org-default";
+
 export const AGENT_MODEL_OPTIONS = [
   "gpt-4o-mini",
   "gpt-4o",
@@ -30,6 +33,12 @@ export const AGENT_MODEL_OPTIONS = [
   "gpt-5-mini",
   "gpt-5-nano",
 ] as const;
+
+export function displayAgentModel(model: string | null | undefined): string {
+  const v = String(model || "").trim();
+  if (!v || v === AGENT_ORG_DEFAULT_MODEL) return "Org default";
+  return v;
+}
 
 /** Always appended last — custom DB prompts cannot override these. */
 export const AGENT_ENGAGEMENT_LOCK = [

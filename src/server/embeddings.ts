@@ -1,5 +1,9 @@
 /** OpenAI embeddings for Knowledge Base RAG (pgvector / 1536 dims). */
-import { requestOpenAiEmbeddings, resolveLlmModel } from "@/server/llm-gateway";
+import {
+  ensureLlmGatewaySettingsLoaded,
+  requestOpenAiEmbeddings,
+  resolveLlmModel,
+} from "@/server/llm-gateway";
 
 export async function embedTexts(texts: string[]): Promise<number[][]> {
   if (!process.env.OPENAI_API_KEY) {
@@ -7,6 +11,7 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
   }
   if (texts.length === 0) return [];
 
+  await ensureLlmGatewaySettingsLoaded();
   const model = resolveLlmModel("knowledge.embedding");
   const { embeddings } = await requestOpenAiEmbeddings({
     feature: "knowledge.embedding",

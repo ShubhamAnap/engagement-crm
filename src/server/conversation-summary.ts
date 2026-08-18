@@ -10,7 +10,11 @@ import {
   nextFollowUpAtIso,
 } from "@/lib/follow-up";
 import { createServiceSupabase } from "@/lib/supabase";
-import { requestOpenAiChatCompletion, resolveLlmModel } from "@/server/llm-gateway";
+import {
+  ensureLlmGatewaySettingsLoaded,
+  requestOpenAiChatCompletion,
+  resolveLlmModel,
+} from "@/server/llm-gateway";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const MAX_MESSAGES = 40;
@@ -166,6 +170,7 @@ async function callOpenAiSummary(options: {
   requirement?: string | null;
   channel?: string | null;
 }): Promise<{ summary: string; source: "openai" | "fallback"; model: string }> {
+  await ensureLlmGatewaySettingsLoaded();
   const model = resolveLlmModel("conversation.summary");
   if (!process.env.OPENAI_API_KEY) {
     return {

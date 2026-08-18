@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
+import { recordSpendEvent } from "@/server/api-spend";
 import { withInboxSnoozeCleared } from "@/lib/inbox-snooze";
 import { generateOpenAiReply } from "@/server/openai";
 import { agentReplyConfig, resolveAgentStack } from "@/server/agents";
@@ -129,6 +130,12 @@ export async function sendWhatsAppText(toPhone: string, body: string, cfg?: What
       `WhatsApp API error (${res.status})`;
     throw new Error(err);
   }
+  void recordSpendEvent({
+    kind: "whatsapp_session",
+    vendor: "meta",
+    units: 1,
+    metadata: { send_type: "text" },
+  });
   return json;
 }
 
@@ -350,6 +357,12 @@ export async function sendWhatsAppImage(options: {
       `WhatsApp image API error (${res.status})`;
     throw new Error(err);
   }
+  void recordSpendEvent({
+    kind: "whatsapp_session",
+    vendor: "meta",
+    units: 1,
+    metadata: { send_type: "image" },
+  });
   return json;
 }
 
@@ -403,6 +416,12 @@ export async function sendWhatsAppDocument(options: {
       `WhatsApp document API error (${res.status})`;
     throw new Error(err);
   }
+  void recordSpendEvent({
+    kind: "whatsapp_session",
+    vendor: "meta",
+    units: 1,
+    metadata: { send_type: "document" },
+  });
   return json;
 }
 

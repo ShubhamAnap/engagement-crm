@@ -22,6 +22,7 @@ import { getChannelBrand } from "@/lib/channel-brand";
 import { useAuth } from "@/lib/auth";
 import { downloadCsv } from "@/lib/csv";
 import { getDashboardSnapshot } from "@/lib/dashboard-api";
+import { getSpendSnapshot } from "@/lib/spend-api";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -63,11 +64,19 @@ function Dashboard() {
   const navigate = useNavigate();
   const { profile } = useAuth();
   const orgId = profile?.org.id;
+  const isAdmin = profile?.role === "Admin";
 
   const dashboardQuery = useQuery({
     queryKey: ["dashboard", orgId],
     enabled: Boolean(orgId),
     queryFn: () => getDashboardSnapshot(orgId!),
+    refetchInterval: 60_000,
+  });
+
+  const spendQuery = useQuery({
+    queryKey: ["dashboard-spend", orgId],
+    enabled: Boolean(orgId) && isAdmin,
+    queryFn: () => getSpendSnapshot(orgId!),
     refetchInterval: 60_000,
   });
 
@@ -96,6 +105,7 @@ function Dashboard() {
               disabled={dashboardQuery.isFetching}
               onClick={async () => {
                 await queryClient.invalidateQueries({ queryKey: ["dashboard", orgId] });
+                if (isAdmin) await queryClient.invalidateQueries({ queryKey: ["dashboard-spend", orgId] });
                 toast.success("Dashboard refreshed");
               }}
             >
@@ -179,6 +189,118 @@ function Dashboard() {
             />
           ))}
         </div>
+
+        {isAdmin ? (
+          <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              {(spendQuery.isLoading
+                ? Array.from({ length: 4 }, () => ({
+                    label: "…",
+                    value: "—",
+                    hint: undefined,
+                    delta: undefined,
+                    trend: undefined,
+                  }))
+                : spendQuery.data?.kpis ?? []
+              ).map((k, i) => (
+                <StatCard
+                  key={`spend-${k.label}-${i}`}
+                  label={k.label}
+                  value={k.value}
+                  delta={k.delta}
+                  trend={k.trend}
+                  hint={k.hint}
+                />
+              ))}
+            </div>
+            <Panel
+              title={`API spend — ${spendQuery.data?.monthLabel ?? "this month"}`}
+              description="Billed OpenAI tokens and WhatsApp outbound × rate card (not Inbox volume)."
+              bodyClassName="p-0"
+              action={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={!spendQuery.data || spendQuery.data.missingTables}
+                  onClick={() => {
+                    const snap = spendQuery.data;
+                    if (!snap) return;
+                    downloadCsv(
+                      `enertech-api-spend-${new Date().toISOString().slice(0, 10)}.csv`,
+                      snap.csvRows,
+                    );
+                    toast.success("Spend CSV downloaded");
+                  }}
+                >
+                  <Download className="size-4" /> Export CSV
+                </Button>
+              }
+            >
+              {spendQuery.isError ? (
+                <div className="p-4">
+                  <EmptyState
+                    title="Could not load API spend"
+                    description={
+                      spendQuery.error instanceof Error
+                        ? spendQuery.error.message
+                        : "Check that 037_api_spend.sql has been run in Supabase."
+                    }
+                    action={
+                      <Button
+                        size="sm"
+                        onClick={() => queryClient.invalidateQueries({ queryKey: ["dashboard-spend", orgId] })}
+                      >
+                        Retry
+                      </Button>
+                    }
+                  />
+                </div>
+              ) : spendQuery.data?.missingTables ? (
+                <div className="p-4">
+                  <EmptyState
+                    title="Spend tables not installed"
+                    description="Run supabase/migrations/037_api_spend.sql in the Supabase SQL Editor. Going-forward OpenAI and WhatsApp usage will then appear here."
+                  />
+                </div>
+              ) : spendQuery.isLoading ? (
+                <div className="p-4 text-sm text-muted-foreground">Loading spend…</div>
+              ) : (spendQuery.data?.rows.length ?? 0) === 0 ? (
+                <div className="p-4">
+                  <EmptyState
+                    title="No spend logged this month"
+                    description="Totals start after OpenAI calls and WhatsApp sends are recorded. Earlier months cannot be backfilled from chat volume."
+                  />
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b border-border bg-secondary/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      <tr>
+                        {["Date (IST)", "Vendor", "Units", "Estimated ₹", "USD"].map((h) => (
+                          <th key={h} className="px-4 py-2.5 font-medium">
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {spendQuery.data!.rows.map((r) => (
+                        <tr key={`${r.date}-${r.vendor}`} className="hover:bg-secondary/40">
+                          <td className="px-4 py-3 font-medium">{r.date}</td>
+                          <td className="px-4 py-3">{r.vendor}</td>
+                          <td className="num px-4 py-3">{r.units}</td>
+                          <td className="num px-4 py-3">{r.inrLabel}</td>
+                          <td className="num px-4 py-3 text-muted-foreground">{r.usdLabel}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Panel>
+          </div>
+        ) : null}
 
         <div className="grid gap-4 lg:grid-cols-3">
           <Panel

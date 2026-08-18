@@ -1,7 +1,19 @@
 # EnerTech Engage — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
-> **Last updated:** 2026-08-14
+> **Last updated:** 2026-08-18
+
+---
+
+### Session 2026-08-18 — API spend tracker (Dashboard)
+
+**Change:** Admin Operations Dashboard shows this-month OpenAI ₹, WhatsApp ₹, total ₹, vs last month, a daily IST table, and Export CSV. Spend is logged from real OpenAI `usage` and WhatsApp outbound send type — not Command Center token guesses or Inbox bubble counts.
+
+**Schema:** `api_spend_events` + `cost_rates` (gpt-4o-mini USD/1M, embeddings USD/1M, WhatsApp India INR per message, `fx.usd_inr`). Session WA = service (₹0); templates use MARKETING unless the template row is UTILITY. Inserts are best-effort (never block chat).
+
+**Ops:** Run `037_api_spend.sql` in the Supabase SQL Editor. Past months stay empty until logging starts. Edit `cost_rates` when Meta/OpenAI change prices.
+
+**Files:** `supabase/migrations/037_api_spend.sql`, `src/server/api-spend.ts`, `src/lib/spend-math.ts`, `src/lib/spend-api.ts`, `src/server/openai.ts`, `src/server/embeddings.ts`, `src/server/conversation-summary.ts`, `src/server/whatsapp.ts`, `src/server/whatsapp-broadcast.ts`, `src/routes/index.tsx`, `src/lib/db-types.ts`.
 
 ---
 

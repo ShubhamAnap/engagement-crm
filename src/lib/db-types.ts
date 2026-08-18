@@ -235,4 +235,31 @@ export type DbKnowledgeChunk = {
   created_at: string;
 };
 
+export type ApiSpendKind = "openai_chat" | "openai_embed" | "whatsapp_session" | "whatsapp_template";
+
+export type DbApiSpendEvent = {
+  id: string;
+  org_id: string;
+  kind: ApiSpendKind;
+  vendor: "openai" | "meta";
+  model: string | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  units: number;
+  conversation_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type DbCostRate = {
+  id: string;
+  org_id: string;
+  key: string;
+  amount: number;
+  unit: string;
+  notes: string | null;
+  updated_at: string;
+};
+
 export type { AppRole };

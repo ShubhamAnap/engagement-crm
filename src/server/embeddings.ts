@@ -1,4 +1,5 @@
 /** OpenAI embeddings for Knowledge Base RAG (pgvector / 1536 dims). */
+import { parseOpenAiUsage, recordSpendEvent } from "@/server/api-spend";
 
 async function sleep(ms: number) {
   await new Promise((r) => setTimeout(r, ms));
@@ -49,7 +50,20 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
 
       const json = (await response.json()) as {
         data?: Array<{ embedding: number[]; index: number }>;
+        usage?: { prompt_tokens?: number; total_tokens?: number };
       };
+      const usage = parseOpenAiUsage(json);
+      if (usage.totalTokens > 0 || usage.promptTokens > 0) {
+        void recordSpendEvent({
+          kind: "openai_embed",
+          vendor: "openai",
+          model,
+          promptTokens: usage.promptTokens || usage.totalTokens,
+          completionTokens: 0,
+          totalTokens: usage.totalTokens || usage.promptTokens,
+          metadata: { purpose: "embed", texts: texts.length },
+        });
+      }
       const rows = json.data ?? [];
       rows.sort((a, b) => a.index - b.index);
       return rows.map((r) => r.embedding);

@@ -4,6 +4,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
+import { recordSpendEvent } from "@/server/api-spend";
 import { loadWhatsAppConfig, type WhatsAppChannelConfig } from "@/server/whatsapp";
 import {
   analyzeWaTemplateFromRow,
@@ -573,6 +574,16 @@ export async function sendWhatsAppTemplateMessage(options: {
   if (!res.ok) {
     throw new Error(formatMetaError(json) || `WhatsApp template send failed (${res.status})`);
   }
+  void recordSpendEvent({
+    kind: "whatsapp_template",
+    vendor: "meta",
+    units: 1,
+    metadata: {
+      send_type: "template",
+      template_name: options.templateName,
+      language: options.language,
+    },
+  });
   return json.messages?.[0]?.id || null;
 }
 

@@ -10,6 +10,7 @@ import {
   nextFollowUpAtIso,
 } from "@/lib/follow-up";
 import { createServiceSupabase } from "@/lib/supabase";
+import { parseOpenAiUsage, recordSpendEvent } from "@/server/api-spend";
 
 const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 const MAX_MESSAGES = 40;
@@ -233,7 +234,20 @@ async function callOpenAiSummary(options: {
     }
     const json = (await res.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
     };
+    const usage = parseOpenAiUsage(json);
+    if (usage.promptTokens + usage.completionTokens + usage.totalTokens > 0) {
+      void recordSpendEvent({
+        kind: "openai_chat",
+        vendor: "openai",
+        model,
+        promptTokens: usage.promptTokens,
+        completionTokens: usage.completionTokens,
+        totalTokens: usage.totalTokens,
+        metadata: { purpose: "conversation_summary" },
+      });
+    }
     const content = String(json.choices?.[0]?.message?.content || "").trim();
     if (!content) {
       return {

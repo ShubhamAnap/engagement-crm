@@ -10,6 +10,7 @@ import {
   lastDocumentsSystemBlock,
   type ThreadHistoryRow,
 } from "@/lib/thread-documents";
+import { parseOpenAiUsage, recordSpendEvent } from "@/server/api-spend";
 
 function languageInstructionFor(lang?: string): string {
   const l = (lang === "hi" || lang === "mr" || lang === "mixed" || lang === "en" ? lang : "en") as SessionLang;
@@ -161,6 +162,8 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
   const timer = setTimeout(() => controller.abort(), 45000);
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  let promptTokens = 0;
+  let completionTokens = 0;
 
   try {
     let reply = "";
@@ -203,6 +206,9 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
       }
 
       const json = await response.json();
+      const usage = parseOpenAiUsage(json);
+      promptTokens += usage.promptTokens;
+      completionTokens += usage.completionTokens;
       const message = json?.choices?.[0]?.message as
         | {
             content?: string | null;
@@ -270,5 +276,16 @@ export async function generateOpenAiReply(input: GenerateReplyInput): Promise<{
     return { reply: fallback, source: "fallback" as const, model, toolsUsed };
   } finally {
     clearTimeout(timer);
+    if (promptTokens + completionTokens > 0) {
+      void recordSpendEvent({
+        kind: "openai_chat",
+        vendor: "openai",
+        model,
+        promptTokens,
+        completionTokens,
+        totalTokens: promptTokens + completionTokens,
+        metadata: { purpose: "chat", toolsUsed },
+      });
+    }
   }
 }

@@ -76,6 +76,10 @@ export const Route = createFileRoute("/api/signup")({
             { org_id: org.id, type: "email", name: "Email", status: "Disconnected", health: 0, is_enabled: false },
             { org_id: org.id, type: "instagram", name: "Instagram", status: "Disconnected", health: 0, is_enabled: false },
             { org_id: org.id, type: "facebook", name: "Facebook Messenger", status: "Disconnected", health: 0, is_enabled: false },
+            { org_id: org.id, type: "indiamart", name: "IndiaMART", status: "Disconnected", health: 0, detail: "Lead Manager API", is_enabled: false },
+            { org_id: org.id, type: "tradeindia", name: "TradeIndia", status: "Disconnected", health: 0, detail: "Inquiry API", is_enabled: false },
+            { org_id: org.id, type: "brainmine", name: "Brainmine CRM+", status: "Disconnected", health: 0, detail: "External CRM lead sync", is_enabled: false },
+            { org_id: org.id, type: "wordpress", name: "WordPress / WooCommerce", status: "Disconnected", health: 0, detail: "Product catalog pull", is_enabled: false },
           ]).throwOnError().catch((e) => console.warn("[signup] channel seed:", e));
 
           // Seed default AI agents

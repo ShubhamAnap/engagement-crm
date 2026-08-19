@@ -5,6 +5,14 @@
 
 ---
 
+### Session 2026-08-19 — Navy gradient on section chrome
+
+**Change:** Sidebar navy→bright-navy gradient is now the same token as primary buttons, page titles, Panel top bars, and channel-card rails. Status pills stay green/orange (live vs setup). Channel logos stay official (WA/Meta/IndiaMART). `--et-grad-from` follows `--primary` so org brand and chrome cannot drift into two blues.
+
+**Files:** `src/styles.css`, `src/components/ui/button.tsx`, `src/components/shared/ui-kit.tsx`, `src/routes/channels.tsx`.
+
+---
+
 ### Session 2026-08-19 — Brainmine-inspired boxes (navy)
 
 **Change:** Keep one navy accent. Copy Brainmine CRM box language: gray canvas vs white cards, stronger borders, navy→bright-navy gradient on the active sidebar pill, short title underline on Panels, 3px gradient bar under StatCards, and filled Input/Select/Textarea/TopBar search (not ghost lines). Not a green Brainmine clone. Inbox thread skins unchanged.

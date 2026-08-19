@@ -2693,8 +2693,7 @@ function Page() {
               return (
                 <Panel key={c.id} className="overflow-hidden" bodyClassName="relative overflow-hidden p-4">
               <div
-                className="absolute inset-y-0 left-0 w-1"
-                style={{ background: getChannelBrand(c.type).accent }}
+                className="et-grad absolute inset-y-0 left-0 w-1"
                 aria-hidden
               />
               <div className="flex items-start gap-3 pl-1">

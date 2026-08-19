@@ -39,9 +39,10 @@ export function PageHeader({
         <div className="border-b border-border bg-background/80 px-4 py-3 backdrop-blur sm:px-6 sm:py-5">
           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 sm:gap-4">
             <div className="min-w-0">
-              <h1 className="truncate text-base font-semibold tracking-[-0.02em] text-foreground sm:text-[19px]">
+              <h1 className="truncate text-base font-semibold tracking-[-0.02em] text-primary sm:text-[19px]">
                 {title}
               </h1>
+              <span className="et-grad mt-2 block h-[3px] w-24 rounded-full" aria-hidden />
               {description ? (
                 <p className="mt-1 line-clamp-2 hidden text-sm text-muted-foreground sm:block">
                   {description}
@@ -73,15 +74,15 @@ export function Panel({
   return (
     <section
       className={cn(
-        "rounded-xl border border-border bg-card shadow-[var(--et-card-shadow)]",
+        "overflow-hidden rounded-xl border border-border bg-card shadow-[var(--et-card-shadow)]",
         className,
       )}
     >
+      <div className="et-grad h-[3px] w-full" aria-hidden />
       {title ? (
         <header className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold text-foreground">{title}</h2>
-            <span className="et-grad mt-1.5 block h-[3px] w-8 rounded-full" aria-hidden />
+            <h2 className="truncate text-sm font-semibold text-primary">{title}</h2>
             {description ? (
               <p className="mt-1 truncate text-xs text-muted-foreground">{description}</p>
             ) : null}

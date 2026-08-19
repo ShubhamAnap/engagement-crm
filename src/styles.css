@@ -113,8 +113,8 @@
   --border: oklch(0.84 0.016 252);
   --input: oklch(0.82 0.018 252);
   --ring: oklch(0.36 0.11 254);
-  --et-grad-from: oklch(0.32 0.12 254);
-  --et-grad-to: oklch(0.5 0.12 250);
+  --et-grad-from: var(--primary);
+  --et-grad-to: color-mix(in oklab, var(--primary) 42%, oklch(0.62 0.12 250));
   --et-grad-fg: oklch(0.99 0.008 254);
   --et-grad: linear-gradient(90deg, var(--et-grad-from), var(--et-grad-to));
   --et-card-shadow: 0 1px 3px oklch(0.22 0.02 254 / 8%);
@@ -162,8 +162,8 @@
   --border: oklch(0.78 0.016 252 / 28%);
   --input: oklch(0.78 0.016 252 / 36%);
   --ring: oklch(0.7 0.1 254);
-  --et-grad-from: oklch(0.38 0.11 254);
-  --et-grad-to: oklch(0.55 0.12 250);
+  --et-grad-from: color-mix(in oklab, var(--primary) 55%, oklch(0.32 0.12 254));
+  --et-grad-to: var(--primary);
   --et-grad-fg: oklch(0.99 0.008 254);
   --et-grad: linear-gradient(90deg, var(--et-grad-from), var(--et-grad-to));
   --et-card-shadow: 0 1px 3px oklch(0 0 0 / 35%);

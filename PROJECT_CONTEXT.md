@@ -5,6 +5,14 @@
 
 ---
 
+### Session 2026-08-19 — Real channel logos
+
+**Change:** Channel marks (except Brainmine BM and Website globe) now use official logo files in `public/channel-logos/`: WhatsApp / Facebook / Gmail / WordPress from Wikimedia Commons SVGs; Instagram, IndiaMART, TradeIndia from each platform’s public icon. Letter placeholders IM / TI / W are gone.
+
+**Files:** `src/components/shared/ChannelBrandMark.tsx`, `public/channel-logos/*`.
+
+---
+
 ### Session 2026-08-19 — Navy gradient on section chrome
 
 **Change:** Sidebar navy→bright-navy gradient is now the same token as primary buttons, page titles, Panel top bars, and channel-card rails. Status pills stay green/orange (live vs setup). Channel logos stay official (WA/Meta/IndiaMART). `--et-grad-from` follows `--primary` so org brand and chrome cannot drift into two blues.

@@ -69,6 +69,21 @@ export const Route = createFileRoute("/api/signup")({
             throw new Error(profileErr.message);
           }
 
+          // Seed default channels for the new org
+          await supabase.from("channels").insert([
+            { org_id: org.id, type: "website", name: "Website Chat", status: "Connected", health: 100, detail: "embed widget", is_enabled: true },
+            { org_id: org.id, type: "whatsapp", name: "WhatsApp Business", status: "Disconnected", health: 0, is_enabled: false },
+            { org_id: org.id, type: "email", name: "Email", status: "Disconnected", health: 0, is_enabled: false },
+            { org_id: org.id, type: "instagram", name: "Instagram", status: "Disconnected", health: 0, is_enabled: false },
+            { org_id: org.id, type: "facebook", name: "Facebook Messenger", status: "Disconnected", health: 0, is_enabled: false },
+          ]).throwOnError().catch((e) => console.warn("[signup] channel seed:", e));
+
+          // Seed default AI agents
+          await supabase.from("agents").insert([
+            { org_id: org.id, key: "support", name: "Support Agent", description: "General support and enquiry handling", status: "Active", model: "gpt-4o-mini", memory_enabled: true },
+            { org_id: org.id, key: "sales", name: "Sales Agent", description: "Product discovery, pricing guidance, lead capture", status: "Active", model: "gpt-4o-mini", memory_enabled: true },
+          ]).throwOnError().catch((e) => console.warn("[signup] agent seed:", e));
+
           return Response.json({ ok: true, orgId: org.id });
         } catch (err) {
           console.error("[signup]", err);

@@ -14,9 +14,9 @@ fi
 echo "==> Linux Lightningcss native (Tailwind)"
 npm install --force lightningcss-linux-x64-gnu@1.33.0 --no-audit --no-fund || true
 
-echo "==> vite build (Render — raised Node heap, reduced Rollup parallelism)"
-# Default Node heap (~2GB) OOMs on Vite+Nitro "rendering chunks"; Render build VMs have more RAM.
-export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}"
+echo "==> vite build (Render — raised Node heap for Nitro bundle)"
+# Default Node heap (~2GB) OOMs on Vite+Nitro "rendering chunks"; bump higher on Render.
+export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=6144}"
 npm run build:render
 
 echo "==> Verifying Nitro output"

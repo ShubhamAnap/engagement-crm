@@ -5,6 +5,14 @@
 
 ---
 
+### Session 2026-08-19 — DigitalOcean deploy prep
+
+**Change:** Prepared the repo for DigitalOcean App Platform. Added `.do/app.yaml` with a Node web service plus scheduled cron job, documented DO deploy steps in `README.md`, and cleaned `scripts/run-migrations.mjs` so it no longer stores project tokens in source. Note: DigitalOcean scheduled jobs support a minimum 15-minute interval, so cron there is slower than the previous 5-minute Render setup.
+
+**Files:** `.do/app.yaml`, `README.md`, `scripts/run-migrations.mjs`.
+
+---
+
 ### Session 2026-08-19 — Channels page layout reorder
 
 **Change:** On `/channels`, the platform channel cards grid (toggles, Configure, connection health) now appears first below the page header. Stat cards, Gmail OAuth, Website embed, and all other setup panels follow below. UI-only reorder — no config or API logic changed.

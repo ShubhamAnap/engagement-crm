@@ -60,6 +60,39 @@ Blueprint: [`render.yaml`](./render.yaml) (Web Service + 5‑min automations cro
 
 **Plan tip:** Free instances sleep — WhatsApp webhooks can miss messages while cold. Prefer **Starter** for production WhatsApp.
 
+## Deploy on DigitalOcean App Platform
+
+This repo includes an App Platform spec at `.do/app.yaml`.
+
+1. In DigitalOcean App Platform, create an app from the GitHub repo `ShubhamAnap/engagement-crm`.
+2. Import or paste `.do/app.yaml` as the starting spec.
+3. Set the required environment variables in App Platform:
+
+| Key | Scope | Notes |
+|-----|-------|-------|
+| `APP_URL` | Build | First deploy can use the default App Platform URL; update later if you add a custom domain |
+| `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | Build | Required by Vite at build time |
+| `VITE_WIDGET_PUBLIC_KEY` | Build | Same value as `WIDGET_PUBLIC_KEY` |
+| `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | Run | Server-side Supabase access |
+| `WIDGET_PUBLIC_KEY` | Run | Public widget auth |
+| `OPENAI_API_KEY` | Run | AI replies, RAG, summaries |
+| `CRON_SECRET` | Run | Protects the cron endpoint |
+| `CRON_URL` | Run | `https://<your-app-domain>/api/cron/automations` |
+| WhatsApp / email / Meta keys | Run | Optional until those channels are enabled |
+
+4. Web service settings in the spec already point to:
+   - Build: `bash scripts/render-build.sh`
+   - Run: `npm run start:check`
+   - Health check: `/api/health`
+5. The scheduled job in `.do/app.yaml` calls the automations endpoint every **15 minutes**. DigitalOcean scheduled jobs do not support 5-minute intervals, so this is intentionally slower than the current Render cron. See [DigitalOcean scheduled jobs](https://docs.digitalocean.com/products/app-platform/how-to/manage-jobs/) and the [App Spec reference](https://docs.digitalocean.com/products/app-platform/reference/app-spec/).
+6. After the first deploy, update `APP_URL` and `CRON_URL` to the real DigitalOcean app URL, then redeploy.
+
+If you want to deploy with the CLI instead of the dashboard, install `doctl` and run:
+
+```sh
+doctl apps create --spec .do/app.yaml
+```
+
 ## Project docs
 
 - [`PROJECT_CONTEXT.md`](./PROJECT_CONTEXT.md) — implementation tracker, phases, decisions

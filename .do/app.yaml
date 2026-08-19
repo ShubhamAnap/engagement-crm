@@ -1,0 +1,123 @@
+name: engagement-crm
+region: blr
+
+services:
+  - name: web
+    environment_slug: node-js
+    github:
+      repo: ShubhamAnap/engagement-crm
+      branch: main
+      deploy_on_push: true
+    source_dir: /
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-1gb
+    http_port: 8080
+    build_command: bash scripts/render-build.sh
+    run_command: npm run start:check
+    health_check:
+      http_path: /api/health
+      initial_delay_seconds: 30
+      period_seconds: 15
+      timeout_seconds: 10
+      failure_threshold: 5
+      success_threshold: 1
+    envs:
+      - key: NODE_VERSION
+        scope: BUILD_TIME
+        value: "22.14.0"
+      - key: NODE_ENV
+        scope: RUN_TIME
+        value: production
+      - key: npm_config_optional
+        scope: BUILD_TIME
+        value: "true"
+      - key: OPENAI_MODEL
+        scope: RUN_TIME
+        value: gpt-4o-mini
+      - key: OPENAI_EMBEDDING_MODEL
+        scope: RUN_TIME
+        value: text-embedding-3-small
+      - key: VITE_APP_URL
+        scope: BUILD_TIME
+        value: ${APP_URL}
+      - key: VITE_SUPABASE_URL
+        scope: BUILD_TIME
+        type: SECRET
+        value: ${VITE_SUPABASE_URL}
+      - key: VITE_SUPABASE_ANON_KEY
+        scope: BUILD_TIME
+        type: SECRET
+        value: ${VITE_SUPABASE_ANON_KEY}
+      - key: VITE_WIDGET_PUBLIC_KEY
+        scope: BUILD_TIME
+        type: SECRET
+        value: ${VITE_WIDGET_PUBLIC_KEY}
+      - key: SUPABASE_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: ${SUPABASE_URL}
+      - key: SUPABASE_ANON_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: ${SUPABASE_ANON_KEY}
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: ${SUPABASE_SERVICE_ROLE_KEY}
+      - key: WIDGET_PUBLIC_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: ${WIDGET_PUBLIC_KEY}
+      - key: OPENAI_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: ${OPENAI_API_KEY}
+      - key: CRON_SECRET
+        scope: RUN_TIME
+        type: SECRET
+        value: ${CRON_SECRET}
+      - key: SENTRY_DSN
+        scope: RUN_TIME
+        type: SECRET
+        value: ${SENTRY_DSN}
+      - key: VITE_SENTRY_DSN
+        scope: BUILD_TIME
+        type: SECRET
+        value: ${VITE_SENTRY_DSN}
+
+jobs:
+  - name: automations-cron
+    kind: SCHEDULED
+    environment_slug: node-js
+    github:
+      repo: ShubhamAnap/engagement-crm
+      branch: main
+      deploy_on_push: true
+    source_dir: /
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    build_command: echo "scheduled job uses platform runtime"
+    run_command: node -e "const u=process.env.CRON_URL;const s=process.env.CRON_SECRET;if(!u||!s){console.error('Set CRON_URL and CRON_SECRET');process.exit(1)}fetch(u,{method:'POST',headers:{Authorization:'Bearer '+s}}).then(async r=>{const t=await r.text();if(!r.ok){console.error(t);process.exit(1)}console.log(t)}).catch(e=>{console.error(e);process.exit(1)})"
+    schedule:
+      cron: "*/15 * * * *"
+      time_zone: Asia/Kolkata
+    envs:
+      - key: NODE_VERSION
+        scope: BUILD_TIME
+        value: "22.14.0"
+      - key: CRON_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: ${CRON_URL}
+      - key: CRON_SECRET
+        scope: RUN_TIME
+        type: SECRET
+        value: ${CRON_SECRET}
+
+ingress:
+  rules:
+    - component:
+        name: web
+      match:
+        path:
+          prefix: /

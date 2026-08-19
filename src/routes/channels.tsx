@@ -1273,6 +1273,89 @@ function Page() {
       />
 
       <div className="space-y-4 p-6">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {channelsQuery.isLoading ? (
+            <Panel>
+              <p className="text-sm text-muted-foreground">Loading channels…</p>
+            </Panel>
+          ) : channels.length === 0 ? (
+            <div className="sm:col-span-2 xl:col-span-3">
+              <EmptyState
+                title="No channels"
+                description="Run supabase/migrations/003_core_schema.sql to seed Website, WhatsApp, Email, Instagram, and Facebook."
+              />
+            </div>
+          ) : (
+            channels.map((c) => {
+              const live = isLiveChannel(c.type);
+              const toggling = toggleMutation.isPending && toggleMutation.variables?.channel.id === c.id;
+              return (
+                <Panel key={c.id} className="overflow-hidden" bodyClassName="relative overflow-hidden p-4">
+              <div
+                className="et-grad absolute inset-y-0 left-0 w-1"
+                aria-hidden
+              />
+              <div className="flex items-start gap-3 pl-1">
+                    <ChannelBrandMark channel={c.type} size="md" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold">{c.name}</p>
+                      <p className="truncate text-xs text-muted-foreground">{c.detail || c.type}</p>
+              </div>
+                    <Switch
+                      checked={Boolean(c.is_enabled)}
+                      disabled={toggling}
+                      aria-label={`Enable ${c.name}`}
+                      onCheckedChange={(enabled) => toggleMutation.mutate({ channel: c, enabled })}
+                    />
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Pill tone={channelStatusTone(c.status)} dot>
+                      {c.status}
+                    </Pill>
+                    {live ? (
+                      <Pill tone="success">
+                        {c.type === "whatsapp"
+                          ? "Meta API"
+                          : c.type === "email"
+                            ? "SMTP"
+                            : c.type === "facebook" || c.type === "instagram"
+                              ? "Meta Messenger"
+                              : c.type === "indiamart"
+                                ? "Lead API"
+                                : c.type === "tradeindia"
+                                  ? "Inquiry API"
+                                  : c.type === "brainmine"
+                                  ? "CRM sync"
+                                  : c.type === "wordpress"
+                                    ? "Woo catalog"
+                                : "Live"}
+                      </Pill>
+                    ) : (
+                      <Pill tone="neutral">API later</Pill>
+                    )}
+                  </div>
+
+                  <div className="mt-3">
+                    <p className="mb-1 text-[11px] uppercase text-muted-foreground">Connection health</p>
+                    <ScoreBar score={c.health ?? 0} />
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <span>
+                      <span className="num text-foreground">{c.conversationCount}</span> conversations ·{" "}
+                      <span className="num text-foreground">{c.openCount}</span> open
+                    </span>
+                    <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => openEdit(c)}>
+                      <Pencil className="size-3" /> Configure
+                    </Button>
+                  </div>
+            </Panel>
+              );
+            })
+          )}
+        </div>
+
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard label="Channels" value={String(channels.length)} hint="in this workspace" />
           <StatCard label="Connected" value={String(connected)} hint="ready to receive" />
@@ -2673,89 +2756,6 @@ function Page() {
             <p className="mt-1 text-xs text-destructive">{wpSetupQuery.data.lastSyncError}</p>
           ) : null}
         </Panel>
-
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {channelsQuery.isLoading ? (
-            <Panel>
-              <p className="text-sm text-muted-foreground">Loading channels…</p>
-            </Panel>
-          ) : channels.length === 0 ? (
-            <div className="sm:col-span-2 xl:col-span-3">
-              <EmptyState
-                title="No channels"
-                description="Run supabase/migrations/003_core_schema.sql to seed Website, WhatsApp, Email, Instagram, and Facebook."
-              />
-            </div>
-          ) : (
-            channels.map((c) => {
-              const live = isLiveChannel(c.type);
-              const toggling = toggleMutation.isPending && toggleMutation.variables?.channel.id === c.id;
-              return (
-                <Panel key={c.id} className="overflow-hidden" bodyClassName="relative overflow-hidden p-4">
-              <div
-                className="et-grad absolute inset-y-0 left-0 w-1"
-                aria-hidden
-              />
-              <div className="flex items-start gap-3 pl-1">
-                    <ChannelBrandMark channel={c.type} size="md" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold">{c.name}</p>
-                      <p className="truncate text-xs text-muted-foreground">{c.detail || c.type}</p>
-              </div>
-                    <Switch
-                      checked={Boolean(c.is_enabled)}
-                      disabled={toggling}
-                      aria-label={`Enable ${c.name}`}
-                      onCheckedChange={(enabled) => toggleMutation.mutate({ channel: c, enabled })}
-                    />
-                  </div>
-
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <Pill tone={channelStatusTone(c.status)} dot>
-                      {c.status}
-                    </Pill>
-                    {live ? (
-                      <Pill tone="success">
-                        {c.type === "whatsapp"
-                          ? "Meta API"
-                          : c.type === "email"
-                            ? "SMTP"
-                            : c.type === "facebook" || c.type === "instagram"
-                              ? "Meta Messenger"
-                              : c.type === "indiamart"
-                                ? "Lead API"
-                                : c.type === "tradeindia"
-                                  ? "Inquiry API"
-                                  : c.type === "brainmine"
-                                  ? "CRM sync"
-                                  : c.type === "wordpress"
-                                    ? "Woo catalog"
-                                : "Live"}
-                      </Pill>
-                    ) : (
-                      <Pill tone="neutral">API later</Pill>
-                    )}
-                  </div>
-
-                  <div className="mt-3">
-                    <p className="mb-1 text-[11px] uppercase text-muted-foreground">Connection health</p>
-                    <ScoreBar score={c.health ?? 0} />
-                  </div>
-
-                  <div className="mt-3 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                    <span>
-                      <span className="num text-foreground">{c.conversationCount}</span> conversations ·{" "}
-                      <span className="num text-foreground">{c.openCount}</span> open
-                    </span>
-                    <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => openEdit(c)}>
-                      <Pencil className="size-3" /> Configure
-                    </Button>
-                  </div>
-            </Panel>
-              );
-            })
-          )}
-        </div>
 
         <Panel title="Provider roadmap">
           <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">

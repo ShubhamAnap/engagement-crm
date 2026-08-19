@@ -5,6 +5,14 @@
 
 ---
 
+### Session 2026-08-19 — Channels page layout reorder
+
+**Change:** On `/channels`, the platform channel cards grid (toggles, Configure, connection health) now appears first below the page header. Stat cards, Gmail OAuth, Website embed, and all other setup panels follow below. UI-only reorder — no config or API logic changed.
+
+**Files:** `src/routes/channels.tsx`.
+
+---
+
 ### Session 2026-08-19 — Real channel logos
 
 **Change:** Channel marks (except Brainmine BM and Website globe) now use official logo files in `public/channel-logos/`: WhatsApp / Facebook / Gmail / WordPress from Wikimedia Commons SVGs; Instagram, IndiaMART, TradeIndia from each platform’s public icon. Letter placeholders IM / TI / W are gone.

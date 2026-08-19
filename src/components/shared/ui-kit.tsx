@@ -73,7 +73,7 @@ export function Panel({
   return (
     <section
       className={cn(
-        "rounded-xl border border-border bg-card shadow-[0_1px_2px_rgba(0,0,0,0.04)]",
+        "rounded-xl border border-border bg-card shadow-[var(--et-card-shadow)]",
         className,
       )}
     >
@@ -81,8 +81,9 @@ export function Panel({
         <header className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0">
             <h2 className="truncate text-sm font-semibold text-foreground">{title}</h2>
+            <span className="et-grad mt-1.5 block h-[3px] w-8 rounded-full" aria-hidden />
             {description ? (
-              <p className="truncate text-xs text-muted-foreground">{description}</p>
+              <p className="mt-1 truncate text-xs text-muted-foreground">{description}</p>
             ) : null}
           </div>
           {action ? <div className="shrink-0">{action}</div> : null}
@@ -110,32 +111,35 @@ export function StatCard({
 }) {
   const good = trend === "up";
   return (
-    <div className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40">
-      <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {label}
-        </span>
-        {Icon ? <Icon className="size-4 shrink-0 text-muted-foreground" /> : null}
-      </div>
-      <div className="mt-3 flex items-baseline gap-2">
-        <span className="num text-2xl font-semibold text-foreground">{value}</span>
-        {delta ? (
-          <span
-            className={cn(
-              "inline-flex items-center gap-0.5 text-xs font-medium",
-              good ? "text-success" : "text-destructive",
-            )}
-          >
-            {good ? (
-              <ArrowUpRight className="size-3.5" />
-            ) : (
-              <ArrowDownRight className="size-3.5" />
-            )}
-            {delta}
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-[var(--et-card-shadow)] transition-colors hover:border-primary/50">
+      <div className="p-4">
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {label}
           </span>
-        ) : null}
+          {Icon ? <Icon className="size-4 shrink-0 text-muted-foreground" /> : null}
+        </div>
+        <div className="mt-3 flex items-baseline gap-2">
+          <span className="num text-2xl font-semibold text-foreground">{value}</span>
+          {delta ? (
+            <span
+              className={cn(
+                "inline-flex items-center gap-0.5 text-xs font-medium",
+                good ? "text-success" : "text-destructive",
+              )}
+            >
+              {good ? (
+                <ArrowUpRight className="size-3.5" />
+              ) : (
+                <ArrowDownRight className="size-3.5" />
+              )}
+              {delta}
+            </span>
+          ) : null}
+        </div>
+        {hint ? <p className="mt-1 text-xs text-muted-foreground">{hint}</p> : null}
       </div>
-      {hint ? <p className="mt-1 text-xs text-muted-foreground">{hint}</p> : null}
+      <div className="et-grad h-[3px] w-full" aria-hidden />
     </div>
   );
 }

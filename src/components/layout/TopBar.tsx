@@ -126,7 +126,7 @@ export function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
 
       <button
         onClick={() => setOpen(true)}
-        className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-secondary/60 px-3 text-sm text-muted-foreground transition-colors hover:bg-secondary md:max-w-md"
+        className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border border-input bg-card px-3 text-sm text-muted-foreground shadow-[var(--et-card-shadow)] transition-colors hover:border-primary/40 md:max-w-md"
       >
         <Search className="size-4 shrink-0" />
         <span className="truncate">Search conversations, leads, products…</span>

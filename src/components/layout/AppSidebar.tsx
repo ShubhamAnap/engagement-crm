@@ -195,9 +195,9 @@ export function AppSidebar({
                     to={item.to}
                     onClick={() => onNavigate?.()}
                     className={cn(
-                      "group relative flex h-9 items-center gap-2.5 rounded-lg px-2 text-sm font-medium transition-colors duration-150",
+                      "group flex h-9 items-center gap-2.5 rounded-xl px-2.5 text-sm font-medium transition-[background-color,color,box-shadow] duration-150",
                       active
-                        ? "bg-sidebar-accent text-sidebar-accent-foreground before:absolute before:inset-y-1.5 before:left-0 before:w-[3px] before:rounded-full before:bg-primary"
+                        ? "et-grad text-et-grad-fg shadow-sm"
                         : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
                       collapsed && "justify-center px-0",
                     )}
@@ -205,12 +205,19 @@ export function AppSidebar({
                     <item.icon
                       className={cn(
                         "size-4.5 shrink-0",
-                        active ? "text-primary" : "text-muted-foreground",
+                        active ? "text-et-grad-fg" : "text-muted-foreground",
                       )}
                     />
                     {!collapsed && <span className="truncate">{item.label}</span>}
                     {!collapsed && item.badge && (
-                      <span className="num ml-auto rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                      <span
+                        className={cn(
+                          "num ml-auto rounded-md px-1.5 py-0.5 text-[10px] font-semibold",
+                          active
+                            ? "bg-et-grad-fg/20 text-et-grad-fg"
+                            : "bg-primary/15 text-primary",
+                        )}
+                      >
                         {item.badge}
                       </span>
                     )}

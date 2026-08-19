@@ -1,7 +1,15 @@
 # EnerTech Engage — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
-> **Last updated:** 2026-08-18
+> **Last updated:** 2026-08-19
+
+---
+
+### Session 2026-08-19 — Brainmine-inspired boxes (navy)
+
+**Change:** Keep one navy accent. Copy Brainmine CRM box language: gray canvas vs white cards, stronger borders, navy→bright-navy gradient on the active sidebar pill, short title underline on Panels, 3px gradient bar under StatCards, and filled Input/Select/Textarea/TopBar search (not ghost lines). Not a green Brainmine clone. Inbox thread skins unchanged.
+
+**Files:** `src/styles.css`, `src/components/layout/AppSidebar.tsx`, `src/components/layout/TopBar.tsx`, `src/components/shared/ui-kit.tsx`, `src/components/ui/input.tsx`, `src/components/ui/textarea.tsx`, `src/components/ui/select.tsx`.
 
 ---
 

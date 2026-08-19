@@ -23,7 +23,7 @@ import {
 import { isProductIntent } from "@/server/product-pack";
 import { isEducateOnlyAsk } from "@/lib/conversation-intent";
 
-const ORG_ID = "a0000000-0000-4000-8000-000000000001";
+import { DEFAULT_ORG_ID } from "@/server/org-context";
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
 
 export type MetaMessengerType = "facebook" | "instagram";
@@ -55,7 +55,7 @@ export async function loadMetaConfig(type: MetaMessengerType): Promise<MetaMesse
     const { data } = await supabase
       .from("channels")
       .select("config, detail")
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .eq("type", type)
       .maybeSingle();
     const cfg = ((data?.config as MetaMessengerConfig) || {}) as MetaMessengerConfig;
@@ -158,7 +158,7 @@ async function getChannelId(supabase: ReturnType<typeof createServiceSupabase>, 
   const { data } = await supabase
     .from("channels")
     .select("id")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("type", type)
     .maybeSingle();
   return data?.id as string | undefined;
@@ -177,7 +177,7 @@ async function findOrCreateMetaConversation(
   const { data: existing } = await supabase
     .from("conversations")
     .select("*")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("channel", type)
     .eq("widget_session_id", sessionKey)
     .order("updated_at", { ascending: false })
@@ -199,7 +199,7 @@ async function findOrCreateMetaConversation(
   const { data: created, error } = await supabase
     .from("conversations")
     .insert({
-      org_id: ORG_ID,
+      org_id: DEFAULT_ORG_ID,
       channel_id: channelId || null,
       channel: type,
       external_ref: externalRef,
@@ -260,7 +260,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
       const { data: dup } = await supabase
         .from("messages")
         .select("id")
-        .eq("org_id", ORG_ID)
+        .eq("org_id", DEFAULT_ORG_ID)
         .filter(`metadata->>${msgMetaKey}`, "eq", mid)
         .limit(1)
         .maybeSingle();
@@ -272,7 +272,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
     const { data: customerMsg, error: msgError } = await supabase
       .from("messages")
       .insert({
-        org_id: ORG_ID,
+        org_id: DEFAULT_ORG_ID,
         conversation_id: convo.id,
         sender: "customer",
         body: text,
@@ -316,7 +316,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
         })
         .eq("id", convo.id);
       await supabase.from("messages").insert({
-        org_id: ORG_ID,
+        org_id: DEFAULT_ORG_ID,
         conversation_id: convo.id,
         sender: "ai",
         body: wait,
@@ -348,7 +348,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
           })
           .eq("id", convo.id);
         await supabase.from("messages").insert({
-          org_id: ORG_ID,
+          org_id: DEFAULT_ORG_ID,
           conversation_id: convo.id,
           sender: "ai",
           body: ack,
@@ -403,7 +403,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
         });
         (inspector.metadata as Record<string, unknown>).document_followup_ack = true;
         await supabase.from("messages").insert({
-          org_id: ORG_ID,
+          org_id: DEFAULT_ORG_ID,
           conversation_id: convo.id,
           sender: "ai",
           body: reply,
@@ -494,7 +494,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
           console.error("Meta photo reply send failed", err);
         }
         await supabase.from("messages").insert({
-          org_id: ORG_ID,
+          org_id: DEFAULT_ORG_ID,
           conversation_id: convo.id,
           sender: "ai",
           body: reply,
@@ -646,7 +646,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
     }
 
     await supabase.from("messages").insert({
-      org_id: ORG_ID,
+      org_id: DEFAULT_ORG_ID,
       conversation_id: convo.id,
       sender: "ai",
       body: reply,
@@ -697,7 +697,7 @@ export const saveMetaChannelConfig = createServerFn({ method: "POST" })
         status: enable ? "Connected" : "Disconnected",
         health: enable ? 100 : 0,
       })
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .eq("type", data.type)
       .select("*")
       .single();
@@ -739,7 +739,7 @@ export const sendMetaAgentReply = createServerFn({ method: "POST" })
       .from("conversations")
       .select("id, channel, metadata, widget_session_id")
       .eq("id", data.conversationId)
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!convo) throw new Error("Conversation not found");

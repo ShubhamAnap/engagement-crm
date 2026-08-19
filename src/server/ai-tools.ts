@@ -4,7 +4,7 @@
  */
 import { createServiceSupabase } from "@/lib/supabase";
 
-const ORG_ID = "a0000000-0000-4000-8000-000000000001";
+import { DEFAULT_ORG_ID } from "@/server/org-context";
 
 export type OpenAiToolDef = {
   type: "function";
@@ -15,7 +15,7 @@ export type OpenAiToolDef = {
   };
 };
 
-export async function loadEnabledToolKeys(orgId: string = ORG_ID): Promise<Set<string>> {
+export async function loadEnabledToolKeys(orgId: string = DEFAULT_ORG_ID): Promise<Set<string>> {
   const supabase = createServiceSupabase();
   const { data, error } = await supabase
     .from("ai_tools")
@@ -34,7 +34,7 @@ export async function resolveAgentToolKeys(options: {
   orgId?: string;
   allowedOnAgent: string[];
 }): Promise<string[]> {
-  const enabled = await loadEnabledToolKeys(options.orgId || ORG_ID);
+  const enabled = await loadEnabledToolKeys(options.orgId || DEFAULT_ORG_ID);
   return options.allowedOnAgent.filter((k) => enabled.has(k));
 }
 
@@ -142,7 +142,7 @@ export async function runAiTool(
         const { data: formulas, error } = await supabase
           .from("sizing_formulas")
           .select("name, expression, result_label, result_unit, variables, notes, is_active")
-          .eq("org_id", ORG_ID)
+          .eq("org_id", DEFAULT_ORG_ID)
           .eq("is_active", true);
         if (error) {
           return JSON.stringify({ ok: false, error: error.message, hint: "Run 027_sizing_formulas.sql if missing." });

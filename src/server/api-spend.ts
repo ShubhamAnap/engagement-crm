@@ -3,7 +3,9 @@
  */
 import { createServiceSupabase } from "@/lib/supabase";
 
-export const SPEND_ORG_ID = "a0000000-0000-4000-8000-000000000001";
+import { DEFAULT_ORG_ID } from "@/server/org-context";
+
+export const SPEND_ORG_ID = DEFAULT_ORG_ID;
 
 export type SpendKind = "openai_chat" | "openai_embed" | "whatsapp_session" | "whatsapp_template";
 export type SpendVendor = "openai" | "meta";

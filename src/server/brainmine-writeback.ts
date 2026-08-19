@@ -31,7 +31,7 @@ import {
   ymdPlusDays,
 } from "@/lib/follow-up";
 
-const ORG_ID = "a0000000-0000-4000-8000-000000000001";
+import { DEFAULT_ORG_ID } from "@/server/org-context";
 const MAX_BATCH = 40;
 const SUMMARY_MAX_CHARS = 280;
 
@@ -435,7 +435,7 @@ export async function runBrainmineFollowUpWriteback(options?: {
     .select(
       "id, name, company, phone, email, notes, source, external_ref, metadata, next_follow_up_at",
     )
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .order("last_activity_at", { ascending: false })
     .limit(filterIds.length ? Math.min(filterIds.length, MAX_BATCH) : 200);
 
@@ -505,7 +505,7 @@ export async function runBrainmineFollowUpWriteback(options?: {
     const { data: convos } = await supabase
       .from("conversations")
       .select("id, channel, visitor_name, visitor_phone, preview, last_message_at, metadata")
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .eq("lead_id", lead.id)
       .order("last_message_at", { ascending: false })
       .limit(8);
@@ -557,7 +557,7 @@ export async function runBrainmineFollowUpWriteback(options?: {
       .from("leads")
       .update({ metadata: meta, updated_at: ranAt })
       .eq("id", lead.id)
-      .eq("org_id", ORG_ID);
+      .eq("org_id", DEFAULT_ORG_ID);
 
     const waPhone = waConvo?.visitor_phone || lead.phone || null;
     const matched = await resolveWhatsAppContactLink(cfg, {
@@ -635,7 +635,7 @@ export async function runBrainmineFollowUpWriteback(options?: {
     await supabase
       .from("channels")
       .update({ config: nextCfg, updated_at: ranAt })
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .eq("type", "brainmine");
   } catch {
     /* non-fatal */
@@ -689,7 +689,7 @@ export const refreshLeadFollowUpSummaries = createServerFn({ method: "POST" }).h
   const { data: leads, error } = await supabase
     .from("leads")
     .select("id, metadata")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("source", "brainmine")
     .order("updated_at", { ascending: false })
     .limit(100);
@@ -700,7 +700,7 @@ export const refreshLeadFollowUpSummaries = createServerFn({ method: "POST" }).h
     const { data: convo } = await supabase
       .from("conversations")
       .select("id")
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .eq("lead_id", lead.id)
       .order("last_message_at", { ascending: false })
       .limit(1)
@@ -795,7 +795,7 @@ export const inspectBrainmineWritebackFields = createServerFn({ method: "POST" }
     const { data: localLeads } = await supabase
       .from("leads")
       .select("name, metadata, external_ref")
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .eq("source", "brainmine")
       .order("updated_at", { ascending: false })
       .limit(8);
@@ -1052,7 +1052,7 @@ export const saveBrainmineWritebackMap = createServerFn({ method: "POST" })
     const { error } = await supabase
       .from("channels")
       .update({ config: nextCfg, updated_at: new Date().toISOString() })
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .eq("type", "brainmine");
     if (error) throw new Error(error.message);
     return { ok: true as const, writeback: nextCfg.writeback };

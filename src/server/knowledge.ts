@@ -8,7 +8,7 @@ import { isServiceIntent } from "@/lib/conversation-guards";
 import { isEducateOnlyAsk, wantsSiteInstallOrReferencePhotos } from "@/lib/conversation-intent";
 import { shortenStorageUrl } from "@/server/shorten-urls";
 
-const ORG_ID = "a0000000-0000-4000-8000-000000000001";
+import { DEFAULT_ORG_ID } from "@/server/org-context";
 const BUCKET = "knowledge";
 
 function publicFileUrl(path: string): string {
@@ -314,7 +314,7 @@ async function indexBuffer(options: {
   }
 
   const rows = chunks.map((content, index) => ({
-    org_id: ORG_ID,
+    org_id: DEFAULT_ORG_ID,
     document_id: documentId,
     collection_id: collectionId,
     chunk_index: index,
@@ -364,7 +364,7 @@ export const listKnowledgeCollections = createServerFn({ method: "GET" }).handle
   const { data, error } = await supabase
     .from("knowledge_collections")
     .select("*")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .order("name", { ascending: true });
   if (error) throw new Error(error.message);
   return data ?? [];
@@ -377,7 +377,7 @@ export const listKnowledgeDocuments = createServerFn({ method: "POST" })
     let q = supabase
       .from("knowledge_documents")
       .select("*, collection:knowledge_collections(id, name)")
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .order("created_at", { ascending: false })
       .limit(100);
     if (data.collectionId) q = q.eq("collection_id", data.collectionId);
@@ -404,7 +404,7 @@ export const createKnowledgeCollection = createServerFn({ method: "POST" })
     const { data: created, error } = await supabase
       .from("knowledge_collections")
       .insert({
-        org_id: ORG_ID,
+        org_id: DEFAULT_ORG_ID,
         name: data.name.trim(),
         description: data.description?.trim() || null,
         purpose: data.purpose || null,
@@ -437,7 +437,7 @@ export const updateKnowledgeCollection = createServerFn({ method: "POST" })
       .from("knowledge_collections")
       .update(patch)
       .eq("id", data.collectionId)
-      .eq("org_id", ORG_ID);
+      .eq("org_id", DEFAULT_ORG_ID);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -455,7 +455,7 @@ export const reindexKnowledgeCollection = createServerFn({ method: "POST" })
     const { data: docs, error } = await supabase
       .from("knowledge_documents")
       .select("id, title, storage_path")
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .eq("collection_id", data.collectionId)
       .not("storage_path", "is", null)
       .order("created_at", { ascending: true });
@@ -491,7 +491,7 @@ async function prepareUploadRecord(data: {
     .from("knowledge_collections")
     .select("id")
     .eq("id", data.collectionId)
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .maybeSingle();
   if (collectionError) throw new Error(collectionError.message);
   if (!collection) throw new Error("Collection not found");
@@ -499,7 +499,7 @@ async function prepareUploadRecord(data: {
   const { data: doc, error: docError } = await supabase
     .from("knowledge_documents")
     .insert({
-      org_id: ORG_ID,
+      org_id: DEFAULT_ORG_ID,
       collection_id: data.collectionId,
       title: data.title.trim(),
       mime_type: data.mimeType || null,
@@ -511,7 +511,7 @@ async function prepareUploadRecord(data: {
   if (docError) throw new Error(docError.message);
 
   const safeName = data.fileName.replace(/[^\w.\-]+/g, "_");
-  const storagePath = `${ORG_ID}/${data.collectionId}/${doc.id}/${safeName}`;
+  const storagePath = `${DEFAULT_ORG_ID}/${data.collectionId}/${doc.id}/${safeName}`;
   const sourceUrl = publicFileUrl(storagePath);
 
   await supabase
@@ -546,7 +546,7 @@ async function indexDocumentById(documentId: string) {
     .from("knowledge_documents")
     .select("*")
     .eq("id", documentId)
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!doc) throw new Error("Document not found");
@@ -615,7 +615,7 @@ async function uploadBytesToPreparedDocument(options: {
     .from("knowledge_documents")
     .select("id, storage_path, metadata")
     .eq("id", options.documentId)
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!doc?.storage_path) throw new Error("Prepared document missing storage_path");
@@ -704,7 +704,7 @@ export const deleteKnowledgeDocument = createServerFn({ method: "POST" })
       .from("knowledge_documents")
       .select("*")
       .eq("id", data.documentId)
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!doc) throw new Error("Document not found");
@@ -733,7 +733,7 @@ export const updateKnowledgeDocumentTags = createServerFn({ method: "POST" })
       .from("knowledge_documents")
       .select("id, metadata")
       .eq("id", data.documentId)
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!doc) throw new Error("Document not found");
@@ -751,7 +751,7 @@ export const updateKnowledgeDocumentTags = createServerFn({ method: "POST" })
       .from("knowledge_documents")
       .update({ metadata: nextMeta, updated_at: new Date().toISOString() })
       .eq("id", data.documentId)
-      .eq("org_id", ORG_ID);
+      .eq("org_id", DEFAULT_ORG_ID);
     if (updError) throw new Error(updError.message);
     return { ok: true, tags };
   });
@@ -888,7 +888,7 @@ export async function retrieveKnowledgeContext(
     const embedding = await embedQuery(query);
     const { data, error } = await supabase.rpc("match_knowledge_chunks", {
       query_embedding: toVectorLiteral(embedding),
-      match_org_id: ORG_ID,
+      match_org_id: DEFAULT_ORG_ID,
       match_count: fetchCount,
       match_threshold: 0.48,
     });
@@ -1112,7 +1112,7 @@ async function loadDatasheetRows(): Promise<DatasheetRow[]> {
     .select(
       "id, title, source_url, storage_path, mime_type, metadata, collection:knowledge_collections(name, purpose)",
     )
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("status", "ready")
     .order("updated_at", { ascending: false })
     .limit(80);
@@ -1621,7 +1621,7 @@ export async function findReferenceImages(
   const { data: docs, error } = await supabase
     .from("knowledge_documents")
     .select("id, title, source_url, storage_path, mime_type, metadata, collection:knowledge_collections(name)")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("status", "ready")
     .order("updated_at", { ascending: false })
     .limit(200);

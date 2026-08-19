@@ -13,7 +13,7 @@ import {
   storagePathFromPublicUrl,
 } from "@/lib/short-links";
 
-const ORG_ID = "a0000000-0000-4000-8000-000000000001";
+import { DEFAULT_ORG_ID } from "@/server/org-context";
 const BUCKET = "knowledge";
 const STORAGE_URL_RE =
   /https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi;
@@ -56,7 +56,7 @@ export async function shortenStorageUrl(url: string): Promise<string> {
     const { data: product } = await supabase
       .from("products")
       .select("sku")
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .eq("id", productId)
       .maybeSingle();
     const sku = String(product?.sku || "").trim();
@@ -71,7 +71,7 @@ export async function shortenStorageUrl(url: string): Promise<string> {
   const { data: doc } = await supabase
     .from("knowledge_documents")
     .select("id, title, metadata")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("storage_path", storagePath)
     .maybeSingle();
   if (doc?.id) {
@@ -90,7 +90,7 @@ export async function shortenStorageUrl(url: string): Promise<string> {
     const { data: candidates } = await supabase
       .from("knowledge_documents")
       .select("id, title, metadata, storage_path")
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .eq("status", "ready")
       .limit(40);
     const lowerFile = filePart.toLowerCase();

@@ -8,7 +8,7 @@ import { requireStaffUser } from "@/server/staff-auth";
 import { AGENT_MODEL_OPTIONS } from "@/lib/agent-prompts";
 import { applyLlmGatewayPolicy, type LlmGatewayRuntimePolicy } from "@/server/llm-gateway";
 
-const ORG_ID = "a0000000-0000-4000-8000-000000000001";
+import { DEFAULT_ORG_ID } from "@/server/org-context";
 const CHAT_MODELS = new Set<string>(AGENT_MODEL_OPTIONS);
 const EMBEDDING_MODELS = new Set(["text-embedding-3-small"]);
 const PROVIDERS = ["openai", "anthropic", "google"] as const;
@@ -35,7 +35,6 @@ function forbidden(message = "Only Admin can manage AI Gateway"): never {
 async function requireAdmin() {
   const auth = await requireStaffUser();
   if (auth.profile.role !== "Admin") forbidden();
-  if (auth.profile.org_id !== ORG_ID) forbidden("Wrong organization");
   return auth;
 }
 
@@ -103,7 +102,7 @@ export async function loadLlmGatewayRuntimePolicy(): Promise<LlmGatewayRuntimePo
     const { data, error } = await supabase
       .from("llm_gateway_settings")
       .select("provider, default_chat_model, fallback_model, summary_model, embedding_model")
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .maybeSingle();
     if (error) {
       if (isMissingTable(error)) return null;
@@ -125,12 +124,12 @@ export async function loadLlmGatewayRuntimePolicy(): Promise<LlmGatewayRuntimePo
 }
 
 export const getLlmGatewaySettings = createServerFn({ method: "GET" }).handler(async () => {
-  await requireAdmin();
+  const auth = await requireAdmin();
   const supabase = createServiceSupabase();
   const { data, error } = await supabase
     .from("llm_gateway_settings")
     .select("provider, default_chat_model, fallback_model, summary_model, embedding_model, updated_at")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", auth.profile.org_id)
     .maybeSingle();
   if (error) {
     if (isMissingTable(error)) {
@@ -172,7 +171,7 @@ export const saveLlmGatewaySettings = createServerFn({ method: "POST" })
     const fallbackModel = fallbackRaw === defaultChatModel ? "" : fallbackRaw;
     const supabase = createServiceSupabase();
     const payload = {
-      org_id: ORG_ID,
+      org_id: auth.profile.org_id,
       provider: "openai",
       default_chat_model: defaultChatModel,
       fallback_model: fallbackModel,

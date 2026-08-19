@@ -1,6 +1,6 @@
 import type { createServiceSupabase } from "@/lib/supabase";
 
-const ORG_ID = "a0000000-0000-4000-8000-000000000001";
+import { DEFAULT_ORG_ID } from "@/server/org-context";
 
 type Sb = ReturnType<typeof createServiceSupabase>;
 
@@ -29,7 +29,7 @@ export async function ensureWhatsAppLeadCustomer(
     const { data: byPhone } = await supabase
       .from("customers")
       .select("id, name, phone")
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .eq("phone", digits)
       .maybeSingle();
     if (byPhone?.id) {
@@ -38,7 +38,7 @@ export async function ensureWhatsAppLeadCustomer(
       const { data: created } = await supabase
         .from("customers")
         .insert({
-          org_id: ORG_ID,
+          org_id: DEFAULT_ORG_ID,
           name,
           phone: digits,
           metadata: { source: "whatsapp" },
@@ -53,7 +53,7 @@ export async function ensureWhatsAppLeadCustomer(
     const { data: openLead } = await supabase
       .from("leads")
       .select("id")
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .eq("phone", digits)
       .order("updated_at", { ascending: false })
       .limit(1)
@@ -64,7 +64,7 @@ export async function ensureWhatsAppLeadCustomer(
       const { data: createdLead } = await supabase
         .from("leads")
         .insert({
-          org_id: ORG_ID,
+          org_id: DEFAULT_ORG_ID,
           name,
           phone: digits,
           source: "WhatsApp",

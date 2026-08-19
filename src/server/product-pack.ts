@@ -27,7 +27,7 @@ export {
   isEducateOnlyAsk,
 } from "@/lib/conversation-intent";
 
-const ORG_ID = "a0000000-0000-4000-8000-000000000001";
+import { DEFAULT_ORG_ID } from "@/server/org-context";
 
 async function loadCategoryCatalogueLookup(): Promise<CategoryCatalogueLookup> {
   const supabase = createServiceSupabase();
@@ -35,7 +35,7 @@ async function loadCategoryCatalogueLookup(): Promise<CategoryCatalogueLookup> {
   const { data, error } = await supabase
     .from("product_category_catalogues")
     .select("category_key, catalog_pdf_url, catalog_pdf_path")
-    .eq("org_id", ORG_ID);
+    .eq("org_id", DEFAULT_ORG_ID);
   if (error) {
     if (!/does not exist|schema cache|product_category_catalogues/i.test(error.message)) {
       console.warn("loadCategoryCatalogueLookup", error.message);
@@ -449,7 +449,7 @@ export async function resolveProductPackRequest(
         const { data } = await supabase
           .from("products")
           .select("*")
-          .eq("org_id", ORG_ID)
+          .eq("org_id", DEFAULT_ORG_ID)
           .eq("id", pick.id)
           .eq("is_active", true)
           .maybeSingle();
@@ -467,7 +467,7 @@ export async function resolveProductPackRequest(
       const { data } = await supabase
         .from("products")
         .select("*")
-        .eq("org_id", ORG_ID)
+        .eq("org_id", DEFAULT_ORG_ID)
         .eq("id", byName.id)
         .eq("is_active", true)
         .maybeSingle();
@@ -485,7 +485,7 @@ export async function resolveProductPackRequest(
   const { data, error } = await supabase
     .from("products")
     .select("*")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("is_active", true)
     .order("ai_weight", { ascending: false })
     .limit(400);
@@ -554,7 +554,7 @@ export async function loadActiveProductById(productId: string): Promise<DbProduc
   const { data, error } = await supabase
     .from("products")
     .select("*")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("id", productId)
     .eq("is_active", true)
     .maybeSingle();
@@ -620,7 +620,7 @@ export async function buildProductsContextForAi(
   const { data, error } = await supabase
     .from("products")
     .select("*")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("is_active", true)
     .order("ai_weight", { ascending: false })
     .limit(80);

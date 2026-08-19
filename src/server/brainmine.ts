@@ -15,7 +15,7 @@ import { createServiceSupabase } from "@/lib/supabase";
 import type { LeadStatus } from "@/lib/db-types";
 import { normalizeWhatsAppDigits } from "@/lib/whatsapp-window";
 
-const ORG_ID = "a0000000-0000-4000-8000-000000000001";
+import { DEFAULT_ORG_ID } from "@/server/org-context";
 
 export type BrainmineAuthStyle = "bearer" | "token" | "x-api-key" | "query";
 
@@ -207,7 +207,7 @@ async function persistBrainmineConfig(
       ...(detail ? { detail } : {}),
       updated_at: new Date().toISOString(),
     })
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("type", "brainmine");
 }
 
@@ -259,7 +259,7 @@ export async function loadBrainmineConfig(): Promise<BrainmineChannelConfig> {
     const { data } = await supabase
       .from("channels")
       .select("config, detail")
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .eq("type", "brainmine")
       .maybeSingle();
     const raw = ((data?.config as BrainmineChannelConfig) || {}) as BrainmineChannelConfig;
@@ -326,7 +326,7 @@ async function ensureBrainmineAutoSyncDefaults(): Promise<BrainmineChannelConfig
   const { data } = await supabase
     .from("channels")
     .select("config")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("type", "brainmine")
     .maybeSingle();
   const raw = ((data?.config as BrainmineChannelConfig) || {}) as BrainmineChannelConfig;
@@ -1026,7 +1026,7 @@ export async function syncBrainmineWindow(options?: {
         : `Brainmine · ${cfg.api_base_url} · quick ≤${QUICK_SYNC_LIMIT}`,
       updated_at: new Date().toISOString(),
     })
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("type", "brainmine");
 
   return {
@@ -1299,7 +1299,7 @@ export async function ingestBrainmineLead(
   const { data: existing } = await supabase
     .from("leads")
     .select("id, notes, tags, requirement, location, sales_person")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("source", "brainmine")
     .filter("metadata->>brainmine_id", "eq", mapped.externalId)
     .limit(1)
@@ -1353,7 +1353,7 @@ export async function ingestBrainmineLead(
   const { data: lead, error } = await supabase
     .from("leads")
     .insert({
-      org_id: ORG_ID,
+      org_id: DEFAULT_ORG_ID,
       external_ref: mapped.externalId,
       score: 60,
       priority: "Medium",
@@ -1400,7 +1400,7 @@ export const getBrainmineSetup = createServerFn({ method: "GET" }).handler(async
   const { data: channel } = await supabase
     .from("channels")
     .select("id, is_enabled, status, config")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("type", "brainmine")
     .maybeSingle();
   return {
@@ -1451,13 +1451,13 @@ export const ensureBrainmineChannel = createServerFn({ method: "POST" }).handler
   const { data: existing } = await supabase
     .from("channels")
     .select("id")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("type", "brainmine")
     .maybeSingle();
   if (existing) return { ok: true, created: false, error: null as string | null };
 
   const { error } = await supabase.from("channels").insert({
-    org_id: ORG_ID,
+    org_id: DEFAULT_ORG_ID,
     type: "brainmine",
     name: "Brainmine CRM+",
     status: "Disconnected",
@@ -1499,7 +1499,7 @@ export const saveBrainmineChannelConfig = createServerFn({ method: "POST" })
     const { data: channelRow } = await supabase
       .from("channels")
       .select("config")
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .eq("type", "brainmine")
       .maybeSingle();
     const rawPrev = ((channelRow?.config as BrainmineChannelConfig) || {}) as BrainmineChannelConfig;
@@ -1549,7 +1549,7 @@ export const saveBrainmineChannelConfig = createServerFn({ method: "POST" })
         is_enabled: data.enable ?? true,
         updated_at: new Date().toISOString(),
       })
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .eq("type", "brainmine");
     if (error) throw new Error(error.message);
     return { ok: true };

@@ -10,7 +10,7 @@ import {
 import { previewSpecialistKey, type ExtraRoutingMatcher } from "@/lib/agent-routing";
 import { resolveLlmModel } from "@/server/llm-gateway";
 
-const ORG_ID = "a0000000-0000-4000-8000-000000000001";
+import { DEFAULT_ORG_ID } from "@/server/org-context";
 
 /** Default master orchestrator key (Support / EnerBot). */
 export const MASTER_AGENT_KEY = "support";
@@ -25,7 +25,7 @@ export async function loadAgentById(agentId: string): Promise<DbAgent | null> {
   return (data as DbAgent) || null;
 }
 
-export async function loadAgentByKey(key: string, orgId: string = ORG_ID): Promise<DbAgent | null> {
+export async function loadAgentByKey(key: string, orgId: string = DEFAULT_ORG_ID): Promise<DbAgent | null> {
   const supabase = createServiceSupabase();
   const { data } = await supabase
     .from("agents")
@@ -36,7 +36,7 @@ export async function loadAgentByKey(key: string, orgId: string = ORG_ID): Promi
   return (data as DbAgent) || null;
 }
 
-export async function loadMasterAgent(orgId: string = ORG_ID): Promise<DbAgent | null> {
+export async function loadMasterAgent(orgId: string = DEFAULT_ORG_ID): Promise<DbAgent | null> {
   const supabase = createServiceSupabase();
   const { data: flagged } = await supabase
     .from("agents")
@@ -94,7 +94,7 @@ export async function resolveAgentStack(options: {
   message?: string;
   previousSpecialistKey?: string | null;
 }): Promise<AgentStack> {
-  const orgId = options.orgId || ORG_ID;
+  const orgId = options.orgId || DEFAULT_ORG_ID;
   const master = await loadMasterAgent(orgId);
   const extraMatchers = await loadExtraRoutingMatchers(orgId);
 

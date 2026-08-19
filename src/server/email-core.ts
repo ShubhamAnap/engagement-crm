@@ -17,7 +17,7 @@ import { isOffTopicMessage } from "@/lib/enertech-scope";
 import { isProductIntent } from "@/server/product-pack";
 import { isEducateOnlyAsk } from "@/lib/conversation-intent";
 
-const ORG_ID = "a0000000-0000-4000-8000-000000000001";
+import { DEFAULT_ORG_ID } from "@/server/org-context";
 
 export type EmailChannelConfig = {
   from_email?: string;
@@ -51,7 +51,7 @@ export async function loadEmailConfig(): Promise<EmailChannelConfig> {
     const { data } = await supabase
       .from("channels")
       .select("config, detail")
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .eq("type", "email")
       .maybeSingle();
     const cfg = ((data?.config as EmailChannelConfig) || {}) as EmailChannelConfig;
@@ -151,7 +151,7 @@ async function getEmailChannelId(supabase: ReturnType<typeof createServiceSupaba
   const { data } = await supabase
     .from("channels")
     .select("id")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("type", "email")
     .maybeSingle();
   return data?.id as string | undefined;
@@ -180,7 +180,7 @@ async function findOrCreateEmailConversation(
   const { data: existing } = await supabase
     .from("conversations")
     .select("*")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("channel", "email")
     .eq("widget_session_id", sessionKey)
     .order("updated_at", { ascending: false })
@@ -203,7 +203,7 @@ async function findOrCreateEmailConversation(
   const { data: created, error } = await supabase
     .from("conversations")
     .insert({
-      org_id: ORG_ID,
+      org_id: DEFAULT_ORG_ID,
       channel_id: channelId || null,
       channel: "email",
       external_ref: externalRef,
@@ -249,7 +249,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
     const { data: dup } = await supabase
       .from("messages")
       .select("id")
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .filter("metadata->>email_message_id", "eq", payload.messageId)
       .limit(1)
       .maybeSingle();
@@ -261,7 +261,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
   const { data: customerMsg, error: msgError } = await supabase
     .from("messages")
     .insert({
-      org_id: ORG_ID,
+      org_id: DEFAULT_ORG_ID,
       conversation_id: convo.id,
       sender: "customer",
       body: text.slice(0, 8000),
@@ -307,7 +307,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
       })
       .eq("id", convo.id);
     await supabase.from("messages").insert({
-      org_id: ORG_ID,
+      org_id: DEFAULT_ORG_ID,
       conversation_id: convo.id,
       sender: "ai",
       body: wait,
@@ -543,7 +543,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
   }
 
   await supabase.from("messages").insert({
-    org_id: ORG_ID,
+    org_id: DEFAULT_ORG_ID,
     conversation_id: convo.id,
     sender: "ai",
     body: reply,
@@ -601,7 +601,7 @@ export async function persistEmailChannelConfig(data: {
       status: enable ? "Connected" : "Disconnected",
       health: enable ? 100 : 0,
     })
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("type", "email")
     .select("id, type, name, status, is_enabled, detail, health, updated_at")
     .single();
@@ -624,7 +624,7 @@ export async function sendAgentEmailReply(conversationId: string, body: string) 
     .from("conversations")
     .select("id, channel, visitor_email, subject, metadata, widget_session_id")
     .eq("id", conversationId)
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!convo) throw new Error("Conversation not found");

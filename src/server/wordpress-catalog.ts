@@ -11,7 +11,7 @@ import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import type { DbProduct, StockStatus } from "@/lib/db-types";
 
-const ORG_ID = "a0000000-0000-4000-8000-000000000001";
+import { DEFAULT_ORG_ID } from "@/server/org-context";
 export const WORDPRESS_DEFAULT_SITE = "https://enertechups.com";
 const MAX_PRODUCTS = 500;
 const FETCH_TIMEOUT_MS = 25_000;
@@ -376,7 +376,7 @@ export async function loadWordpressConfig(): Promise<WordpressChannelConfig> {
   const { data, error } = await supabase
     .from("channels")
     .select("config")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("type", "wordpress")
     .maybeSingle();
   if (error && /invalid input value for enum|wordpress/i.test(error.message)) {
@@ -640,7 +640,7 @@ async function stampSync(patch: {
       is_enabled: patch.is_enabled ?? undefined,
       updated_at: new Date().toISOString(),
     })
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("type", "wordpress");
 }
 
@@ -695,7 +695,7 @@ async function upsertProducts(mapped: MappedWooProduct[]): Promise<{
   const { data: existingRows, error: listErr } = await supabase
     .from("products")
     .select("*")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .limit(1000);
   if (listErr) throw new Error(listErr.message);
 
@@ -744,7 +744,7 @@ async function upsertProducts(mapped: MappedWooProduct[]): Promise<{
         bySku.set(nextRow.sku.toLowerCase(), nextRow);
       } else {
         const insertRow = {
-            org_id: ORG_ID,
+            org_id: DEFAULT_ORG_ID,
             sku: item.sku,
             name: item.name,
             category: item.category,
@@ -809,7 +809,7 @@ export const getWordpressSetup = createServerFn({ method: "GET" }).handler(async
   const { data: channel, error } = await supabase
     .from("channels")
     .select("id, is_enabled, status")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("type", "wordpress")
     .maybeSingle();
   if (error && /invalid input value for enum|wordpress/i.test(error.message)) {
@@ -858,13 +858,13 @@ async function ensureWordpressChannelRow(): Promise<{
   const { data: existing } = await supabase
     .from("channels")
     .select("id")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("type", "wordpress")
     .maybeSingle();
   if (existing) return { ok: true, created: false, error: null };
 
   const { error } = await supabase.from("channels").insert({
-    org_id: ORG_ID,
+    org_id: DEFAULT_ORG_ID,
     type: "wordpress",
     name: "WordPress / WooCommerce",
     status: "Disconnected",
@@ -923,7 +923,7 @@ export const saveWordpressChannelConfig = createServerFn({ method: "POST" })
         is_enabled: data.enable ?? true,
         updated_at: new Date().toISOString(),
       })
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .eq("type", "wordpress");
     if (error) {
       if (/invalid input value for enum|wordpress/i.test(error.message)) {

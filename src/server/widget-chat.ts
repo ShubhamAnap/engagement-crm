@@ -60,7 +60,7 @@ import {
 import { formatProductPackBody, cleanProductDisplayName } from "@/lib/product-card";
 import { normalizeWhatsAppDigits } from "@/lib/whatsapp-window";
 
-const ORG_ID = "a0000000-0000-4000-8000-000000000001";
+import { DEFAULT_ORG_ID } from "@/server/org-context";
 
 const visitorSchema = z.object({
   key: z.string().min(1),
@@ -96,7 +96,7 @@ async function assertWidgetPageOrigin(pageOrigin: string | null | undefined) {
   const { data: channel, error } = await supabase
     .from("channels")
     .select("config, is_enabled")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("type", "website")
     .maybeSingle();
   if (error) throw new Error(error.message);
@@ -212,7 +212,7 @@ async function findCustomerByEmailOrPhone(
     const { data, error } = await supabase
       .from("customers")
       .select("id, name, email, phone, company, metadata")
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .ilike("email", normalizedEmail)
       .order("updated_at", { ascending: false })
       .limit(1)
@@ -230,7 +230,7 @@ async function findCustomerByEmailOrPhone(
       const { data, error } = await supabase
         .from("customers")
         .select("id, name, email, phone, company, metadata")
-        .eq("org_id", ORG_ID)
+        .eq("org_id", DEFAULT_ORG_ID)
         .eq("phone", phone)
         .order("updated_at", { ascending: false })
         .limit(1)
@@ -266,7 +266,7 @@ async function findLatestOpenWebsiteConversation(
     let q = supabase
       .from("conversations")
       .select("*")
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .eq("channel", "website")
       .neq("status", "closed")
       .order("last_message_at", { ascending: false, nullsFirst: false })
@@ -330,7 +330,7 @@ async function getWebsiteChannelId(supabase: ReturnType<typeof createServiceSupa
   const { data, error } = await supabase
     .from("channels")
     .select("id")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("type", "website")
     .maybeSingle();
   if (error) throw error;
@@ -682,7 +682,7 @@ async function ensureConversationLinks(
       const { data: customer, error: customerError } = await supabase
         .from("customers")
         .insert({
-          org_id: ORG_ID,
+          org_id: DEFAULT_ORG_ID,
           name: convo.visitor_name || "Website visitor",
           company: convo.visitor_company || null,
           email: convo.visitor_email || null,
@@ -704,7 +704,7 @@ async function ensureConversationLinks(
     const { data: lead, error: leadError } = await supabase
       .from("leads")
       .insert({
-        org_id: ORG_ID,
+        org_id: DEFAULT_ORG_ID,
         customer_id: customerId,
         external_ref: `LD-${Date.now().toString().slice(-6)}`,
         score: inferredScore,
@@ -752,7 +752,7 @@ export const widgetGetOrCreateConversation = createServerFn({ method: "POST" })
     const { data: bySession, error: findError } = await supabase
       .from("conversations")
       .select("*")
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .eq("widget_session_id", data.sessionId)
       .eq("channel", "website")
       .order("created_at", { ascending: false })
@@ -819,7 +819,7 @@ export const widgetGetOrCreateConversation = createServerFn({ method: "POST" })
     const { data: created, error: createError } = await supabase
       .from("conversations")
       .insert({
-        org_id: ORG_ID,
+        org_id: DEFAULT_ORG_ID,
         channel_id: channelId,
         channel: "website",
         external_ref: `CV-${Date.now().toString().slice(-6)}`,
@@ -906,7 +906,7 @@ export const widgetListMessages = createServerFn({ method: "POST" })
       .from("conversations")
       .select("id, org_id")
       .eq("id", data.conversationId)
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .maybeSingle();
 
     if (convoError) throw new Error(convoError.message);
@@ -934,7 +934,7 @@ export async function processWidgetCustomerTurn(
     .from("conversations")
     .select("id, status, visitor_name, visitor_email, visitor_phone, visitor_company, customer_id, lead_id, tags, metadata, agent_id, channel, unread_count")
     .eq("id", data.conversationId)
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .maybeSingle();
 
   if (convoError) throw new Error(convoError.message);
@@ -942,7 +942,7 @@ export async function processWidgetCustomerTurn(
 
   if (insertCustomerMessage) {
     const { error: customerErr } = await supabase.from("messages").insert({
-      org_id: ORG_ID,
+      org_id: DEFAULT_ORG_ID,
       conversation_id: data.conversationId,
       sender: "customer",
       body: text,
@@ -1018,7 +1018,7 @@ export async function processWidgetCustomerTurn(
           })
           .eq("id", data.conversationId);
         await supabase.from("messages").insert({
-          org_id: ORG_ID,
+          org_id: DEFAULT_ORG_ID,
           conversation_id: data.conversationId,
           sender: "ai",
           body: ack,
@@ -1056,7 +1056,7 @@ export async function processWidgetCustomerTurn(
         })
         .eq("id", data.conversationId);
       await supabase.from("messages").insert({
-        org_id: ORG_ID,
+        org_id: DEFAULT_ORG_ID,
         conversation_id: data.conversationId,
         sender: "ai",
         body: wait,
@@ -1089,7 +1089,7 @@ export async function processWidgetCustomerTurn(
       const lastDoc = lastOutboundDocument(priorHistory);
       const reply = documentAckReplyForLang(sessionLang, lastDoc?.fileName);
       await supabase.from("messages").insert({
-        org_id: ORG_ID,
+        org_id: DEFAULT_ORG_ID,
         conversation_id: data.conversationId,
         sender: "ai",
         body: reply,
@@ -1129,7 +1129,7 @@ export async function processWidgetCustomerTurn(
               .from("leads")
               .select("requirement, product_label, sales_person")
               .eq("id", (convo as { lead_id: string }).lead_id)
-              .eq("org_id", ORG_ID)
+              .eq("org_id", DEFAULT_ORG_ID)
               .maybeSingle()
           ).data
         : null;
@@ -1163,7 +1163,7 @@ export async function processWidgetCustomerTurn(
         requirement: salesGate.requirement || leadReqText,
       });
       await supabase.from("messages").insert({
-        org_id: ORG_ID,
+        org_id: DEFAULT_ORG_ID,
         conversation_id: data.conversationId,
         sender: "ai",
         body: reply,
@@ -1233,7 +1233,7 @@ export async function processWidgetCustomerTurn(
         powerHint: extractPowerHint(text),
       });
       await supabase.from("messages").insert({
-        org_id: ORG_ID,
+        org_id: DEFAULT_ORG_ID,
         conversation_id: data.conversationId,
         sender: "ai",
         body: reply,
@@ -1263,7 +1263,7 @@ export async function processWidgetCustomerTurn(
     if (isGreetingOnlyMessage(text)) {
       const reply = greetingReplyForLang(sessionLang);
       await supabase.from("messages").insert({
-        org_id: ORG_ID,
+        org_id: DEFAULT_ORG_ID,
         conversation_id: data.conversationId,
         sender: "ai",
         body: reply,
@@ -1341,7 +1341,7 @@ export async function processWidgetCustomerTurn(
       });
 
       const { error: packErr } = await supabase.from("messages").insert({
-        org_id: ORG_ID,
+        org_id: DEFAULT_ORG_ID,
         conversation_id: data.conversationId,
         sender: "ai",
         body: reply,
@@ -1415,7 +1415,7 @@ export async function processWidgetCustomerTurn(
 
       const reply = productPack.message;
       const { error: packErr } = await supabase.from("messages").insert({
-        org_id: ORG_ID,
+        org_id: DEFAULT_ORG_ID,
         conversation_id: data.conversationId,
         sender: "ai",
         body: reply,
@@ -1496,7 +1496,7 @@ export async function processWidgetCustomerTurn(
       });
 
       const { error: aiErr } = await supabase.from("messages").insert({
-        org_id: ORG_ID,
+        org_id: DEFAULT_ORG_ID,
         conversation_id: data.conversationId,
         sender: "ai",
         body: reply,
@@ -1557,7 +1557,7 @@ export async function processWidgetCustomerTurn(
       }
       await supabase.from("conversations").update(patch).eq("id", data.conversationId);
       await supabase.from("messages").insert({
-        org_id: ORG_ID,
+        org_id: DEFAULT_ORG_ID,
         conversation_id: data.conversationId,
         sender: "ai",
         body: reply,
@@ -1636,7 +1636,7 @@ export async function processWidgetCustomerTurn(
         })
         .eq("id", data.conversationId);
       const { error: photoErr } = await supabase.from("messages").insert({
-        org_id: ORG_ID,
+        org_id: DEFAULT_ORG_ID,
         conversation_id: data.conversationId,
         sender: "ai",
         body: reply,
@@ -1696,7 +1696,7 @@ export async function processWidgetCustomerTurn(
         })
         .eq("id", data.conversationId);
       await supabase.from("messages").insert({
-        org_id: ORG_ID,
+        org_id: DEFAULT_ORG_ID,
         conversation_id: data.conversationId,
         sender: "ai",
         body: reply,
@@ -1704,7 +1704,7 @@ export async function processWidgetCustomerTurn(
       });
       try {
         await supabase.from("notifications").insert({
-          org_id: ORG_ID,
+          org_id: DEFAULT_ORG_ID,
           title: "Customer asked for photos / assets",
           body: text.slice(0, 160),
           href: `/inbox?c=${data.conversationId}`,
@@ -1731,7 +1731,7 @@ export async function processWidgetCustomerTurn(
             ? "Sir, atapare available reference photos share kele. Catalogue kinva service pahije asel tar sanga."
             : "Sir, I have shared all available reference photos for now. Please tell me if you need a catalogue or service help.";
       await supabase.from("messages").insert({
-        org_id: ORG_ID,
+        org_id: DEFAULT_ORG_ID,
         conversation_id: data.conversationId,
         sender: "ai",
         body: reply,
@@ -1776,7 +1776,7 @@ export async function processWidgetCustomerTurn(
         memoryEnabled: true,
       });
       const { error: offErr } = await supabase.from("messages").insert({
-        org_id: ORG_ID,
+        org_id: DEFAULT_ORG_ID,
         conversation_id: data.conversationId,
         sender: "ai",
         body: reply,
@@ -1846,7 +1846,7 @@ export async function processWidgetCustomerTurn(
     });
 
     const { error: aiErr } = await supabase.from("messages").insert({
-      org_id: ORG_ID,
+      org_id: DEFAULT_ORG_ID,
       conversation_id: data.conversationId,
       sender: "ai",
       body: reply,
@@ -1934,7 +1934,7 @@ export const widgetSelectProduct = createServerFn({ method: "POST" })
       .from("conversations")
       .select("id, status, visitor_name, metadata, unread_count, channel")
       .eq("id", data.conversationId)
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .maybeSingle();
     if (convoError) throw new Error(convoError.message);
     if (!convo) throw new Error("Conversation not found");
@@ -1952,7 +1952,7 @@ export const widgetSelectProduct = createServerFn({ method: "POST" })
     const customerBody = `I need this — ${displayName}`;
 
     const { error: customerErr } = await supabase.from("messages").insert({
-      org_id: ORG_ID,
+      org_id: DEFAULT_ORG_ID,
       conversation_id: data.conversationId,
       sender: "customer",
       body: customerBody,
@@ -2019,7 +2019,7 @@ export const widgetSelectProduct = createServerFn({ method: "POST" })
     delete prevMeta.pending_product_options;
 
     const { error: aiErr } = await supabase.from("messages").insert({
-      org_id: ORG_ID,
+      org_id: DEFAULT_ORG_ID,
       conversation_id: data.conversationId,
       sender: "ai",
       body: reply,
@@ -2082,7 +2082,7 @@ export const widgetUploadAttachment = createServerFn({ method: "POST" })
       .from("conversations")
       .select("id, status, metadata")
       .eq("id", data.conversationId)
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .maybeSingle();
     if (convoError) throw new Error(convoError.message);
     if (!convo) throw new Error("Conversation not found");
@@ -2103,7 +2103,7 @@ export const widgetUploadAttachment = createServerFn({ method: "POST" })
     }
 
     const safeName = data.fileName.replace(/[^\w.\-()+ ]+/g, "_").slice(0, 120);
-    const storagePath = `chat/${ORG_ID}/${data.conversationId}/${Date.now()}-${safeName}`;
+    const storagePath = `chat/${DEFAULT_ORG_ID}/${data.conversationId}/${Date.now()}-${safeName}`;
     const buffer = Buffer.from(data.base64, "base64");
     if (buffer.byteLength > 8 * 1024 * 1024) {
       throw new Error("File too large (max 8 MB).");
@@ -2124,7 +2124,7 @@ export const widgetUploadAttachment = createServerFn({ method: "POST" })
       : `Shared a file: ${safeName}\n${url}`;
 
     const { error: msgErr } = await supabase.from("messages").insert({
-      org_id: ORG_ID,
+      org_id: DEFAULT_ORG_ID,
       conversation_id: data.conversationId,
       sender: "customer",
       body,
@@ -2163,7 +2163,7 @@ export const widgetUploadAttachment = createServerFn({ method: "POST" })
       reply =
         "Thanks — I received your file. Tell me what you need help with and we will continue from here.";
       await supabase.from("messages").insert({
-        org_id: ORG_ID,
+        org_id: DEFAULT_ORG_ID,
         conversation_id: data.conversationId,
         sender: "ai",
         body: reply,

@@ -11,7 +11,7 @@ import {
   type EmailMergeFields,
 } from "@/lib/email-merge";
 
-const ORG_ID = "a0000000-0000-4000-8000-000000000001";
+import { DEFAULT_ORG_ID } from "@/server/org-context";
 const GOOGLE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN = "https://oauth2.googleapis.com/token";
 const GOOGLE_USERINFO = "https://www.googleapis.com/oauth2/v2/userinfo";
@@ -61,7 +61,7 @@ async function loadEmailChannelRow() {
   const { data, error } = await supabase
     .from("channels")
     .select("id, config, is_enabled, detail")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("type", "email")
     .maybeSingle();
   if (error) throw new Error(error.message);
@@ -108,7 +108,7 @@ async function saveEmailConfigPatch(patch: Record<string, unknown>, detail?: str
   const next = { ...prev, ...patch };
   if (!row?.id) {
     const { error } = await supabase.from("channels").insert({
-      org_id: ORG_ID,
+      org_id: DEFAULT_ORG_ID,
       type: "email",
       name: "Email",
       is_enabled: true,
@@ -353,7 +353,7 @@ export async function sendGmailMessage(options: {
 /** Complete OAuth callback (code → tokens → save). */
 export async function completeGmailOAuth(code: string, state: string) {
   const decoded = decodeState(state);
-  if (decoded.org !== ORG_ID) {
+  if (decoded.org !== DEFAULT_ORG_ID) {
     throw new Error("Invalid OAuth state");
   }
   const creds = await loadGmailAppCredentials();
@@ -388,7 +388,7 @@ export async function completeGmailOAuth(code: string, state: string) {
   await supabase
     .from("channels")
     .update({ is_enabled: true })
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("type", "email");
   return connection;
 }
@@ -423,7 +423,7 @@ export async function createGmailConnectUrl() {
   if (!gmailCredentialsReady(creds)) {
     throw new Error("Save Gmail OAuth Client ID and Client Secret first (like n8n credentials).");
   }
-  const state = encodeState({ org: ORG_ID, t: String(Date.now()) });
+  const state = encodeState({ org: DEFAULT_ORG_ID, t: String(Date.now()) });
   return { url: buildGmailAuthUrl(creds, state) };
 }
 
@@ -454,7 +454,7 @@ export async function runEmailBroadcast(
     .from("broadcasts")
     .select("*")
     .eq("id", broadcastId)
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .maybeSingle();
   if (bErr) throw new Error(bErr.message);
   if (!broadcast) throw new Error("Broadcast not found");
@@ -532,7 +532,7 @@ export async function runEmailBroadcast(
       .select(
         "id, name, company, email, phone, requirement, sales_person, location, source, status, notes",
       )
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .in("id", leadIds);
     for (const lead of leads || []) {
       leadMap.set(lead.id as string, mergeFieldsFromLead(lead));
@@ -544,7 +544,7 @@ export async function runEmailBroadcast(
     const { data: customers } = await supabase
       .from("customers")
       .select("id, name, company, email, phone, notes")
-      .eq("org_id", ORG_ID)
+      .eq("org_id", DEFAULT_ORG_ID)
       .in("id", customerIds);
     for (const customer of customers || []) {
       customerMap.set(customer.id as string, mergeFieldsFromCustomer(customer));
@@ -733,7 +733,7 @@ export async function tickPendingEmailBroadcasts(limit = 3): Promise<{
   const { data: rows, error } = await supabase
     .from("broadcasts")
     .select("id")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", DEFAULT_ORG_ID)
     .eq("channel_type", "email")
     .in("status", ["Queued", "Sending"])
     .order("created_at", { ascending: true })

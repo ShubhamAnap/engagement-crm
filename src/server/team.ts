@@ -12,7 +12,7 @@ import {
   type PermissionKey,
 } from "@/lib/permissions";
 
-const ORG_ID = "a0000000-0000-4000-8000-000000000001";
+import { DEFAULT_ORG_ID } from "@/server/org-context";
 
 const permissionsSchema = z.array(z.string()).max(allPermissionKeys().length + 4);
 
@@ -25,7 +25,6 @@ function forbidden(message = "Only Admin can manage team members"): never {
 async function requireAdmin() {
   const auth = await requireStaffUser();
   if (auth.profile.role !== "Admin") forbidden();
-  if (auth.profile.org_id !== ORG_ID) forbidden("Wrong organization");
   return auth;
 }
 
@@ -67,7 +66,7 @@ export const listTeamMembers = createServerFn({ method: "GET" }).handler(async (
   const { data, error } = await supabase
     .from("profiles")
     .select("id, email, full_name, role, permissions, is_active, created_at, updated_at")
-    .eq("org_id", ORG_ID)
+    .eq("org_id", auth.profile.org_id)
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
   return (data ?? []).map((row) => mapMember(row as Record<string, unknown>, auth.profile.id));
@@ -141,7 +140,7 @@ export const updateTeamMember = createServerFn({ method: "POST" })
       .from("profiles")
       .select("id, role, email, full_name, permissions, is_active")
       .eq("id", data.userId)
-      .eq("org_id", ORG_ID)
+      .eq("org_id", auth.profile.org_id)
       .maybeSingle();
     if (loadError) throw new Error(loadError.message);
     if (!target) throw new Error("User not found");
@@ -167,7 +166,7 @@ export const updateTeamMember = createServerFn({ method: "POST" })
         .from("profiles")
         .update(patch)
         .eq("id", data.userId)
-        .eq("org_id", ORG_ID);
+        .eq("org_id", auth.profile.org_id);
       if (updError) throw new Error(updError.message);
     }
 
@@ -191,13 +190,13 @@ export const resetTeamMemberPassword = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }) => {
-    await requireAdmin();
+    const auth = await requireAdmin();
     const supabase = createServiceSupabase();
     const { data: target, error } = await supabase
       .from("profiles")
       .select("id")
       .eq("id", data.userId)
-      .eq("org_id", ORG_ID)
+      .eq("org_id", auth.profile.org_id)
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!target) throw new Error("User not found");
@@ -225,7 +224,7 @@ export const copyTeamMemberAccess = createServerFn({ method: "POST" })
     const { data: rows, error } = await supabase
       .from("profiles")
       .select("id, role, permissions")
-      .eq("org_id", ORG_ID)
+      .eq("org_id", auth.profile.org_id)
       .in("id", [data.targetUserId, data.sourceUserId]);
     if (error) throw new Error(error.message);
     const source = (rows || []).find((r) => r.id === data.sourceUserId);
@@ -242,7 +241,7 @@ export const copyTeamMemberAccess = createServerFn({ method: "POST" })
       .from("profiles")
       .update({ permissions })
       .eq("id", data.targetUserId)
-      .eq("org_id", ORG_ID);
+      .eq("org_id", auth.profile.org_id);
     if (updError) throw new Error(updError.message);
     return { ok: true, permissions };
   });

@@ -86,7 +86,7 @@ export function AppSidebar({
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { profile } = useAuth();
-  const orgShort = profile?.org.short ?? "EnerTech";
+  const orgShort = profile?.org.short ?? "Engage";
   const orgPlan = profile?.org.plan ?? "Enterprise";
   const logoUrl = profile?.org.logoUrl;
   const orgId = profile?.org.id ?? ENERTECH_ORG_ID;

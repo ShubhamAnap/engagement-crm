@@ -29,8 +29,10 @@ import { Route as PipelineRouteImport } from './routes/pipeline'
 import { Route as ProductsRouteImport } from './routes/products'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as SignupRouteImport } from './routes/signup'
 import { Route as ToolsRouteImport } from './routes/tools'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiSignupRouteImport } from './routes/api/signup'
 import { Route as CSkuRouteImport } from './routes/c.$sku'
 import { Route as DDocumentIdRouteImport } from './routes/d.$documentId'
 import { Route as FFileSlugRouteImport } from './routes/f.$fileSlug'
@@ -142,6 +144,11 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SignupRoute = SignupRouteImport.update({
+  id: '/signup',
+  path: '/signup',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ToolsRoute = ToolsRouteImport.update({
   id: '/tools',
   path: '/tools',
@@ -150,6 +157,11 @@ const ToolsRoute = ToolsRouteImport.update({
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSignupRoute = ApiSignupRouteImport.update({
+  id: '/api/signup',
+  path: '/api/signup',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CSkuRoute = CSkuRouteImport.update({
@@ -224,8 +236,10 @@ export interface FileRoutesByFullPath {
   '/products': typeof ProductsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
+  '/signup': typeof SignupRoute
   '/tools': typeof ToolsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/signup': typeof ApiSignupRoute
   '/c/$sku': typeof CSkuRoute
   '/d/$documentId': typeof DDocumentIdRoute
   '/f/$fileSlug': typeof FFileSlugRoute
@@ -258,8 +272,10 @@ export interface FileRoutesByTo {
   '/products': typeof ProductsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
+  '/signup': typeof SignupRoute
   '/tools': typeof ToolsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/signup': typeof ApiSignupRoute
   '/c/$sku': typeof CSkuRoute
   '/d/$documentId': typeof DDocumentIdRoute
   '/f/$fileSlug': typeof FFileSlugRoute
@@ -293,8 +309,10 @@ export interface FileRoutesById {
   '/products': typeof ProductsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
+  '/signup': typeof SignupRoute
   '/tools': typeof ToolsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/signup': typeof ApiSignupRoute
   '/c/$sku': typeof CSkuRoute
   '/d/$documentId': typeof DDocumentIdRoute
   '/f/$fileSlug': typeof FFileSlugRoute
@@ -329,8 +347,10 @@ export interface FileRouteTypes {
     | '/products'
     | '/reports'
     | '/settings'
+    | '/signup'
     | '/tools'
     | '/api/health'
+    | '/api/signup'
     | '/c/$sku'
     | '/d/$documentId'
     | '/f/$fileSlug'
@@ -363,8 +383,10 @@ export interface FileRouteTypes {
     | '/products'
     | '/reports'
     | '/settings'
+    | '/signup'
     | '/tools'
     | '/api/health'
+    | '/api/signup'
     | '/c/$sku'
     | '/d/$documentId'
     | '/f/$fileSlug'
@@ -397,8 +419,10 @@ export interface FileRouteTypes {
     | '/products'
     | '/reports'
     | '/settings'
+    | '/signup'
     | '/tools'
     | '/api/health'
+    | '/api/signup'
     | '/c/$sku'
     | '/d/$documentId'
     | '/f/$fileSlug'
@@ -432,8 +456,10 @@ export interface RootRouteChildren {
   ProductsRoute: typeof ProductsRoute
   ReportsRoute: typeof ReportsRoute
   SettingsRoute: typeof SettingsRoute
+  SignupRoute: typeof SignupRoute
   ToolsRoute: typeof ToolsRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiSignupRoute: typeof ApiSignupRoute
   CSkuRoute: typeof CSkuRoute
   DDocumentIdRoute: typeof DDocumentIdRoute
   FFileSlugRoute: typeof FFileSlugRoute
@@ -588,6 +614,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/signup': {
+      id: '/signup'
+      path: '/signup'
+      fullPath: '/signup'
+      preLoaderRoute: typeof SignupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/tools': {
       id: '/tools'
       path: '/tools'
@@ -600,6 +633,13 @@ declare module '@tanstack/react-router' {
       path: '/api/health'
       fullPath: '/api/health'
       preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/signup': {
+      id: '/api/signup'
+      path: '/api/signup'
+      fullPath: '/api/signup'
+      preLoaderRoute: typeof ApiSignupRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/c/$sku': {
@@ -696,8 +736,10 @@ const rootRouteChildren: RootRouteChildren = {
   ProductsRoute: ProductsRoute,
   ReportsRoute: ReportsRoute,
   SettingsRoute: SettingsRoute,
+  SignupRoute: SignupRoute,
   ToolsRoute: ToolsRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiSignupRoute: ApiSignupRoute,
   CSkuRoute: CSkuRoute,
   DDocumentIdRoute: DDocumentIdRoute,
   FFileSlugRoute: FFileSlugRoute,

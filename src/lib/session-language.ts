@@ -182,9 +182,9 @@ export function sessionLangFromHistory(
 export function languageSystemInstruction(lang: SessionLang): string {
   switch (lang) {
     case "hi":
-      return "Reply in Hindi or natural Hinglish (Roman or Devanagari), matching how the customer writes. Keep product names (UPS, kVA, EnerTech) in English. Do not suddenly switch to pure English unless they ask.";
+      return "Reply in Hindi or natural Hinglish (Roman or Devanagari), matching how the customer writes. Keep product names (UPS, kVA) in English. Do not suddenly switch to pure English unless they ask.";
     case "mr":
-      return "Reply in Marathi or natural Marathi-English mix, matching how the customer writes. Keep product names (UPS, kVA, EnerTech) in English. Do not suddenly switch to pure English unless they ask.";
+      return "Reply in Marathi or natural Marathi-English mix, matching how the customer writes. Keep product names (UPS, kVA) in English. Do not suddenly switch to pure English unless they ask.";
     case "mixed":
       return "The customer mixes languages (Hindi/Marathi/English). Reply in the same mixed style they use — natural Hinglish or Marathi-English. Keep product names in English. Mirror their latest message tone.";
     default:
@@ -221,26 +221,26 @@ export function languageSwitchAck(lang: SessionLang): string {
 export function greetingReplyForLang(lang: SessionLang): string {
   switch (lang) {
     case "hi":
-      return "Namaste! EnerTech products ya service me kaise madad karu?";
+      return "Namaste! Hamare products ya service me kaise madad karu?";
     case "mr":
-      return "Namaskar! EnerTech product kinva service sathi madat karu ka?";
+      return "Namaskar! Amchya product kinva service sathi madat karu ka?";
     case "mixed":
-      return "Namaste! EnerTech products / service me kaise help karu?";
+      return "Namaste! Hamare products / service me kaise help karu?";
     default:
-      return "Hello! How can I help you with EnerTech products or services?";
+      return "Hello! How can I help you with our products or services?";
   }
 }
 
 export function offTopicReplyForLang(lang: SessionLang): string {
   switch (lang) {
     case "hi":
-      return "Main sirf EnerTech products aur services me madad kar sakta hoon. Dhanyavaad.";
+      return "Main sirf hamare products aur services me madad kar sakta hoon. Dhanyavaad.";
     case "mr":
-      return "Mi fakt EnerTech products ani services sathi madat karu shakto. Dhanyavad.";
+      return "Mi fakt amchya products ani services sathi madat karu shakto. Dhanyavad.";
     case "mixed":
-      return "Main sirf EnerTech products aur services me help kar sakta hoon. Thank you.";
+      return "Main sirf hamare products aur services me help kar sakta hoon. Thank you.";
     default:
-      return "I can only help you with EnerTech products and services. Thank you.";
+      return "I can only help you with our products and services. Thank you.";
   }
 }
 

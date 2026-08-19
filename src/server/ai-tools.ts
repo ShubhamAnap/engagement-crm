@@ -46,7 +46,7 @@ export function openAiToolDefinitions(keys: string[]): OpenAiToolDef[] {
       function: {
         name: "calculator",
         description:
-          "Evaluate arithmetic, run an EnerTech sizing formula from the Formulas page, or estimate UPS backup minutes from load and battery capacity. Prefer formula_name when the ask matches a saved formula (battery, inverter, solar, BESS).",
+          "Evaluate arithmetic, run a sizing formula from the Formulas page, or estimate UPS backup minutes from load and battery capacity. Prefer formula_name when the ask matches a saved formula (battery, inverter, solar, BESS).",
         parameters: {
           type: "object",
           properties: {
@@ -85,7 +85,7 @@ export function openAiToolDefinitions(keys: string[]): OpenAiToolDef[] {
       function: {
         name: "web_search",
         description:
-          "Search the public web for general facts. Do NOT use for EnerTech product specs, prices, or warranty — use Knowledge Base instead.",
+          "Search the public web for general facts. Do NOT use for product specs, prices, or warranty — use Knowledge Base instead.",
         parameters: {
           type: "object",
           properties: {
@@ -216,7 +216,7 @@ export async function runAiTool(
           power_factor: 0.8,
           load_fraction: loadFraction,
           efficiency,
-          note: "Indicative only — confirm with EnerTech application engineering for critical loads.",
+          note: "Indicative only — confirm with application engineering for critical loads.",
         },
         load_kw_approx: Number(loadKw.toFixed(3)),
         battery_energy_wh_approx: Number(energyWh.toFixed(1)),
@@ -239,7 +239,7 @@ export async function runAiTool(
       return JSON.stringify({
         ok: false,
         error:
-          "Web search is enabled but no API key is configured (set TAVILY_API_KEY on the server). Prefer Knowledge Base for EnerTech facts.",
+          "Web search is enabled but no API key is configured (set TAVILY_API_KEY on the server). Prefer Knowledge Base for product facts.",
       });
     }
 
@@ -273,7 +273,7 @@ export async function runAiTool(
         ok: true,
         query,
         results,
-        reminder: "Do not treat web results as EnerTech catalogue truth.",
+        reminder: "Do not treat web results as catalogue truth.",
       });
     } catch (err) {
       return JSON.stringify({

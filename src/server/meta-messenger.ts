@@ -367,7 +367,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
       continue;
     }
 
-    let reply = "Thanks for messaging EnerTech. How can we help with your UPS needs?";
+    let reply = "Thanks for messaging us. How can we help with your needs?";
     let inspector = buildAnswerInspector({
       chunks: [],
       replySource: "fallback",

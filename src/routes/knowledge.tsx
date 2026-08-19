@@ -50,12 +50,12 @@ import { getBrowserSupabase } from "@/lib/supabase";
 export const Route = createFileRoute("/knowledge")({
   head: () => ({
     meta: [
-      { title: "Knowledge Base — EnerTech Engage" },
+      { title: "Knowledge Base" },
       {
         name: "description",
-        content: "Organize collections (e.g. Cold Storage, Petrol Pump) with PDFs, text, and images for EnerBot.",
+        content: "Organize collections with PDFs, text, and images for the AI assistant.",
       },
-      { property: "og:title", content: "Knowledge Base — EnerTech Engage" },
+      { property: "og:title", content: "Knowledge Base" },
     ],
   }),
   component: Page,

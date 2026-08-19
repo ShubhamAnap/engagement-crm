@@ -76,12 +76,12 @@ const LEAD_STATUS_FILTER_OPTIONS: LeadStatus[] = [
 export const Route = createFileRoute("/broadcasting")({
   head: () => ({
     meta: [
-      { title: "Broadcasting — EnerTech Engage" },
+      { title: "Broadcasting" },
       {
         name: "description",
         content: "WhatsApp template and Gmail email campaigns.",
       },
-      { property: "og:title", content: "Broadcasting — EnerTech Engage" },
+      { property: "og:title", content: "Broadcasting" },
     ],
   }),
   component: Page,

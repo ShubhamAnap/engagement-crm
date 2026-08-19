@@ -164,13 +164,13 @@ function isBrainmineLinkedLead(lead: LeadRow): boolean {
 export const Route = createFileRoute("/leads")({
   head: () => ({
     meta: [
-      { title: "Leads (Master) — EnerTech Engage" },
+      { title: "Leads" },
       {
         name: "description",
         content:
           "Master lead sheet: company, contact, source, requirement, salesperson, status, notes and tags.",
       },
-      { property: "og:title", content: "Leads (Master) — EnerTech Engage" },
+      { property: "og:title", content: "Leads" },
     ],
   }),
   validateSearch: (search: Record<string, unknown>) => ({

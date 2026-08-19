@@ -171,7 +171,7 @@ function buildConversationSummary(
       .trim();
     if (!body) continue;
     const who =
-      m.sender === "customer" ? "Customer" : m.sender === "agent" ? "Agent" : "EnerTech";
+      m.sender === "customer" ? "Customer" : m.sender === "agent" ? "Agent" : "Assistant";
     lines.push(`${who}: ${body.slice(0, 160)}`);
     if (lines.join(" | ").length >= SUMMARY_MAX_CHARS) break;
   }

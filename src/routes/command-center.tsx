@@ -39,13 +39,13 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/command-center")({
   head: () => ({
     meta: [
-      { title: "AI Command Center — EnerTech Engage" },
+      { title: "AI Command Center" },
       {
         name: "description",
         content:
           "Real-time monitoring of live AI conversations: confidence, knowledge sources, memory, latency and escalations.",
       },
-      { property: "og:title", content: "AI Command Center — EnerTech Engage" },
+      { property: "og:title", content: "AI Command Center" },
     ],
   }),
   component: CommandCenter,

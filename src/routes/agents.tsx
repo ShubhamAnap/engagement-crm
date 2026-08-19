@@ -57,12 +57,12 @@ const MASTER_KEY = "support";
 export const Route = createFileRoute("/agents")({
   head: () => ({
     meta: [
-      { title: "AI Agents — EnerTech Engage" },
+      { title: "AI Agents" },
       {
         name: "description",
         content: "Purpose-built agents for sales, support, technical, warranty and follow-up workflows.",
       },
-      { property: "og:title", content: "AI Agents — EnerTech Engage" },
+      { property: "og:title", content: "AI Agents" },
     ],
   }),
   component: Page,

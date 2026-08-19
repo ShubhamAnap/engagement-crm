@@ -27,7 +27,7 @@ export function downloadProductsImportTemplate() {
   const header = [...PRODUCT_IMPORT_HEADERS];
   const example = [
     "EN-3000X",
-    "EnerTech Online UPS 3kVA",
+    "Online UPS 3kVA",
     "UPS",
     "True online UPS for mid-size offices",
     "In Stock",

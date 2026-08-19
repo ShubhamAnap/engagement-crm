@@ -125,7 +125,7 @@ export async function ensureDefaultAiTools(orgId: string = ENERTECH_ORG_ID): Pro
       key: "web_search",
       name: "Web search",
       description:
-        "Optional public web lookup. Prefer Knowledge Base for EnerTech specs; use only for general public facts.",
+        "Optional public web lookup. Prefer Knowledge Base for product specs; use only for general public facts.",
       is_enabled: false,
     },
   ];

@@ -52,12 +52,12 @@ const ts = {
 export const Route = createFileRoute("/analytics")({
   head: () => ({
     meta: [
-      { title: "Analytics — EnerTech Engage" },
+      { title: "Analytics" },
       {
         name: "description",
         content: "Executive view of AI performance, conversion, channels, knowledge and team productivity.",
       },
-      { property: "og:title", content: "Analytics — EnerTech Engage" },
+      { property: "og:title", content: "Analytics" },
       {
         property: "og:description",
         content: "Executive view of AI performance, conversion, channels, knowledge and team productivity.",

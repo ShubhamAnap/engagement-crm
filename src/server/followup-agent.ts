@@ -22,7 +22,7 @@ export type DailyFollowUpProposalResult = {
 };
 
 function todayKey(d = new Date()): string {
-  // IST calendar day for EnerTech ops
+  // IST calendar day
   const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
   return ist.toISOString().slice(0, 10);
 }
@@ -75,8 +75,8 @@ async function ensureDailyFollowUpAutomation(
   } else {
     actions.push({
       type: "send_email",
-      subject: "EnerTech follow-up — {{name}}",
-      body: "Hello {{name}},\n\nJust following up on your enquiry{{requirement}} with EnerTech UPS. Reply to this email or WhatsApp us when convenient.\n\nRegards,\nEnerTech",
+      subject: "Follow-up — {{name}}",
+      body: "Hello {{name}},\n\nJust following up on your enquiry{{requirement}}. Reply to this email or WhatsApp us when convenient.\n\nRegards,\nThe Team",
     });
   }
   actions.push({ type: "set_follow_up_hours", hours: 48 });

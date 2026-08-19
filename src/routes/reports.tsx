@@ -26,12 +26,12 @@ import {
 export const Route = createFileRoute("/reports")({
   head: () => ({
     meta: [
-      { title: "Reports — EnerTech Engage" },
+      { title: "Reports" },
       {
         name: "description",
         content: "Ad-hoc reports across conversations, pipeline, channels, AI quality and automations.",
       },
-      { property: "og:title", content: "Reports — EnerTech Engage" },
+      { property: "og:title", content: "Reports" },
     ],
   }),
   component: Page,

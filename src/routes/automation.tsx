@@ -493,13 +493,13 @@ function SalesPersonDirectoryPanel({ orgId }: { orgId: string }) {
 export const Route = createFileRoute("/automation")({
   head: () => ({
     meta: [
-      { title: "Automation — EnerTech Engage" },
+      { title: "Automation" },
       {
         name: "description",
         content:
           "WATI-style workflows: triggers, Wait delays, If/Else branches, WhatsApp, email, and CRM actions.",
       },
-      { property: "og:title", content: "Automation — EnerTech Engage" },
+      { property: "og:title", content: "Automation" },
     ],
   }),
   component: Page,

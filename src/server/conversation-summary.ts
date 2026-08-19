@@ -119,7 +119,7 @@ export function formatTranscriptForSummary(messages: SummaryMessage[]): string {
 
     if (isGenericOutboundFiller(body)) continue;
     // Keep short staff replies that may confirm a commitment (callback promised, etc.)
-    const who = m.sender === "agent" ? "Agent" : "EnerTech";
+    const who = m.sender === "agent" ? "Agent" : "Assistant";
     staffLines.push(`${who}: ${body.slice(0, 220)}`);
   }
 
@@ -153,7 +153,7 @@ function fallbackSummary(transcript: string, leadName?: string | null): string {
   }
   const parts = transcript
     .split("\n")
-    .map((l) => l.replace(/^(Customer|Agent|EnerTech|===.*===):\s*/i, "").trim())
+    .map((l) => l.replace(/^(Customer|Agent|Assistant|===.*===):\s*/i, "").trim())
     .filter((l) => l && !l.startsWith("==="))
     .slice(-4);
   const body = parts.join(" · ");
@@ -181,7 +181,7 @@ async function callOpenAiSummary(options: {
   }
 
   const system = [
-    "You are the EnerTech Engage Conversation Summary Agent for EnerTech UPS Pvt. Ltd.",
+    "You are the Conversation Summary Agent for the company.",
     "Write a factual follow-up brief for sales and CRM Description.",
     "HARD LIMIT: maximum 2 to 3 short lines total. No headings, no bullet lists, no labels like Need:/Key asks:.",
     "",

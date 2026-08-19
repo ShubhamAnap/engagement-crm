@@ -100,7 +100,7 @@ function mobileDownloadPage(fileName: string, downloadHref: string): Response {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${safe} — EnerTech</title>
+  <title>${safe}</title>
   <style>
     :root { color-scheme: light; }
     body {
@@ -125,7 +125,7 @@ function mobileDownloadPage(fileName: string, downloadHref: string): Response {
 </head>
 <body>
   <main>
-    <div class="brand">EnerTech Engage</div>
+    <div class="brand">File Preview</div>
     <h1>${safe}</h1>
     <p>Tap below to download this datasheet PDF. If WhatsApp’s browser fails, open the link in Chrome or Safari.</p>
     <a class="btn" href="${href}" download="${safe}">Download PDF</a>

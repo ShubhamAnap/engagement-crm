@@ -91,26 +91,25 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
-      { title: "EnerTech Engage" },
+      { title: "Engage CRM" },
       {
         name: "description",
         content:
-          "AI customer engagement platform for EnerTech UPS — conversations, leads, knowledge and support.",
+          "AI-powered customer engagement platform — conversations, leads, knowledge and support.",
       },
-      { name: "author", content: "EnerTech UPS Pvt. Ltd." },
-      { property: "og:title", content: "EnerTech Engage" },
+      { property: "og:title", content: "Engage CRM" },
       {
         property: "og:description",
         content:
-          "AI customer engagement platform for EnerTech UPS — conversations, leads, knowledge and support.",
+          "AI-powered customer engagement platform — conversations, leads, knowledge and support.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
-      { name: "twitter:title", content: "EnerTech Engage" },
+      { name: "twitter:title", content: "Engage CRM" },
       {
         name: "twitter:description",
         content:
-          "AI customer engagement platform for EnerTech UPS — conversations, leads, knowledge and support.",
+          "AI-powered customer engagement platform — conversations, leads, knowledge and support.",
       },
     ],
     links: [
@@ -183,7 +182,8 @@ function AuthenticatedShell() {
   const isCatalogueShortLink = pathname.startsWith("/c/");
   const isDocShortLink = pathname.startsWith("/d/");
   const isFriendlyFileLink = pathname.startsWith("/f/");
-  const isPublic = isLogin || isEmbed || isCatalogueShortLink || isDocShortLink || isFriendlyFileLink;
+  const isSignup = pathname === "/signup";
+  const isPublic = isLogin || isSignup || isEmbed || isCatalogueShortLink || isDocShortLink || isFriendlyFileLink;
 
   useEffect(() => {
     setMounted(true);

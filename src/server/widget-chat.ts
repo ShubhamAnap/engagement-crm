@@ -103,7 +103,7 @@ async function assertWidgetPageOrigin(pageOrigin: string | null | undefined) {
 
   if (channel && channel.is_enabled === false) {
     throw new Error(
-      "Website chat is currently turned off. Please try again later or contact EnerTech.",
+      "Website chat is currently turned off. Please try again later or contact us.",
     );
   }
 
@@ -129,7 +129,7 @@ async function assertWidgetPageOrigin(pageOrigin: string | null | undefined) {
     })
   ) {
     throw new Error(
-      "This website is not allowed to use the EnerTech chat widget. Ask EnerTech to add your domain under Channels → Website.",
+      "This website is not allowed to use the chat widget. Ask your administrator to add your domain under Channels → Website.",
     );
   }
 }
@@ -2161,7 +2161,7 @@ export const widgetUploadAttachment = createServerFn({ method: "POST" })
     let reply: string | null = null;
     if (!aiPaused) {
       reply =
-        "Thanks — I received your file. Tell me what you need help with and EnerTech will continue from here.";
+        "Thanks — I received your file. Tell me what you need help with and we will continue from here.";
       await supabase.from("messages").insert({
         org_id: ORG_ID,
         conversation_id: data.conversationId,

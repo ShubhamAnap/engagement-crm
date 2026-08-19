@@ -17,7 +17,7 @@ export const Route = createFileRoute("/api/health")({
 
           return Response.json({
             ok: true,
-            service: "enertech-engage",
+            service: "engage-crm",
             db: "up",
             ms: Date.now() - started,
             ts: new Date().toISOString(),
@@ -26,7 +26,7 @@ export const Route = createFileRoute("/api/health")({
           return Response.json(
             {
               ok: false,
-              service: "enertech-engage",
+              service: "engage-crm",
               db: "down",
               error: err instanceof Error ? err.message : "health check failed",
               ms: Date.now() - started,

@@ -27,17 +27,17 @@ import { getSpendSnapshot } from "@/lib/spend-api";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Dashboard — EnerTech Engage" },
+      { title: "Dashboard" },
       {
         name: "description",
         content:
-          "Live operations dashboard: conversations, AI vs human share, escalations, leads and catalog for EnerTech UPS.",
+          "Live operations dashboard: conversations, AI vs human share, escalations, leads and catalog.",
       },
-      { property: "og:title", content: "Dashboard — EnerTech Engage" },
+      { property: "og:title", content: "Dashboard" },
       {
         property: "og:description",
         content:
-          "Live operations dashboard: conversations, AI vs human share, escalations, leads and catalog for EnerTech UPS.",
+          "Live operations dashboard: conversations, AI vs human share, escalations, leads and catalog.",
       },
     ],
   }),

@@ -1,7 +1,15 @@
-# EnerTech Engage — Project Context & Implementation Tracker
+# Engage CRM — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
 > **Last updated:** 2026-08-19
+
+---
+
+### Session 2026-08-19 — White-label + Multi-org signup
+
+**Change:** White-labeled the entire software — removed all "EnerTech" branding from ~90 files (route titles, meta tags, AI prompts, email templates, chat widget, sidebar). Created `/signup` page where new users create an organization + admin account. Created `/api/signup` server endpoint. Added "Create workspace" link on login page. Sidebar/topbar already reads org name + logo dynamically from the organizations table. Every new org starts on "Free" plan.
+
+**Files:** `src/routes/signup.tsx` (new), `src/routes/api/signup.ts` (new), `src/routes/login.tsx`, `src/routes/__root.tsx`, `src/components/ChatWidget.tsx`, `src/components/layout/AppSidebar.tsx`, `src/lib/brand.ts`, `src/routes/api/health.ts`, plus ~40 route/lib/server files with EnerTech strings genericized.
 
 ---
 

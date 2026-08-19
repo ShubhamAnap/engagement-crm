@@ -25,12 +25,12 @@ import { LlmGatewaySettingsPanel } from "@/components/settings/LlmGatewaySetting
 export const Route = createFileRoute("/settings")({
   head: () => ({
     meta: [
-      { title: "Settings — EnerTech Engage" },
+      { title: "Settings" },
       {
         name: "description",
         content: "Your profile, company details, password, team, and AI Gateway.",
       },
-      { property: "og:title", content: "Settings — EnerTech Engage" },
+      { property: "og:title", content: "Settings" },
     ],
   }),
   validateSearch: (search: Record<string, unknown>) => ({

@@ -1096,7 +1096,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
         }
 
         // AI reply (same stack as website chat)
-        let reply = "Thanks for messaging EnerTech. How can we help with your UPS needs?";
+        let reply = "Thanks for messaging us. How can we help with your needs?";
         let inspector = buildAnswerInspector({
           chunks: [],
           replySource: "fallback",
@@ -1537,11 +1537,11 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               replyLanguage: sessionLang,
             });
             reply = await sanitizeAssistantFileLinks(generated.reply, downloadLinks, { channel: "whatsapp" });
-            if (!reply?.trim() || /thanks for messaging enertech/i.test(reply)) {
+            if (!reply?.trim() || /thanks for messaging us/i.test(reply)) {
               reply =
                 sessionLang === "hi" || sessionLang === "mixed"
-                  ? "Sir, aapke kW / product ke hisaab se EnerTech solar hybrid / HF range suitable hai. Main features Knowledge Base se share karta hoon — model ya residential/commercial confirm karein to exact catalogue + price bhej dunga."
-                  : "For that kW / use-case, EnerTech solar hybrid / HF range is typically suitable. I can share key features from our datasheets — confirm model or residential/commercial and I’ll send the exact catalogue and price.";
+                  ? "Sir, aapke kW / product ke hisaab se solar hybrid / HF range suitable hai. Main features Knowledge Base se share karta hoon — model ya residential/commercial confirm karein to exact catalogue + price bhej dunga."
+                  : "For that kW / use-case, our solar hybrid / HF range is typically suitable. I can share key features from our datasheets — confirm model or residential/commercial and I’ll send the exact catalogue and price.";
             }
             inspector = buildAnswerInspector({
               chunks,

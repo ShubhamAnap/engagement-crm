@@ -348,7 +348,7 @@ async function fetchJson(url: string, init?: RequestInit): Promise<{
       signal: ctrl.signal,
       headers: {
         Accept: "application/json",
-        "User-Agent": "EnerTechEngage/1.0 (catalog-sync)",
+        "User-Agent": "EngageCRM/1.0 (catalog-sync)",
         ...(init?.headers || {}),
       },
     });

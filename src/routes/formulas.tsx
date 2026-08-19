@@ -51,12 +51,12 @@ import {
 export const Route = createFileRoute("/formulas")({
   head: () => ({
     meta: [
-      { title: "Formulas — EnerTech Engage" },
+      { title: "Formulas" },
       {
         name: "description",
         content: "Solar, inverter, battery and BESS sizing formulas plus appliance load wattages.",
       },
-      { property: "og:title", content: "Formulas — EnerTech Engage" },
+      { property: "og:title", content: "Formulas" },
     ],
   }),
   component: Page,

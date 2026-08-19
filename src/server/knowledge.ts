@@ -107,7 +107,7 @@ function extractTextFromBuffer(
   }
   if (isImageFile(fileName, mimeType)) {
     return [
-      `EnerTech knowledge image: ${title}.`,
+      `Knowledge image: ${title}.`,
       `Collection: ${collection}.`,
       `File name: ${fileName}.`,
       "This is a product/site photo available for customer viewing or download.",
@@ -142,7 +142,7 @@ async function extractDocumentText(
       if (pdfText.length >= 80) {
         return {
           text: [
-            `EnerTech PDF: ${title}. Collection: ${collection}. File: ${fileName}.`,
+            `PDF: ${title}. Collection: ${collection}. File: ${fileName}.`,
             pdfText.slice(0, 120_000),
           ].join("\n\n"),
           extractedFromPdf: true,
@@ -154,7 +154,7 @@ async function extractDocumentText(
     }
     return {
       text: [
-        `EnerTech knowledge PDF: ${title}.`,
+        `Knowledge PDF: ${title}.`,
         `Collection: ${collection}.`,
         `File name: ${fileName}.`,
         "This document is available for customer download.",
@@ -173,7 +173,7 @@ async function extractDocumentText(
       if (docText.length >= 40) {
         return {
           text: [
-            `EnerTech Word document: ${title}. Collection: ${collection}. File: ${fileName}.`,
+            `Word document: ${title}. Collection: ${collection}. File: ${fileName}.`,
             docText.slice(0, 120_000),
           ].join("\n\n"),
           extractedFromPdf: false,
@@ -185,7 +185,7 @@ async function extractDocumentText(
     }
     return {
       text: [
-        `EnerTech knowledge document: ${title}.`,
+        `Knowledge document: ${title}.`,
         `Collection: ${collection}.`,
         `File name: ${fileName}.`,
         "This Word document is available for customer download.",

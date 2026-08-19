@@ -23,12 +23,12 @@ import {
 export const Route = createFileRoute("/tools")({
   head: () => ({
     meta: [
-      { title: "Tools — EnerTech Engage" },
+      { title: "Tools" },
       {
         name: "description",
         content: "Global AI tools (Calculator, Web search). Enable tools here; allow them per agent under AI Agents.",
       },
-      { property: "og:title", content: "Tools — EnerTech Engage" },
+      { property: "og:title", content: "Tools" },
     ],
   }),
   component: Page,

@@ -135,9 +135,9 @@ const defaultForm: ProductFormState = {
 export const Route = createFileRoute("/products")({
   head: () => ({
     meta: [
-      { title: "Product Catalog — EnerTech Engage" },
+      { title: "Product Catalog" },
       { name: "description", content: "UPS systems, batteries and accessories with specs, stock, images and catalogue PDFs." },
-      { property: "og:title", content: "Product Catalog — EnerTech Engage" },
+      { property: "og:title", content: "Product Catalog" },
       { property: "og:description", content: "UPS systems, batteries and accessories with specs, stock, images and catalogue PDFs." },
     ],
   }),

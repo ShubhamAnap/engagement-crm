@@ -290,13 +290,13 @@ export const Route = createFileRoute("/inbox")({
   }),
   head: () => ({
     meta: [
-      { title: "Omnichannel Inbox — EnerTech Engage" },
+      { title: "Omnichannel Inbox" },
       {
         name: "description",
         content:
           "Every website, WhatsApp, email, IndiaMART, TradeIndia, Instagram and Facebook conversation in one shared workspace.",
       },
-      { property: "og:title", content: "Omnichannel Inbox — EnerTech Engage" },
+      { property: "og:title", content: "Omnichannel Inbox" },
     ],
   }),
   component: Page,

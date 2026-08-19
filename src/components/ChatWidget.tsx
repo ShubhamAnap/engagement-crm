@@ -65,7 +65,7 @@ const suggested = ["Which UPS suits a 3 kVA load?", "Battery runtime calculator"
 const welcome: UiMsg = {
   id: "welcome",
   from: "bot",
-  text: "Hi 👋 Welcome to EnerTech UPS. Ask about products, runtime, service, or request a quotation.",
+  text: "Hi 👋 Welcome! Ask about our products, services, or request a quotation.",
 };
 const emptyProfile: VisitorProfile = { ...EMPTY_WIDGET_PROFILE };
 
@@ -506,7 +506,7 @@ export function ChatWidget() {
       conversationId &&
       msgs.some((m) => m.id !== "welcome") &&
       !confirm(
-        "Start a new chat? Your earlier messages stay with EnerTech. This opens a fresh conversation in this browser.",
+        "Start a new chat? Your earlier messages are saved. This opens a fresh conversation in this browser.",
       )
     ) {
       return;
@@ -568,7 +568,7 @@ export function ChatWidget() {
         },
       });
       setMsgs(applyHistory(result.messages as ServerMessage[]));
-      toast.success("File shared with EnerTech");
+      toast.success("File shared successfully");
     } catch (err) {
       console.error(err);
       toast.error(err instanceof Error ? err.message : "Upload failed");
@@ -676,7 +676,7 @@ export function ChatWidget() {
               <img src="/favicon-32.png" alt="" className="size-7 object-contain" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-white">EnerTech</p>
+              <p className="truncate text-sm font-semibold text-white">Support</p>
               <p className="mt-0.5 line-clamp-2 text-[11px] leading-tight text-white/85">
                 Ask Anything About Our Products &amp; Services
               </p>
@@ -842,7 +842,7 @@ export function ChatWidget() {
                 ))}
                 {typing && (
                   <div className="flex items-center gap-2 text-xs" style={{ color: `${BRAND}99` }}>
-                    EnerTech is typing…
+                    Typing…
                   </div>
                 )}
                 <div ref={endRef} />
@@ -930,14 +930,14 @@ export function ChatWidget() {
           right: "max(0.5rem, env(safe-area-inset-right))",
           bottom: "max(0.75rem, env(safe-area-inset-bottom))",
         }}
-        aria-label={open ? "Close chat" : "ASK EnerTech"}
+        aria-label={open ? "Close chat" : "Chat with us"}
       >
         {open ? (
           <span className="text-xs font-bold">Close</span>
         ) : (
           <>
             <span className="text-[13px] font-extrabold tracking-wide leading-none">ASK</span>
-            <span className="text-[9px] font-semibold leading-none opacity-95">EnerTech</span>
+            <span className="text-[9px] font-semibold leading-none opacity-95">US</span>
           </>
         )}
       </Button>

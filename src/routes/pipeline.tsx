@@ -74,9 +74,9 @@ const defaultForm: DealForm = {
 export const Route = createFileRoute("/pipeline")({
   head: () => ({
     meta: [
-      { title: "Sales Pipeline — EnerTech Engage" },
+      { title: "Sales Pipeline" },
       { name: "description", content: "Drag leads across stages from first touch to closed won." },
-      { property: "og:title", content: "Sales Pipeline — EnerTech Engage" },
+      { property: "og:title", content: "Sales Pipeline" },
       { property: "og:description", content: "Drag leads across stages from first touch to closed won." },
     ],
   }),

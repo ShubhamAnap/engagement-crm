@@ -1,6 +1,6 @@
 import { ENERTECH_NAVY_HEX } from "@/lib/brand";
 
-/** Partner brand colors for channel identity. App chrome stays EnerTech navy. */
+/** Partner brand colors for channel identity. App chrome stays navy. */
 
 export type ChannelBrand = {
   accent: string;

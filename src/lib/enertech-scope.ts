@@ -1,10 +1,10 @@
 /**
- * Keep customer chat on EnerTech products & services.
+ * Keep customer chat on company products & services.
  * Prefer continuing the conversation — only hard-block clear off-topic (politics, homework, etc.).
  */
 
 export const OFF_TOPIC_REPLY =
-  "I can only help you with EnerTech products and services. Thank you.";
+  "I can only help you with our products and services. Thank you.";
 
 /** Pure noise / thanks — no bot reply. Do NOT include yes/no/sure (those answer questions). */
 const ACK_ONLY_RE =
@@ -25,7 +25,7 @@ const GREETING_RE =
   /^(hi+|hlo|hello|hey+|ho|namaste|namaskar|good\s*(morning|afternoon|evening))[\s!.]*$/i;
 
 export const GREETING_REPLY =
-  "Hello! How can I help you with EnerTech products or services?";
+  "Hello! How can I help you with our products or services?";
 
 const HANDOFF_RE =
   /\b(talk\s*to\s*(a\s*)?(human|person|someone|executive)|speak\s*to\s*(a\s*)?(human|person|someone|executive)|real\s*person|human\s*support|support\s*executive|call\s*me(\s*back)?|callback|please\s*call|connect\s*me\s*to\s*(a\s*)?(human|support|sales|service))\b/i;
@@ -77,7 +77,7 @@ export function isGreetingOnlyMessage(text: string): boolean {
 }
 
 /**
- * True when the message is in EnerTech customer-support / commercial scope.
+ * True when the message is in customer-support / commercial scope.
  */
 export function isEnerTechScopeMessage(text: string): boolean {
   const q = String(text || "").trim();
@@ -123,6 +123,6 @@ export function isOffTopicMessage(text: string, options?: OffTopicOptions): bool
   if (q.length <= 48) return false;
   if (HARD_OFF_TOPIC_RE.test(q)) return true;
 
-  // Long messages with no EnerTech signal → soft refuse
+  // Long messages with no product signal → soft refuse
   return q.length > 120 && !IN_SCOPE_RE.test(q);
 }

@@ -42,12 +42,12 @@ import { getChannelBrand } from "@/lib/channel-brand";
 export const Route = createFileRoute("/human-support")({
   head: () => ({
     meta: [
-      { title: "Human Support — EnerTech Engage" },
+      { title: "Human Support" },
       {
         name: "description",
         content: "Waiting escalation desk — claim, transfer, resolve, or return threads to EnerBot.",
       },
-      { property: "og:title", content: "Human Support — EnerTech Engage" },
+      { property: "og:title", content: "Human Support" },
     ],
   }),
   component: Page,

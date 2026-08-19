@@ -34,7 +34,7 @@ function envConfig(): EmailChannelConfig {
   const port = Number(process.env.EMAIL_SMTP_PORT || "587");
   return {
     from_email: process.env.EMAIL_FROM || undefined,
-    from_name: process.env.EMAIL_FROM_NAME || "EnerTech Engage",
+    from_name: process.env.EMAIL_FROM_NAME || "Support",
     smtp_host: process.env.EMAIL_SMTP_HOST || undefined,
     smtp_port: Number.isFinite(port) ? port : 587,
     smtp_secure: process.env.EMAIL_SMTP_SECURE === "true" || port === 465,
@@ -341,7 +341,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
     return { conversationId: convo.id, messageId: customerMsg.id, aiPaused: true };
   }
 
-  let reply = "Thanks for emailing EnerTech. How can we help with your UPS needs?";
+  let reply = "Thanks for emailing us. How can we help with your needs?";
   let inspector = buildAnswerInspector({
     chunks: [],
     replySource: "fallback",
@@ -582,7 +582,7 @@ export async function persistEmailChannelConfig(data: {
   const supabase = createServiceSupabase();
   const config: EmailChannelConfig = {
     from_email: data.fromEmail.trim().toLowerCase(),
-    from_name: data.fromName?.trim() || "EnerTech Engage",
+    from_name: data.fromName?.trim() || "Support",
     smtp_host: data.smtpHost.trim(),
     smtp_port: data.smtpPort,
     smtp_secure: data.smtpSecure ?? data.smtpPort === 465,
@@ -637,7 +637,7 @@ export async function sendAgentEmailReply(conversationId: string, body: string) 
     String(convo.widget_session_id || "").replace(/^email:/, "");
   if (!to) throw new Error("Recipient email missing on conversation");
 
-  const subjectRaw = (convo.subject as string) || "EnerTech support";
+  const subjectRaw = (convo.subject as string) || "Support";
   const subject = subjectRaw.toLowerCase().startsWith("re:") ? subjectRaw : `Re: ${subjectRaw}`;
 
   await sendEmailMessage({ to, subject, text: body });

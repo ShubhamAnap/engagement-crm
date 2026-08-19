@@ -138,7 +138,7 @@ export type SalesOwnedContext = {
 };
 
 /**
- * Partner / dealer WhatsApp business greeting (not an EnerTech product question).
+ * Partner / dealer WhatsApp business greeting (not a product question).
  * Example: "Thank you for contacting AG Renewable… how can we help you? 🎈"
  */
 export function isBusinessAutoReplyMessage(text: string): boolean {
@@ -322,16 +322,16 @@ export function salesPersonDeferReply(options: {
     : "";
 
   if (lang === "hi" || lang === "mixed") {
-    return `Ji sir — ${name} aapka requirement EnerTech taraf se handle kar rahe hain. Price aur details woh jaldi share karenge.${phoneBit}`
+    return `Ji sir — ${name} aapka requirement humari taraf se handle kar rahe hain. Price aur details woh jaldi share karenge.${phoneBit}`
       .replace(/\s+/g, " ")
       .trim();
   }
   if (lang === "mr") {
-    return `Ho sir — ${name} tumcha requirement EnerTech kadeun handle karat ahet. Price ani details te lavkar share karneel.${phoneBit}`
+    return `Ho sir — ${name} tumcha requirement amchya kadeun handle karat ahet. Price ani details te lavkar share karneel.${phoneBit}`
       .replace(/\s+/g, " ")
       .trim();
   }
-  return `Okay sir — ${name} is handling your requirement from EnerTech. They will share the price and details with you shortly.${phoneBit}`
+  return `Okay sir — ${name} is handling your requirement from our team. They will share the price and details with you shortly.${phoneBit}`
     .replace(/\s+/g, " ")
     .trim();
 }

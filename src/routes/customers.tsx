@@ -51,10 +51,10 @@ const defaultForm: CustomerFormState = {
 export const Route = createFileRoute("/customers")({
   head: () => ({
     meta: [
-      { title: "Customers — EnerTech Engage" },
-      { name: "description", content: "Accounts, contacts, installed base and lifetime value across the EnerTech portfolio." },
-      { property: "og:title", content: "Customers — EnerTech Engage" },
-      { property: "og:description", content: "Accounts, contacts, installed base and lifetime value across the EnerTech portfolio." },
+      { title: "Customers" },
+      { name: "description", content: "Accounts, contacts, installed base and lifetime value." },
+      { property: "og:title", content: "Customers" },
+      { property: "og:description", content: "Accounts, contacts, installed base and lifetime value." },
     ],
   }),
   validateSearch: (search: Record<string, unknown>) => ({

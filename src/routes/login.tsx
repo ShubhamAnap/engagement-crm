@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,8 +9,8 @@ import { useAuth } from "@/lib/auth";
 export const Route = createFileRoute("/login")({
   head: () => ({
     meta: [
-      { title: "Sign in — EnerTech Engage" },
-      { name: "description", content: "Sign in to EnerTech Engage." },
+      { title: "Sign in" },
+      { name: "description", content: "Sign in to your workspace." },
     ],
   }),
   component: LoginPage,
@@ -57,8 +57,8 @@ function LoginPage() {
           <div className="mb-4 grid size-12 place-items-center rounded-xl border border-border bg-background text-lg font-semibold tracking-[-0.02em] text-primary">
             E
           </div>
-          <h1 className="text-xl font-semibold tracking-[-0.02em] text-foreground">EnerTech Engage</h1>
-          <p className="mt-1 text-sm text-muted-foreground">EnerTech UPS workspace</p>
+          <h1 className="text-xl font-semibold tracking-[-0.02em] text-foreground">Engage CRM</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Sign in to your workspace</p>
         </div>
 
         <form onSubmit={onSubmit} className="space-y-4">
@@ -71,7 +71,7 @@ function LoginPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@enertechups.com"
+              placeholder="you@company.com"
             />
           </div>
           <div className="space-y-1.5">
@@ -89,6 +89,13 @@ function LoginPage() {
             {submitting ? "Signing in…" : "Sign in"}
           </Button>
         </form>
+
+        <p className="mt-6 text-center text-sm text-muted-foreground">
+          Don't have an account?{" "}
+          <Link to="/signup" className="font-medium text-primary hover:underline">
+            Create workspace
+          </Link>
+        </p>
       </div>
     </div>
   );

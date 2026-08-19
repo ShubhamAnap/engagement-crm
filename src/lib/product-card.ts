@@ -82,7 +82,7 @@ function escapeRegExp(s: string): string {
 /** Strip upload junk like "- Image 2" and duplicated titles. */
 export function cleanProductDisplayName(name: string): string {
   let s = String(name || "").trim();
-  if (!s) return "EnerTech product";
+  if (!s) return "Product";
 
   s = s.replace(/\s*[-–—]\s*Image\s*\d+\b/gi, " ");
   s = s.replace(/\s+/g, " ").trim();
@@ -108,7 +108,7 @@ export function cleanProductDisplayName(name: string): string {
   const dup = s.match(/^(.{10,100}?)\s*\1+/i);
   if (dup?.[1]) return dup[1].trim();
 
-  return s.replace(/\s+/g, " ").trim() || "EnerTech product";
+  return s.replace(/\s+/g, " ").trim() || "Product";
 }
 
 /** Remove name spam / image labels from description. */

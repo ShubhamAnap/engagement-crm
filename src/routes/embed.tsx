@@ -78,7 +78,7 @@ export const Route = createFileRoute("/embed")({
     key: typeof search.key === "string" ? search.key : "",
     parentOrigin: typeof search.parentOrigin === "string" ? search.parentOrigin : "",
   }),
-  head: () => ({ meta: [{ title: "EnerBot — EnerTech" }] }),
+  head: () => ({ meta: [{ title: "Chat Widget" }] }),
   component: EmbedChat,
 });
 

@@ -25,12 +25,12 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/ai-chat")({
   head: () => ({
     meta: [
-      { title: "AI Chat Support — EnerTech Engage" },
+      { title: "AI Chat Support" },
       {
         name: "description",
         content: "Inspect what the AI retrieved, remembered and reasoned before every answer it sent.",
       },
-      { property: "og:title", content: "AI Chat Support — EnerTech Engage" },
+      { property: "og:title", content: "AI Chat Support" },
     ],
   }),
   component: Page,

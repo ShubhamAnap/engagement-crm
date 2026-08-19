@@ -114,9 +114,9 @@ export const Route = createFileRoute("/channels")({
   }),
   head: () => ({
     meta: [
-      { title: "Channels — EnerTech Engage" },
+      { title: "Channels" },
       { name: "description", content: "Connection manager and health monitoring for every customer touchpoint." },
-      { property: "og:title", content: "Channels — EnerTech Engage" },
+      { property: "og:title", content: "Channels" },
     ],
   }),
   component: Page,

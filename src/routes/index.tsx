@@ -86,8 +86,7 @@ function Dashboard() {
   return (
     <>
       <PageHeader
-        title="Operations Dashboard"
-        description="Live counts from conversations, leads, customers, and products in your Supabase workspace."
+        title="Dashboard"
         meta={
           <>
             <Pill tone={dashboardQuery.isError ? "danger" : "success"} dot>

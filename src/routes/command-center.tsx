@@ -164,7 +164,6 @@ function CommandCenter() {
     <>
       <PageHeader
         title="AI Command Center"
-        description="Live supervision of every AI conversation with instant human override."
         meta={
           <>
             <Pill tone="success" dot>

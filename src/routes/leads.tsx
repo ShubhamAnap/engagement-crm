@@ -784,56 +784,21 @@ function Page() {
   return (
     <>
       <PageHeader
-        title="Leads — Master"
-        description="Single master sheet for every enquiry. Filter, page, assign, or delete — CRM sync stays on Channels; Pipeline uses the same status."
+        title="Leads"
         meta={
           <div className="flex flex-wrap gap-2">
             <Pill tone="neutral">{totalLeads} leads</Pill>
-            {!canEdit ? <Pill tone="warning">View / limited</Pill> : null}
+            {!canEdit ? <Pill tone="warning">View only</Pill> : null}
           </div>
         }
         actions={
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" asChild>
-              <Link to="/channels">Channels (sync)</Link>
-            </Button>
-            <Button size="sm" variant="outline" asChild>
-              <Link to="/pipeline">Pipeline</Link>
-            </Button>
-            {canDelete ? (
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1.5 text-destructive hover:text-destructive"
-                onClick={() => {
-                  setDeleteSource("");
-                  setDeleteConfirmText("");
-                  setDeleteBySourceOpen(true);
-                }}
-              >
-                <Trash2 className="size-4" /> Delete by source
-              </Button>
-            ) : null}
+          <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="outline" className="gap-1.5" onClick={exportSelectedOrFiltered}>
-              <Download className="size-4" /> Export CSV
+              <Download className="size-4" /> Export
             </Button>
-            {canEdit ? (
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1.5"
-                disabled={pushAllPendingBrainmineMutation.isPending}
-                onClick={() => pushAllPendingBrainmineMutation.mutate()}
-                title="Push follow-ups updated in Engage but not yet written to Brainmine (new CRM row each time)"
-              >
-                {pushAllPendingBrainmineMutation.isPending
-                  ? "Pushing…"
-                  : "Push pending to Brainmine"}
-              </Button>
-            ) : null}
             {canEdit ? (
               <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setImportOpen(true)}>
-                <Upload className="size-4" /> Bulk import
+                <Upload className="size-4" /> Import
               </Button>
             ) : null}
             {canEdit ? (

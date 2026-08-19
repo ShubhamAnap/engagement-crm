@@ -173,7 +173,6 @@ function Page() {
     <>
       <PageHeader
         title="Settings"
-        description="Update your profile, company details, and security. Admins also manage Team and AI Gateway. Channel credentials live under Channels."
         meta={
           profile ? (
             <div className="flex flex-wrap gap-2">

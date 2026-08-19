@@ -1768,8 +1768,7 @@ function Page() {
     >
       <div className={cn("shrink-0", mobileThreadOpen && "hidden lg:block")}>
         <PageHeader
-          title="Omnichannel Inbox"
-          description="Chats rise to the top when there is a new reply — WhatsApp-style."
+          title="Inbox"
           actions={
             <Button
               size="sm"

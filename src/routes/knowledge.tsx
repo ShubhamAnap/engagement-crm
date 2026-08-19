@@ -389,7 +389,6 @@ function Page() {
     <>
       <PageHeader
         title="Knowledge Base"
-        description="Organize Datasheets vs site-photo collections. Re-index PDFs so EnerBot answers from real text — never invented links."
         actions={
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setCreateOpen(true)}>

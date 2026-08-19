@@ -277,7 +277,6 @@ function Page() {
     <>
       <PageHeader
         title="AI Agents"
-        description="Support is the Master Agent. Specialists are applied per message inside the same chat — customers never see a bot switch."
         meta={
           <div className="flex flex-wrap gap-2">
             <Pill tone="success" dot>

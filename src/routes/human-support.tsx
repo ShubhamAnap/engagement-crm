@@ -319,7 +319,6 @@ function Page() {
     <>
       <PageHeader
         title="Human Support"
-        description="Waiting escalations and claimed handoffs. Claim opens Inbox to reply."
         meta={
           <Pill tone={waiting.length > 0 ? "warning" : "success"} dot>
             {waiting.length > 0 ? `${waiting.length} waiting` : "Queue clear"}

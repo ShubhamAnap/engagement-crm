@@ -197,7 +197,6 @@ function Page() {
     <>
       <PageHeader
         title="Sales Pipeline"
-        description="Drag leads across stages. Same records as Lead Management — changes sync both ways."
         actions={
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" asChild>

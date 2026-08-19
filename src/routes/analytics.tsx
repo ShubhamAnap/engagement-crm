@@ -87,7 +87,6 @@ function Page() {
     <>
       <PageHeader
         title="Analytics"
-        description="Insights from live conversations, leads, and messages — filter by date range."
         meta={
           <>
             <Pill tone={analyticsQuery.isError ? "danger" : "success"} dot>

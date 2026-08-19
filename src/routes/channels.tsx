@@ -1222,7 +1222,6 @@ function Page() {
     <>
       <PageHeader
         title="Channels"
-        description="Manage customer touchpoints including Meta, IndiaMART, TradeIndia, Brainmine CRM+, and WordPress product catalog."
         meta={
           <div className="flex flex-wrap gap-2">
             <Pill tone={website?.is_enabled ? "success" : "warning"} dot>

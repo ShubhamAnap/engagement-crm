@@ -574,7 +574,6 @@ function Page() {
     <>
       <PageHeader
         title="Product Catalog"
-        description="UPS systems, batteries and accessories — WordPress is catalog master when connected. One PDF per category is inherited by every SKU unless a product has its own file."
         actions={
           <div className="flex flex-wrap gap-2">
             <Button

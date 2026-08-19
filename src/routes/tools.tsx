@@ -122,7 +122,6 @@ function Page() {
     <>
       <PageHeader
         title="Tools"
-        description="Global toolbox for AI agents. Turn tools on here, then allow them per agent under AI Agents → Configure."
         meta={
           <div className="flex flex-wrap gap-2">
             <Pill tone="success" dot>

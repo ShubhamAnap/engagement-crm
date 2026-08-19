@@ -187,7 +187,6 @@ function Page() {
     <>
       <PageHeader
         title="Customers"
-        description="Accounts, contacts, installed base and lifetime value across the EnerTech portfolio."
         actions={<Button size="sm" onClick={openCreate}><Plus className="size-4" /> Add customer</Button>}
       />
       <div className="space-y-4 p-6">

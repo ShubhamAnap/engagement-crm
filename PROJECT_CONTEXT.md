@@ -1,7 +1,44 @@
 # Engage CRM — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
-> **Last updated:** 2026-08-19
+> **Last updated:** 2026-08-20
+
+---
+
+### Session 2026-08-20 — Auth polish (login / signup / forgot password)
+
+**Change:** Premium login + signup UI. Signup requires a business email (blocks Gmail/Yahoo/etc.), optional mobile, min 8-char password. `/forgot-password` sends Supabase reset email. Google OAuth buttons on login/signup (needs Google provider in Supabase). Phone stored on profile at signup.
+
+**Files:** `src/routes/login.tsx`, `src/routes/signup.tsx`, `src/routes/forgot-password.tsx`, `src/routes/api/signup.ts`, `src/routes/__root.tsx`, `src/routeTree.gen.ts`.
+
+**Status:** UI shipped. Google OAuth is not live until Google Cloud + Supabase provider is configured. Google signup still does **not** create an org/profile.
+
+---
+
+### Sellable multi-org roadmap (do not skip phases)
+
+Honest status: signup + table RLS exist. Server jobs still use `DEFAULT_ORG_ID` (`a0000000-…0001`) via service role (bypasses RLS). **Do not sell shared multi-tenant until Phase 1–3.**
+
+**Phase 0 — Ship current (this deploy)**  
+Auth/signup/white-label as-is. Fine for demos. Not isolated for live channels/AI.
+
+**Phase 1 — Server org identity (blocker)**  
+Kill hardcoded `DEFAULT_ORG_ID` in server handlers. Staff server fns use `requireStaffUser().profile.org_id`. Webhooks use `resolveOrgFromChannel()`. Cron loops enabled orgs. Public `/f/...` resolves from the file row, not a constant. Per-org `WIDGET_PUBLIC_KEY` (or widget key on channel config). Unique WhatsApp `phone_number_id` / Gmail / Meta page per org.
+
+**Phase 2 — Storage + files (blocker)**  
+Paths under `<org_id>/…`. Storage RLS: read/write only that prefix. Knowledge/branding/product media/chat attachments. No public whole-bucket listing.
+
+**Phase 3 — Auth completeness**  
+Google first-login creates workspace *or* invite-only Google. Invite-by-email (no Admin-set password). Signup rate-limit/captcha. Email uniqueness per platform vs per-org decision. Disable/delete org + data export.
+
+**Phase 4 — Cost + billing (sellable)**  
+Per-org OpenAI key **or** platform key with hard usage caps. Spend already logged — enforce limits. Razorpay/Stripe: Free vs paid, seats, AI/message caps. Plan string is display-only today.
+
+**Phase 5 — Platform + legal**  
+Super-admin (suspend org, inspect, refund). Real Terms/Privacy. Audit log for team/channel/config. Status/uptime page optional.
+
+**Phase 6 — Hardening / launch**  
+Two-org isolation test (A cannot see B data, webhooks, files, widget). Backup/restore. Delete-account. Support runbook.
 
 ---
 

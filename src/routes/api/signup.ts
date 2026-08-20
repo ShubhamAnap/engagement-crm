@@ -7,18 +7,19 @@ export const Route = createFileRoute("/api/signup")({
       POST: async ({ request }) => {
         try {
           const body = await request.json();
-          const { orgName, fullName, email, password } = body as {
+          const { orgName, fullName, email, password, phone } = body as {
             orgName: string;
             fullName: string;
             email: string;
             password: string;
+            phone?: string;
           };
 
           if (!orgName?.trim() || !fullName?.trim() || !email?.trim() || !password) {
             return Response.json({ error: "All fields are required." }, { status: 400 });
           }
-          if (password.length < 6) {
-            return Response.json({ error: "Password must be at least 6 characters." }, { status: 400 });
+          if (password.length < 8) {
+            return Response.json({ error: "Password must be at least 8 characters." }, { status: 400 });
           }
 
           const supabase = createServiceSupabase();
@@ -48,6 +49,7 @@ export const Route = createFileRoute("/api/signup")({
             email: email.trim().toLowerCase(),
             password,
             email_confirm: true,
+            phone: phone?.trim() || undefined,
             user_metadata: { full_name: fullName.trim(), org_id: org.id },
           });
           if (authErr) {
@@ -62,6 +64,7 @@ export const Route = createFileRoute("/api/signup")({
             email: email.trim().toLowerCase(),
             full_name: fullName.trim(),
             role: "Admin",
+            phone: phone?.trim() || null,
           });
           if (profileErr) {
             await supabase.auth.admin.deleteUser(authUser.user.id);

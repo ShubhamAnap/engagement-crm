@@ -183,7 +183,8 @@ function AuthenticatedShell() {
   const isDocShortLink = pathname.startsWith("/d/");
   const isFriendlyFileLink = pathname.startsWith("/f/");
   const isSignup = pathname === "/signup";
-  const isPublic = isLogin || isSignup || isEmbed || isCatalogueShortLink || isDocShortLink || isFriendlyFileLink;
+  const isForgotPassword = pathname === "/forgot-password";
+  const isPublic = isLogin || isSignup || isForgotPassword || isEmbed || isCatalogueShortLink || isDocShortLink || isFriendlyFileLink;
 
   useEffect(() => {
     setMounted(true);

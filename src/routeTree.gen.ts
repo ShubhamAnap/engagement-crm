@@ -19,6 +19,7 @@ import { Route as ChannelsRouteImport } from './routes/channels'
 import { Route as CommandCenterRouteImport } from './routes/command-center'
 import { Route as CustomersRouteImport } from './routes/customers'
 import { Route as EmbedRouteImport } from './routes/embed'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as FormulasRouteImport } from './routes/formulas'
 import { Route as HumanSupportRouteImport } from './routes/human-support'
 import { Route as InboxRouteImport } from './routes/inbox'
@@ -92,6 +93,11 @@ const CustomersRoute = CustomersRouteImport.update({
 const EmbedRoute = EmbedRouteImport.update({
   id: '/embed',
   path: '/embed',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FormulasRoute = FormulasRouteImport.update({
@@ -226,6 +232,7 @@ export interface FileRoutesByFullPath {
   '/command-center': typeof CommandCenterRoute
   '/customers': typeof CustomersRoute
   '/embed': typeof EmbedRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/formulas': typeof FormulasRoute
   '/human-support': typeof HumanSupportRoute
   '/inbox': typeof InboxRoute
@@ -262,6 +269,7 @@ export interface FileRoutesByTo {
   '/command-center': typeof CommandCenterRoute
   '/customers': typeof CustomersRoute
   '/embed': typeof EmbedRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/formulas': typeof FormulasRoute
   '/human-support': typeof HumanSupportRoute
   '/inbox': typeof InboxRoute
@@ -299,6 +307,7 @@ export interface FileRoutesById {
   '/command-center': typeof CommandCenterRoute
   '/customers': typeof CustomersRoute
   '/embed': typeof EmbedRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/formulas': typeof FormulasRoute
   '/human-support': typeof HumanSupportRoute
   '/inbox': typeof InboxRoute
@@ -337,6 +346,7 @@ export interface FileRouteTypes {
     | '/command-center'
     | '/customers'
     | '/embed'
+    | '/forgot-password'
     | '/formulas'
     | '/human-support'
     | '/inbox'
@@ -373,6 +383,7 @@ export interface FileRouteTypes {
     | '/command-center'
     | '/customers'
     | '/embed'
+    | '/forgot-password'
     | '/formulas'
     | '/human-support'
     | '/inbox'
@@ -409,6 +420,7 @@ export interface FileRouteTypes {
     | '/command-center'
     | '/customers'
     | '/embed'
+    | '/forgot-password'
     | '/formulas'
     | '/human-support'
     | '/inbox'
@@ -446,6 +458,7 @@ export interface RootRouteChildren {
   CommandCenterRoute: typeof CommandCenterRoute
   CustomersRoute: typeof CustomersRoute
   EmbedRoute: typeof EmbedRoute
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
   FormulasRoute: typeof FormulasRoute
   HumanSupportRoute: typeof HumanSupportRoute
   InboxRoute: typeof InboxRoute
@@ -542,6 +555,13 @@ declare module '@tanstack/react-router' {
       path: '/embed'
       fullPath: '/embed'
       preLoaderRoute: typeof EmbedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/formulas': {
@@ -726,6 +746,7 @@ const rootRouteChildren: RootRouteChildren = {
   CommandCenterRoute: CommandCenterRoute,
   CustomersRoute: CustomersRoute,
   EmbedRoute: EmbedRoute,
+  ForgotPasswordRoute: ForgotPasswordRoute,
   FormulasRoute: FormulasRoute,
   HumanSupportRoute: HumanSupportRoute,
   InboxRoute: InboxRoute,

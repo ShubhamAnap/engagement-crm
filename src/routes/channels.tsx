@@ -132,7 +132,6 @@ function Page() {
     (typeof window !== "undefined"
       ? (import.meta.env.VITE_APP_URL as string) || window.location.origin
       : (import.meta.env.VITE_APP_URL as string) || "") || "";
-  const widgetKey = websiteWidgetKey || (import.meta.env.VITE_WIDGET_PUBLIC_KEY as string) || "";
 
   const [copied, setCopied] = useState(false);
   const [webhookCopied, setWebhookCopied] = useState(false);
@@ -216,6 +215,8 @@ function Page() {
   const [wpInspectResult, setWpInspectResult] = useState<Awaited<
     ReturnType<typeof inspectWordpressCatalog>
   > | null>(null);
+
+  const widgetKey = websiteWidgetKey || (import.meta.env.VITE_WIDGET_PUBLIC_KEY as string) || "";
 
   const channelsQuery = useQuery({
     queryKey: ["channels", orgId],

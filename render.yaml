@@ -61,6 +61,10 @@ services:
       - key: CRON_SECRET
         generateValue: true
 
+      # Platform super-admin (/platform) — comma-separated emails
+      - key: PLATFORM_ADMIN_EMAILS
+        sync: false
+
       # WhatsApp — optional here; can also save via Channels UI after deploy
       - key: WHATSAPP_PHONE_NUMBER_ID
         sync: false

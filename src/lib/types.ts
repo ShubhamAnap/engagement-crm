@@ -36,6 +36,9 @@ export type SessionUser = {
   /** Allowed sidebar sections. Admins are treated as full access in helpers. */
   permissions: string[];
   isActive: boolean;
+  /** True when a platform admin is viewing another workspace in support mode. */
+  impersonating?: boolean;
+  homeOrgId?: string | null;
   org: {
     id: string;
     name: string;

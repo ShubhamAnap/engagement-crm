@@ -63,6 +63,8 @@ import {
   removePlatformAdmin,
   type PlatformOrgRow,
 } from "@/server/platform-console";
+import { startPlatformImpersonation } from "@/server/platform-impersonation";
+import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/platform/")({
   head: () => ({
@@ -78,6 +80,7 @@ type DetailTab = "overview" | "team" | "channels" | "billing" | "audit" | "notes
 function PlatformConsolePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { refreshProfile } = useAuth();
 
   const accessQuery = useQuery({
     queryKey: ["platform-access"],
@@ -287,16 +290,22 @@ function PlatformConsolePage() {
 
   const supportAccessMutation = useMutation({
     mutationFn: () => platformLogSupportAccess({ data: { orgId: selectedId! } }),
-    onSuccess: async (res) => {
+    onSuccess: async () => {
       toast.success("Support access logged");
       await invalidate();
-      if (res.viewerOrgId === selectedId) {
-        void navigate({ to: "/" });
-      } else {
-        toast.message("Open the primary admin contact from Team if you need workspace access.");
-      }
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Could not log access"),
+  });
+
+  const impersonateMutation = useMutation({
+    mutationFn: () => startPlatformImpersonation({ data: { orgId: selectedId! } }),
+    onSuccess: async (res) => {
+      toast.success(`Support mode: ${res.orgName}`);
+      await refreshProfile();
+      await queryClient.invalidateQueries();
+      void navigate({ to: "/" });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not start support mode"),
   });
 
   if (accessQuery.isLoading) {
@@ -525,11 +534,27 @@ function PlatformConsolePage() {
                         </Button>
                         <Button
                           size="sm"
+                          disabled={impersonateMutation.isPending}
+                          onClick={() => {
+                            if (
+                              !confirm(
+                                `Enter support mode for ${detail.organization.name}? You will see their workspace as Admin for up to 2 hours.`,
+                              )
+                            ) {
+                              return;
+                            }
+                            impersonateMutation.mutate();
+                          }}
+                        >
+                          Open as support
+                        </Button>
+                        <Button
+                          size="sm"
                           variant="outline"
                           disabled={supportAccessMutation.isPending}
                           onClick={() => supportAccessMutation.mutate()}
                         >
-                          Log support access
+                          Log access only
                         </Button>
                       </div>
                     </Panel>

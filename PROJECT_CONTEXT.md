@@ -22,6 +22,16 @@
 
 ---
 
+### Session 2026-08-20 — Platform tenant impersonation
+
+**Done:** True support-mode impersonation. Migration `043_platform_impersonation.sql` adds `platform_impersonation_sessions` and updates `current_org_id` / `is_org_member` / `is_org_admin` so RLS follows the target org. Platform console **Open as support** starts a 2h session; amber banner **Exit support mode** clears it. Server `requireStaffUser` and client auth profile both resolve to the target workspace as Admin.
+
+**Ops:** Run `043_platform_impersonation.sql` in Supabase SQL Editor, then use `/platform` → Open as support.
+
+**Next:** None required for impersonation; optional session extend / read-only mode later.
+
+---
+
 ### Session 2026-08-20 — Phase 6 (hardening / launch)
 
 **Done (repo):** Added self-delete account flow (Settings → Security), permanent workspace delete flow (Settings → Team → Danger zone), storage prefix cleanup for deleted orgs (`knowledge`, `branding`), launch/support documentation in `docs/launch-runbook.md`, and `npm run check:launch` for prelaunch readiness (migration/docs/env presence checks).

@@ -70,13 +70,40 @@ async function fetchSessionUser(userId: string): Promise<SessionUser | null> {
   } | null;
 
   if (!org) return null;
-  if ((org as { is_active?: boolean }).is_active === false) {
+
+  // Support mode: platform admin may be viewing another workspace (DB session + RLS).
+  let impersonating = false;
+  let homeOrgId: string | null = null;
+  let displayOrg = org;
+  let displayRole = data.role as SessionUser["role"];
+  try {
+    const { getPlatformImpersonationStatus } = await import("@/server/platform-impersonation");
+    const status = await getPlatformImpersonationStatus();
+    if (status.active && status.targetOrgId) {
+      impersonating = true;
+      homeOrgId = status.homeOrgId;
+      displayRole = "Admin";
+      displayOrg = {
+        id: status.targetOrgId,
+        name: status.targetOrgName || org.name,
+        short_name: status.targetOrgShort || org.short_name,
+        plan: status.targetPlan || org.plan,
+        logo_url: status.targetLogoUrl,
+        brand_primary: status.targetBrandPrimary,
+        is_active: true,
+      };
+    }
+  } catch {
+    // Not signed in for server fn / migration missing — keep home org
+  }
+
+  if (!impersonating && (org as { is_active?: boolean }).is_active === false) {
     throw new Error("ORG_DISABLED");
   }
 
-  const role = data.role as SessionUser["role"];
+  const effectiveRole = displayRole as SessionUser["role"];
   const permissions = effectivePermissions({
-    role,
+    role: effectiveRole,
     permissions: data.permissions ?? DEFAULT_NEW_USER_PERMISSIONS,
   });
 
@@ -84,21 +111,23 @@ async function fetchSessionUser(userId: string): Promise<SessionUser | null> {
     id: data.id as string,
     email: data.email as string,
     fullName: data.full_name as string,
-    role,
+    role: effectiveRole,
     initials: initialsFromName(data.full_name as string),
     phone: (data.phone as string | null) ?? null,
     jobTitle: (data.job_title as string | null) ?? null,
     avatarUrl: (data.avatar_url as string | null) ?? null,
     permissions: normalizePermissions(permissions),
     isActive: data.is_active !== false,
+    impersonating,
+    homeOrgId,
     org: {
-      id: org.id,
-      name: org.name,
-      short: org.short_name,
-      plan: org.plan,
-      logoUrl: org.logo_url ?? null,
-      brandPrimary: org.brand_primary ?? null,
-      isActive: org.is_active !== false,
+      id: displayOrg.id,
+      name: displayOrg.name,
+      short: displayOrg.short_name,
+      plan: displayOrg.plan,
+      logoUrl: displayOrg.logo_url ?? null,
+      brandPrimary: displayOrg.brand_primary ?? null,
+      isActive: displayOrg.is_active !== false,
     },
   };
 }
@@ -174,6 +203,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    try {
+      const { stopPlatformImpersonation } = await import("@/server/platform-impersonation");
+      await stopPlatformImpersonation();
+    } catch {
+      // ignore — may not be impersonating / migration missing
+    }
     const supabase = getBrowserSupabase();
     await supabase.auth.signOut();
     syncStaffAccessCookie(null);

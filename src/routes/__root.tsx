@@ -21,6 +21,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { TopBar } from "@/components/layout/TopBar";
 import { AutomationApprovalBanner } from "@/components/automation/AutomationApprovalBanner";
+import { ImpersonationBanner } from "@/components/layout/ImpersonationBanner";
 import { ChatWidget } from "@/components/ChatWidget";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
@@ -252,7 +253,12 @@ function AuthenticatedShell() {
   }, [pathname]);
 
   if (isMinimalShell) {
-    return <Outlet />;
+    return (
+      <>
+        <ImpersonationBanner />
+        <Outlet />
+      </>
+    );
   }
 
   if (!mounted || loading) {
@@ -295,6 +301,7 @@ function AuthenticatedShell() {
           </SheetContent>
         </Sheet>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <ImpersonationBanner />
           <TopBar onOpenMobileNav={() => setMobileOpen(true)} />
           <AutomationApprovalBanner />
           <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

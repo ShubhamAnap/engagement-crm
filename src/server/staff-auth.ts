@@ -17,6 +17,12 @@ export type StaffProfile = {
 export type StaffAuth = {
   user: User;
   profile: StaffProfile;
+  impersonation?: {
+    homeOrgId: string;
+    targetOrgId: string;
+    targetOrgName: string;
+    expiresAt: string;
+  };
 };
 
 function unauthorized(message = "Unauthorized"): never {
@@ -126,7 +132,9 @@ async function validateAuthToken(token: string): Promise<{ user: User; profile: 
 export async function requireStaffUser(): Promise<StaffAuth> {
   const token = tryStaffToken();
   if (!token) unauthorized();
-  return validateStaffToken(token);
+  const auth = await validateStaffToken(token);
+  const { applyImpersonationToStaffAuth } = await import("@/server/platform-impersonation");
+  return applyImpersonationToStaffAuth(auth);
 }
 
 /** Signed-in user without requiring a profiles row (OAuth onboarding / invite accept). */

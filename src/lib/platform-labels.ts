@@ -10,6 +10,8 @@ const AUDIT_LABELS: Record<string, string> = {
   "platform.admin_add": "Platform admin added",
   "platform.admin_remove": "Platform admin removed",
   "platform.support_access": "Support access logged",
+  "platform.impersonate_start": "Support mode started",
+  "platform.impersonate_stop": "Support mode ended",
   "org.disable": "Workspace disabled",
   "org.export": "Workspace exported",
   "org.delete": "Workspace deleted",

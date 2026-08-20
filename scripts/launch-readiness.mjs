@@ -38,6 +38,7 @@ const requiredFiles = [
   "supabase/migrations/040_auth_completeness.sql",
   "supabase/migrations/041_billing.sql",
   "supabase/migrations/042_platform_admin.sql",
+  "supabase/migrations/043_platform_impersonation.sql",
   "docs/launch-runbook.md",
   "src/routes/terms.tsx",
   "src/routes/privacy.tsx",

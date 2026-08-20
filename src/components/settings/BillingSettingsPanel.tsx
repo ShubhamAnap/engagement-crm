@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { EmptyState, Panel, Pill } from "@/components/shared/ui-kit";
+import { describeLoadError } from "@/lib/feature-setup";
 import {
   createRazorpayCheckout,
   getOrgBillingSummary,
@@ -108,7 +109,7 @@ export function BillingSettingsPanel() {
       <Panel title="Billing & usage">
         <EmptyState
           title="Could not load billing"
-          description="Run supabase/migrations/041_billing.sql in the Supabase SQL Editor, then refresh."
+          description={describeLoadError(query.error, "Billing", "041_billing.sql")}
         />
       </Panel>
     );

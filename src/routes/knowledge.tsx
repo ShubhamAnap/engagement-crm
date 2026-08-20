@@ -765,10 +765,6 @@ function Page() {
                   Tag site photos with state / place (e.g. Maharashtra). Visitors who ask for references by place get
                   matching tagged photos.
                 </li>
-                <li>
-                  Photos need a public <span className="font-medium text-foreground">APP_URL / VITE_APP_URL</span> (HTTPS
-                  on Render) so WhatsApp / Meta can open <span className="font-medium text-foreground">/d/…</span> links.
-                </li>
               </ul>
             </Panel>
           </div>

@@ -33,6 +33,7 @@ import {
 import { ChannelBrandMark } from "@/components/shared/ChannelBrandMark";
 import { getChannelBrand } from "@/lib/channel-brand";
 import { useAuth, useOrgId } from "@/lib/auth";
+import { featureNotSetUp } from "@/lib/feature-setup";
 import {
   channelStatusTone,
   getChannelConfig,
@@ -622,7 +623,7 @@ function Page() {
         const key = bmApiKey.trim() || existing.api_key || "";
         if (!base) throw new Error("Brainmine API base URL is required");
         if (!key && !bmSetupQuery.data?.hasKey) {
-          throw new Error("Brainmine API key is required (UI or BRAINMINE_API_KEY in .env)");
+          throw new Error("Brainmine API key is required");
         }
         const syncLimit = Number(bmSyncLimit) || bmSetupQuery.data?.syncLimit || 30;
         return saveBrainmineChannelConfig({
@@ -1284,7 +1285,7 @@ function Page() {
             <div className="sm:col-span-2 xl:col-span-3">
               <EmptyState
                 title="No channels"
-                description="Run supabase/migrations/003_core_schema.sql to seed Website, WhatsApp, Email, Instagram, and Facebook."
+                description={featureNotSetUp("Channels", "003_core_schema.sql")}
               />
             </div>
           ) : (
@@ -1446,9 +1447,8 @@ function Page() {
           </p>
           {!widgetKey ? (
             <p className="mb-3 text-sm text-warning">
-              Set <code className="rounded bg-secondary px-1">WIDGET_PUBLIC_KEY</code> and{" "}
-              <code className="rounded bg-secondary px-1">VITE_WIDGET_PUBLIC_KEY</code> to the <strong>same</strong> value
-              in <code className="rounded bg-secondary px-1">.env</code> (and Render), then restart / redeploy.
+              This workspace does not have a widget key yet, so the snippet below will not connect.
+              Contact support and we will issue one.
             </p>
           ) : null}
           <pre className="overflow-x-auto rounded-lg border border-border bg-secondary/50 p-3 text-xs leading-relaxed">
@@ -1543,11 +1543,9 @@ function Page() {
               token with Meta (works on localhost).
             </li>
             <li>
-              For inbound chats: Meta cannot call <code className="rounded bg-secondary px-1">localhost</code>.
-              Use a public HTTPS tunnel (ngrok / Cloudflare Tunnel), set{" "}
-              <code className="rounded bg-secondary px-1">VITE_APP_URL</code> to that HTTPS URL, restart
-              the app, then in Meta Webhooks set Callback URL to the URL below and the same Verify
-              Token. Subscribe to <code className="rounded bg-secondary px-1">messages</code>.
+              For inbound chats: in Meta → Webhooks, set the Callback URL to the address below and the
+              same Verify Token, then subscribe to{" "}
+              <code className="rounded bg-secondary px-1">messages</code>.
             </li>
           </ol>
           <div className="flex flex-wrap items-center gap-2">
@@ -2004,7 +2002,7 @@ function Page() {
                       }`
                     : "CRM key saved — run Sync leads now to import enquiries (max once / 5 min)."
                   : "Channel card ready — click Configure IndiaMART and paste your CRM key."
-                : "IndiaMART card missing from the grid. Click Create IndiaMART card (requires migration 007)."}
+                : "IndiaMART is not on your channel grid yet — click Create IndiaMART card to add it."}
           </p>
 
           <div className="mt-4 rounded-lg border border-border/80 bg-secondary/30 p-3">
@@ -2258,7 +2256,7 @@ function Page() {
                   ? `Credentials saved. Last sync ${new Date(tiSetupQuery.data.lastSyncAt).toLocaleString()}.`
                   : "Credentials saved — run Sync leads now to import inquiries."
                 : "Channel card ready — click Configure TradeIndia and paste userid / profile_id / key."
-              : "TradeIndia card missing. Click Create TradeIndia card (requires migration 014 + 014b)."}
+              : "TradeIndia is not on your channel grid yet — click Create TradeIndia card to add it."}
           </p>
 
           <div className="mt-4 rounded-lg border border-border/80 bg-secondary/30 p-3">
@@ -2461,7 +2459,7 @@ function Page() {
                   ? `Connected. Last manual/range sync ${new Date(bmSetupQuery.data.lastSyncAt).toLocaleString()}.`
                   : "Credentials saved — run Sync leads now or a date range."
                 : "Channel card ready — click Configure Brainmine."
-              : "Brainmine card missing. Click Create Brainmine card (requires migration 011 + 011b)."}
+              : "Brainmine is not on your channel grid yet — click Create Brainmine card to add it."}
           </p>
           {bmSetupQuery.data?.lastWritebackAt || bmSetupQuery.data?.lastWritebackResult ? (
             <p className="mt-1 text-xs text-muted-foreground">
@@ -2542,7 +2540,7 @@ function Page() {
                 <span className="font-medium text-foreground">Last cron check:</span>{" "}
                 {bmSetupQuery.data?.lastAutoSyncAttemptAt
                   ? new Date(bmSetupQuery.data.lastAutoSyncAttemptAt).toLocaleString()
-                  : "No cron hit yet — check Render Cron CRON_URL / CRON_SECRET"}
+                  : "Not yet — contact support if this stays empty"}
               </p>
               <p>
                 <span className="font-medium text-foreground">Result:</span>{" "}
@@ -2615,13 +2613,9 @@ function Page() {
               </Button>
             </div>
             <p className="mt-2 text-[11px] text-muted-foreground">
-              Default: <strong>On</strong>, every <strong>5 minutes</strong> when Brainmine is
-              configured (matches Render Cron). Hits{" "}
-              <code className="text-[10px]">/api/cron/automations</code>. If “Last cron check” never
-              updates, fix Cron env:{" "}
-              <code className="text-[10px]">CRON_URL</code> = this app’s{" "}
-              <code className="text-[10px]">…/api/cron/automations</code> and matching{" "}
-              <code className="text-[10px]">CRON_SECRET</code>. Seconds minimum is 60 after save.
+              Default: <strong>On</strong>, every <strong>5 minutes</strong> once Brainmine is
+              configured. The shortest interval is 60 seconds. If “Last cron check” never updates,
+              contact support.
             </p>
           </div>
 
@@ -2752,7 +2746,7 @@ function Page() {
                     ? "REST keys saved — run Inspect, then Sync now."
                     : "Site URL ready. Inspect works now; add REST keys later for prices and PDFs."
                 : "Channel card ready — click Configure WordPress."
-              : "WordPress card missing. Click Create WordPress card (requires migration 034 + 034b)."}
+              : "WordPress is not on your channel grid yet — click Create WordPress card to add it."}
           </p>
           {wpSetupQuery.data?.lastSyncError ? (
             <p className="mt-1 text-xs text-destructive">{wpSetupQuery.data.lastSyncError}</p>
@@ -3112,9 +3106,7 @@ function Page() {
                   value={bmApiKey}
                   onChange={(e) => setBmApiKey(e.target.value)}
                   placeholder={
-                    bmSetupQuery.data?.hasKey
-                      ? "Leave blank to keep existing / .env key"
-                      : "API key"
+                    bmSetupQuery.data?.hasKey ? "Leave blank to keep the saved key" : "API key"
                   }
                 />
               </div>
@@ -3127,7 +3119,7 @@ function Page() {
                   onChange={(e) => setBmApiSecret(e.target.value)}
                   placeholder={
                     bmSetupQuery.data?.hasSecret
-                      ? "Leave blank to keep existing / .env secret"
+                      ? "Leave blank to keep the saved secret"
                       : "ERPNext-style api_secret"
                   }
                 />
@@ -3180,15 +3172,9 @@ function Page() {
                 </p>
               </div>
               <p className="text-xs text-muted-foreground">
-                Values here override{" "}
-                <code className="text-[10px]">BRAINMINE_*</code> in{" "}
-                <code className="text-[10px]">.env</code> / Render. Default base:{" "}
-                <code className="text-[10px]">https://brainmineai.in</code>. If Lead
-                list is empty, try{" "}
-                <code className="text-[10px]">/api/resource/Opportunity</code>.
-                {bmSetupQuery.data?.fromEnv?.key || bmSetupQuery.data?.fromEnv?.baseUrl
-                  ? " Env credentials detected."
-                  : null}
+                Default base: <code className="text-[10px]">https://brainmineai.in</code>. If the Lead
+                list comes back empty, try{" "}
+                <code className="text-[10px]">/api/resource/Opportunity</code> as the resource path.
               </p>
             </div>
           ) : editing?.type === "wordpress" ? (
@@ -3225,19 +3211,14 @@ function Page() {
                   onChange={(e) => setWpConsumerSecret(e.target.value)}
                   placeholder={
                     wpSetupQuery.data?.hasKeys
-                      ? "Leave blank to keep existing / .env secret"
+                      ? "Leave blank to keep the saved secret"
                       : "cs_… from WooCommerce REST API"
                   }
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                Keys are stored in the channel config (service role), not git. Override with{" "}
-                <code className="text-[10px]">WOO_SITE_URL</code> /{" "}
-                <code className="text-[10px]">WOO_CONSUMER_KEY</code> /{" "}
-                <code className="text-[10px]">WOO_CONSUMER_SECRET</code> on Render.
-                {wpSetupQuery.data?.fromEnv?.key || wpSetupQuery.data?.fromEnv?.siteUrl
-                  ? " Env credentials detected."
-                  : null}
+                Keys are stored against this channel, visible only to your workspace, and used solely
+                to reach your store.
               </p>
             </div>
           ) : (

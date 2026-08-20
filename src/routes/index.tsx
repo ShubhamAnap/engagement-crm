@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { ChannelIcon, EmptyState, PageHeader, Panel, Pill, StatCard } from "@/components/shared/ui-kit";
 import { getChannelBrand } from "@/lib/channel-brand";
 import { useAuth } from "@/lib/auth";
+import { describeLoadError, featureNotSetUp } from "@/lib/feature-setup";
 import { downloadCsv } from "@/lib/csv";
 import { getDashboardSnapshot } from "@/lib/dashboard-api";
 import { getSpendSnapshot } from "@/lib/spend-api";
@@ -240,11 +241,7 @@ function Dashboard() {
                 <div className="p-4">
                   <EmptyState
                     title="Could not load API spend"
-                    description={
-                      spendQuery.error instanceof Error
-                        ? spendQuery.error.message
-                        : "Check that 037_api_spend.sql has been run in Supabase."
-                    }
+                    description={describeLoadError(spendQuery.error, "API spend", "037_api_spend.sql")}
                     action={
                       <Button
                         size="sm"
@@ -258,8 +255,8 @@ function Dashboard() {
               ) : spendQuery.data?.missingTables ? (
                 <div className="p-4">
                   <EmptyState
-                    title="Spend tables not installed"
-                    description="Run supabase/migrations/037_api_spend.sql in the Supabase SQL Editor. Going-forward OpenAI and WhatsApp usage will then appear here."
+                    title="Usage tracking not enabled"
+                    description={featureNotSetUp("Usage tracking", "037_api_spend.sql")}
                   />
                 </div>
               ) : spendQuery.isLoading ? (

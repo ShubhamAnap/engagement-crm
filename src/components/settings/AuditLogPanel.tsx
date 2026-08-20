@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { EmptyState, Panel } from "@/components/shared/ui-kit";
+import { describeLoadError } from "@/lib/feature-setup";
 import { listOrgAuditEvents } from "@/server/platform-console";
 
 export function AuditLogPanel() {
@@ -20,7 +21,7 @@ export function AuditLogPanel() {
       ) : query.isError ? (
         <EmptyState
           title="Audit log unavailable"
-          description="Run 042_platform_admin.sql in Supabase, then refresh."
+          description={describeLoadError(query.error, "The audit log", "042_platform_admin.sql")}
         />
       ) : rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">No audit events recorded yet.</p>

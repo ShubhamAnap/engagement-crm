@@ -25,6 +25,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState, ListSkeleton, PageHeader, Panel, Pill } from "@/components/shared/ui-kit";
+import { describeLoadError } from "@/lib/feature-setup";
 import {
   FORMULA_CATEGORIES,
   KW_TO_KVA_FACTOR,
@@ -384,12 +385,10 @@ function Page() {
     setLoadOpen(true);
   }
 
-  const migrationError =
-    formulasQuery.error instanceof Error
-      ? formulasQuery.error.message
-      : loadsQuery.error instanceof Error
-        ? loadsQuery.error.message
-        : null;
+  const loadError = formulasQuery.error || loadsQuery.error;
+  const loadErrorMessage = loadError
+    ? describeLoadError(loadError, "Formulas", "027_sizing_formulas.sql")
+    : null;
 
   return (
     <>
@@ -398,9 +397,9 @@ function Page() {
         description="Sizing library for solar, inverter, battery and BESS — plus appliance wattages for load-based calculations."
       />
 
-      {migrationError ? (
+      {loadErrorMessage ? (
         <Panel className="mb-4 border-destructive/40">
-          <p className="text-sm text-destructive">{migrationError}</p>
+          <p className="text-sm text-destructive">{loadErrorMessage}</p>
         </Panel>
       ) : null}
 
@@ -563,7 +562,7 @@ function Page() {
                 ) : (
                   <EmptyState
                     title="No formulas yet"
-                    description="Add formulas under the Formulas tab (or run migration 027)."
+                    description="Add one under the Formulas tab to start sizing from this calculator."
                   />
                 )}
               </div>
@@ -582,7 +581,7 @@ function Page() {
           ) : formulas.length === 0 ? (
             <EmptyState
               title="No formulas"
-              description="Run migration 027 or add your first sizing formula."
+              description="Add your first sizing formula for solar, inverter, battery, or BESS."
               action={
                 <Button onClick={openCreateFormula}>
                   <Plus className="size-3.5" /> Add formula
@@ -649,7 +648,7 @@ function Page() {
           ) : loads.length === 0 ? (
             <EmptyState
               title="No load applications"
-              description="Run migration 027 or add appliances with wattages."
+              description="Add appliances with their wattages to enable load-based sizing."
               action={
                 <Button onClick={openCreateLoad}>
                   <Plus className="size-3.5" /> Add load

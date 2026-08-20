@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { EmptyState, PageHeader, Panel, Pill, StatCard } from "@/components/shared/ui-kit";
 import { useAuth, useOrgId } from "@/lib/auth";
+import { describeLoadError, isMissingSchemaError } from "@/lib/feature-setup";
 import { listAgents } from "@/lib/agents-api";
 import {
   allowedToolsFromAgentConfig,
@@ -52,8 +53,7 @@ function Page() {
       try {
         return await listAiTools(orgId);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (/021_ai_tools|does not exist|schema cache/i.test(msg) && !bootstrapped) {
+        if (isMissingSchemaError(err) && !bootstrapped) {
           setBootstrapped(true);
           return ensureDefaultAiTools(orgId);
         }
@@ -171,10 +171,6 @@ function Page() {
               Chat uses only the intersection: globally on <strong>and</strong> allowed on Master or the
               active specialist (union). Answer Inspector shows tools used per reply.
             </li>
-            <li>
-              Run migration <code className="rounded bg-secondary px-1">021_ai_tools.sql</code> once in Supabase
-              if this page errors.
-            </li>
             {!isAdmin ? (
               <li className="text-warning">Only Admin can toggle tools on or off.</li>
             ) : null}
@@ -188,16 +184,12 @@ function Page() {
         ) : toolsQuery.isError ? (
           <EmptyState
             title="Could not load tools"
-            description={
-              toolsQuery.error instanceof Error
-                ? toolsQuery.error.message
-                : "Run 021_ai_tools.sql in Supabase SQL Editor."
-            }
+            description={describeLoadError(toolsQuery.error, "AI tools", "021_ai_tools.sql")}
           />
         ) : tools.length === 0 ? (
           <EmptyState
             title="No tools yet"
-            description="Run migration 021_ai_tools.sql to seed Calculator and Web search."
+            description="Add the built-in Calculator and Web search tools to get started."
             action={
               isAdmin ? (
                 <Button

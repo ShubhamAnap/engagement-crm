@@ -463,7 +463,7 @@ function Page() {
             <div className="sm:col-span-2 xl:col-span-3">
               <EmptyState
                 title="No agents"
-                description="Run supabase/migrations/003_core_schema.sql to seed Sales, Support, Technical, and other agents."
+                description="Add a specialist to start routing conversations to Sales, Support, or Technical."
               />
             </div>
           ) : (
@@ -821,8 +821,8 @@ function Page() {
           <DialogHeader>
             <DialogTitle>Add specialist</DialogTitle>
             <DialogDescription>
-              Creates a new agent row. It fires when extra routing keywords match (after built-in specialists).
-              No SQL migration needed.
+              Creates a new agent. It handles conversations when its routing keywords match, after the
+              built-in specialists have been considered.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">

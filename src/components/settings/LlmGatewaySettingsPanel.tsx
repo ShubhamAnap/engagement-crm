@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EmptyState, Panel, Pill } from "@/components/shared/ui-kit";
+import { featureNotSetUp } from "@/lib/feature-setup";
 import { AGENT_MODEL_OPTIONS } from "@/lib/agent-prompts";
 import {
   getLlmGatewaySettings,
@@ -115,8 +116,8 @@ export function LlmGatewaySettingsPanel() {
     return (
       <Panel title="AI Gateway">
         <EmptyState
-          title="Gateway table not installed"
-          description="Run supabase/migrations/038_llm_gateway.sql in the Supabase SQL Editor, then refresh. Chat keeps using the current OpenAI env defaults until then."
+          title="AI Gateway not available yet"
+          description={featureNotSetUp("The AI Gateway", "038_llm_gateway.sql")}
           action={
             <Button size="sm" onClick={() => void query.refetch()}>
               Retry

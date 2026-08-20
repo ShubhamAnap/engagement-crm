@@ -25,6 +25,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { EmptyState, PageHeader, Panel, Pill, StatCard } from "@/components/shared/ui-kit";
 import { useAuth, useOrgId } from "@/lib/auth";
 import { formatRelativeTime } from "@/lib/chat-api";
+import { featureNotSetUp, isMissingSchemaError } from "@/lib/feature-setup";
 import {
   createAndSendBroadcast,
   createAndSendEmailBroadcast,
@@ -223,8 +224,8 @@ function Page() {
   const previewSyncMutation = useMutation({
     mutationFn: () => previewWhatsAppTemplateSync(),
     onSuccess: (r) => {
-      if (r.dbError?.includes("does not exist")) {
-        toast.error("Database table missing — run migration 009_broadcasting.sql in Supabase.");
+      if (isMissingSchemaError(r.dbError)) {
+        toast.error(featureNotSetUp("Broadcasting", "009_broadcasting.sql"));
         return;
       }
       const metaCount = Math.max(r.configuredTemplateCount ?? 0, r.discoveredTemplateCount ?? 0);
@@ -752,9 +753,6 @@ function Page() {
               (leads / customers / IndiaMART / manual phones) → send.
             </li>
           </ol>
-          <p className="mt-3 text-xs text-muted-foreground">
-            Run migration <code className="rounded bg-secondary px-1">009_broadcasting.sql</code> in Supabase once.
-          </p>
         </Panel>
       </div>
 

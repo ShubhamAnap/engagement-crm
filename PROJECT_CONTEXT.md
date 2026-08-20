@@ -5,6 +5,23 @@
 
 ---
 
+### Session 2026-08-20 — Operator copy removed from tenant UI
+
+**Problem:** ~25 tenant-facing screens told the customer to run SQL — “Run `supabase/migrations/041_billing.sql` in the Supabase SQL Editor, then refresh” — or to set env vars (`WIDGET_PUBLIC_KEY`, `VITE_APP_URL`, `CRON_URL`/`CRON_SECRET`, `BRAINMINE_*`, `WOO_*`). A workspace admin has no database or Render access, so this copy was unactionable and made the product read like an internal dev tool. Several screens also dumped raw Postgres errors (`relation … does not exist`) straight into an empty state.
+
+**Done:**
+
+1. **New `src/lib/feature-setup.ts`.** `featureNotSetUp(feature, hint)` and `describeLoadError(err, feature, hint)` produce customer-safe copy (“… is not available for this workspace yet. Contact support…”). The migration filename is passed as a *hint* and only rendered when `import.meta.env.DEV`, so developers keep the actionable detail locally while customers never see it. `describeLoadError` also `console.error`s the raw error, so support can still read it from the browser console in production. `isMissingSchemaError` centralises the `does not exist` / `schema cache` / `42P01` / `PGRST205` detection that was duplicated as ad-hoc regexes.
+2. **Migration/SQL copy replaced** in `channels`, `broadcasting`, `automation`, `tools`, `agents`, `formulas`, `index` (dashboard), `settings`, and the Billing / LLM Gateway / Audit Log settings panels.
+3. **Env-var and deployment instructions removed** from Channels (widget key, WhatsApp tunnel setup, Brainmine cron, Woo/Brainmine credential overrides), Knowledge (`APP_URL`), and the automation “How it works” panel (`FOLLOWUP_WA_TEMPLATE_NAME`). The public `ChatWidget` no longer tells a *visitor* to “Check .env and restart the dev server” — it says chat is unavailable.
+4. **Corrected a false security claim** drafted mid-session: channel credentials in `channels.config` are plain `jsonb` (003 says “encrypted later”), so the Woo copy says stored and workspace-visible, not encrypted.
+
+**Convention going forward:** never put a migration filename, env var, SQL hint, or raw database error in tenant-facing UI. Pass it as the `hint` argument to `feature-setup.ts` instead.
+
+**Not done:** `/platform` P1/P2 leftovers from the earlier console audit — export org report, per-org feature flags, soft limits with grace period before hard suspend, invoices/payment history, trial extend, abuse signals, maintenance banner. Also still open: `x-enertech-*` header names and per-org Meta verify tokens.
+
+---
+
 ### Session 2026-08-20 — Multi-org isolation hardening (follow-up items)
 
 **Done:**

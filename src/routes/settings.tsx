@@ -199,7 +199,7 @@ function Page() {
           <Panel>
             <p className="mb-3 text-sm text-muted-foreground">
               {session
-                ? "Could not load your profile. Try refreshing, or run pending Supabase migrations if branding columns were added."
+                ? "Could not load your profile. Retry below — if it keeps happening, contact support."
                 : "Sign in to manage your profile."}
             </p>
             {session ? (

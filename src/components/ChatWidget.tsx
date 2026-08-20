@@ -57,6 +57,8 @@ type UiMsg = {
 };
 type VisitorProfile = WidgetVisitorProfile;
 
+/** Visitor-facing: the embedding site owner has not pasted a valid widget key. */
+const WIDGET_KEY_MISSING = "Chat is not available right now. Please try again later.";
 const SESSION_KEY = "enertech-widget-session";
 const PROFILE_KEY = "enertech-widget-profile";
 const BRAND = ENERTECH_NAVY_HEX;
@@ -333,7 +335,7 @@ export function ChatWidget() {
   }, [open, pinToBottom]);
 
   async function syncConversationProfile(override?: VisitorProfile) {
-    if (!widgetKey) throw new Error("Widget public key is missing. Check .env and restart the dev server.");
+    if (!widgetKey) throw new Error(WIDGET_KEY_MISSING);
     const visitor = override ?? profileRef.current;
     const prevId = conversationIdRef.current;
     const convo = await widgetGetOrCreateConversation({
@@ -404,7 +406,7 @@ export function ChatWidget() {
   useEffect(() => {
     if (!open || !session) return;
     if (!widgetKey) {
-      toast.error("Widget public key is missing. Check .env and restart the dev server.");
+      toast.error(WIDGET_KEY_MISSING);
       return;
     }
     let cancelled = false;
@@ -498,7 +500,7 @@ export function ChatWidget() {
       return;
     }
     if (!widgetKey) {
-      toast.error("Widget public key is missing. Check .env and restart the dev server.");
+      toast.error(WIDGET_KEY_MISSING);
       return;
     }
     if (busy) return;
@@ -585,7 +587,7 @@ export function ChatWidget() {
       return;
     }
     if (!widgetKey) {
-      toast.error("Widget public key is missing. Check .env and restart the dev server.");
+      toast.error(WIDGET_KEY_MISSING);
       return;
     }
     if (!isProfileComplete(profile)) {

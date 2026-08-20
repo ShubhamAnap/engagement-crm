@@ -1177,15 +1177,13 @@ function Page() {
           <p className="text-sm text-muted-foreground">
             Live workflows queue for <strong>Approve / Reject</strong> in the amber bar under the top
             nav (when “Require approval” is on — default). Nothing runs until you approve: follow-ups,
-            IndiaMART remarketing, WhatsApp, email, etc. Run{" "}
-            <code className="rounded bg-secondary px-1 text-xs">013_automation_approvals.sql</code>{" "}
-            in Supabase. Cron still detects due follow-ups, but campaigns wait for your approval.
+            IndiaMART remarketing, WhatsApp, email, etc. Due follow-ups are still detected on
+            schedule, but campaigns wait for your approval.
             <br />
             <br />
-            <strong>Follow-up Agent</strong> (daily): cron or{" "}
-            <em>Suggest today’s follow-up</em> picks open leads that need a nudge, queues{" "}
-            <strong>one</strong> approval. After you Approve, it WhatsApps (or emails) each lead.
-            Optional env: <code className="rounded bg-secondary px-1 text-xs">FOLLOWUP_WA_TEMPLATE_NAME</code>.
+            <strong>Follow-up Agent</strong> (daily): on schedule, or via{" "}
+            <em>Suggest today’s follow-up</em>, open leads that need a nudge are collected into{" "}
+            <strong>one</strong> approval. After you approve, each lead gets a WhatsApp (or email).
             The Agents page “followup” prompt is only for chat — it does not create campaigns by itself.
           </p>
         </Panel>
@@ -1205,7 +1203,7 @@ function Page() {
               <div className="p-4">
                 <EmptyState
                   title="No workflows"
-                  description="Run supabase/migrations/008_automations.sql, then refresh — or create a workflow."
+                  description="Create a workflow to automate follow-ups, remarketing, and alerts."
                 />
               </div>
             ) : (

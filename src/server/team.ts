@@ -4,6 +4,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
+import { recordAuditEvent } from "@/server/audit-log";
 import { requireStaffUser } from "@/server/staff-auth";
 import {
   DEFAULT_NEW_USER_PERMISSIONS,
@@ -11,8 +12,6 @@ import {
   normalizePermissions,
   type PermissionKey,
 } from "@/lib/permissions";
-
-import { DEFAULT_ORG_ID } from "@/server/org-context";
 
 const permissionsSchema = z.array(z.string()).max(allPermissionKeys().length + 4);
 
@@ -177,6 +176,18 @@ export const updateTeamMember = createServerFn({ method: "POST" })
       if (banError) {
         console.warn("auth ban toggle failed", banError.message);
       }
+    }
+
+    if (Object.keys(patch).length || data.isActive !== undefined) {
+      void recordAuditEvent({
+        orgId: auth.profile.org_id,
+        actorId: auth.profile.id,
+        actorEmail: auth.profile.email,
+        action: "team.update",
+        resourceType: "profile",
+        resourceId: data.userId,
+        metadata: { fields: Object.keys(patch), isActive: data.isActive },
+      });
     }
 
     return { ok: true };

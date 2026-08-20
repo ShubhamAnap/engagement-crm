@@ -97,6 +97,19 @@ doctl apps create --spec .do/app.yaml
 
 - [`PROJECT_CONTEXT.md`](./PROJECT_CONTEXT.md) — implementation tracker, phases, decisions
 - [`AGENTS.md`](./AGENTS.md) — rules for AI-assisted development
+- [`docs/launch-runbook.md`](./docs/launch-runbook.md) — Phase 6 launch checklist, backup/restore, deletion flows, support runbook
+
+## Prelaunch checks
+
+Run the automated readiness check before launch:
+
+```sh
+npm run check:launch
+```
+
+This verifies the required migration files, key environment variables, and Phase 6 docs are present.
+It does **not** replace the manual two-org isolation pass and backup/restore drill described in
+`docs/launch-runbook.md`.
 
 ## Product modules
 

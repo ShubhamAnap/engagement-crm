@@ -8,7 +8,7 @@ import { createServiceSupabase } from "@/lib/supabase";
 import type { AutomationAction, AutomationLeafAction } from "@/lib/automation-types";
 import type { AutomationContext } from "@/server/automation-engine";
 
-import { DEFAULT_ORG_ID } from "@/server/org-context";
+import { resolveServiceOrgId } from "@/server/org-context";
 const DAILY_AUTO_NAME = "Follow-up Agent · Daily campaign";
 const DAILY_TRIGGER = "daily_followup";
 const MAX_AUDIENCE = 40;
@@ -41,7 +41,7 @@ async function resolveFollowUpTemplate(
   const { data } = await supabase
     .from("wa_message_templates")
     .select("name, language, status")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .order("updated_at", { ascending: false })
     .limit(40);
 
@@ -88,7 +88,7 @@ async function ensureDailyFollowUpAutomation(
   const { data: existing } = await supabase
     .from("automations")
     .select("id, name, actions")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("name", DAILY_AUTO_NAME)
     .maybeSingle();
 
@@ -124,7 +124,7 @@ async function ensureDailyFollowUpAutomation(
   const { data: created, error } = await supabase
     .from("automations")
     .insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: await resolveServiceOrgId(),
       name: DAILY_AUTO_NAME,
       description:
         "Created by Follow-up Agent. Daily cron proposes an audience; you Approve once, then it runs for each lead.",
@@ -174,7 +174,7 @@ async function pickFollowUpAudience(
     .select(
       "id, name, company, phone, email, source, status, product_label, sales_person, next_follow_up_at, last_activity_at, created_at",
     )
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .not("status", "in", "(Won,Lost)")
     .order("last_activity_at", { ascending: true, nullsFirst: true })
     .limit(200);
@@ -239,7 +239,7 @@ export async function proposeDailyFollowUpCampaign(options?: {
     const { data: pending } = await supabase
       .from("automation_approvals")
       .select("id, context, created_at")
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await resolveServiceOrgId())
       .eq("status", "pending")
       .eq("trigger_type", DAILY_TRIGGER)
       .order("created_at", { ascending: false })
@@ -315,7 +315,7 @@ export async function proposeDailyFollowUpCampaign(options?: {
   const { data: approval, error } = await supabase
     .from("automation_approvals")
     .insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: await resolveServiceOrgId(),
       automation_id: auto.id,
       automation_name: auto.name,
       trigger_type: DAILY_TRIGGER,
@@ -333,7 +333,7 @@ export async function proposeDailyFollowUpCampaign(options?: {
   if (error) throw new Error(error.message);
 
   await supabase.from("notifications").insert({
-    org_id: DEFAULT_ORG_ID,
+    org_id: await resolveServiceOrgId(),
     title: "Follow-up Agent · approval needed",
     body: goal,
     href: "/automation",
@@ -376,7 +376,7 @@ export async function executeDailyFollowUpBatch(
         .from("automation_approvals")
         .select("*")
         .eq("id", approvalId)
-        .eq("org_id", DEFAULT_ORG_ID)
+        .eq("org_id", await resolveServiceOrgId())
         .maybeSingle();
       if (error) throw new Error(error.message);
       if (!data) throw new Error("Approval not found");
@@ -385,7 +385,7 @@ export async function executeDailyFollowUpBatch(
     }
   }
 
-  if ((row.org_id as string) && row.org_id !== DEFAULT_ORG_ID) {
+  if ((row.org_id as string) && row.org_id !== (await resolveServiceOrgId())) {
     throw new Error("Approval not found");
   }
   if (row.status !== "pending" && !opts?.alreadyClaimed) {
@@ -435,7 +435,7 @@ export async function executeDailyFollowUpBatch(
     .eq("id", approvalId);
 
   await supabase.from("automation_runs").insert({
-    org_id: DEFAULT_ORG_ID,
+    org_id: await resolveServiceOrgId(),
     automation_id: row.automation_id,
     status: failed && !sent ? "failed" : "success",
     trigger_type: `${DAILY_TRIGGER}:approved`,

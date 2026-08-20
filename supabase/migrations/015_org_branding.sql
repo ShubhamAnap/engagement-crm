@@ -1,5 +1,6 @@
 -- Org branding: logo + optional accent color + public storage bucket
 -- Run in Supabase SQL Editor after earlier migrations.
+-- After 039_storage_org_isolation.sql, do not re-apply the blanket branding SELECT/INSERT policies.
 
 alter table public.organizations
   add column if not exists logo_url text,

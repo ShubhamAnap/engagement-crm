@@ -4,10 +4,10 @@
  */
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { orgStoragePath } from "@/lib/org-storage";
 import { createServiceSupabase } from "@/lib/supabase";
 import { normalizeCategoryKey } from "@/lib/product-card";
-
-import { DEFAULT_ORG_ID } from "@/server/org-context";
+import { requireStaffOrgId } from "@/server/org-context";
 const BUCKET = "knowledge";
 
 function publicFileUrl(path: string): string {
@@ -46,11 +46,12 @@ export const uploadProductMediaServer = createServerFn({ method: "POST" })
     await ensureBucket();
     const supabase = createServiceSupabase();
 
+    const orgId = await requireStaffOrgId();
     const { data: product, error: pErr } = await supabase
       .from("products")
       .select("id, org_id")
       .eq("id", data.productId)
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .maybeSingle();
     if (pErr) throw new Error(pErr.message);
     if (!product) throw new Error("Product not found");
@@ -80,14 +81,14 @@ export const uploadProductMediaServer = createServerFn({ method: "POST" })
             : ext === "webp"
               ? "image/webp"
               : "image/jpeg";
-      storagePath = `${DEFAULT_ORG_ID}/products/${data.productId}/card.${ext}`;
+      storagePath = orgStoragePath(orgId, "products", data.productId, `card.${ext}`);
     } else {
       if (!lower.endsWith(".pdf") && !String(contentType).includes("pdf")) {
         throw new Error("Catalogue must be a PDF file");
       }
       const safeName = data.fileName.replace(/[^\w.\-]+/g, "_") || "catalogue.pdf";
       contentType = "application/pdf";
-      storagePath = `${DEFAULT_ORG_ID}/products/${data.productId}/${safeName}`;
+      storagePath = orgStoragePath(orgId, "products", data.productId, safeName);
     }
 
     await supabase.storage.from(BUCKET).remove([storagePath]).catch(() => undefined);
@@ -111,7 +112,7 @@ export const uploadProductMediaServer = createServerFn({ method: "POST" })
       .from("products")
       .update(patch)
       .eq("id", data.productId)
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .select("*")
       .single();
 
@@ -150,8 +151,9 @@ export const uploadCategoryCatalogueServer = createServerFn({ method: "POST" })
     if (!lower.endsWith(".pdf") && !String(data.contentType || "").includes("pdf")) {
       throw new Error("Catalogue must be a PDF file");
     }
+    const orgId = await requireStaffOrgId();
     const safeName = data.fileName.replace(/[^\w.\-]+/g, "_") || "catalogue.pdf";
-    const storagePath = `${DEFAULT_ORG_ID}/category-catalogues/${key}/${safeName}`;
+    const storagePath = orgStoragePath(orgId, "category-catalogues", key, safeName);
     await supabase.storage.from(BUCKET).remove([storagePath]).catch(() => undefined);
     const { error: uploadError } = await supabase.storage.from(BUCKET).upload(storagePath, buffer, {
       contentType: "application/pdf",
@@ -165,7 +167,7 @@ export const uploadCategoryCatalogueServer = createServerFn({ method: "POST" })
       .from("product_category_catalogues")
       .upsert(
         {
-          org_id: DEFAULT_ORG_ID,
+          org_id: orgId,
           category_key: key,
           category_label: label,
           catalog_pdf_path: storagePath,

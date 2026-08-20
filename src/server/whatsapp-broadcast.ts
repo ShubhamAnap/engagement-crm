@@ -5,6 +5,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import { recordSpendEvent } from "@/server/api-spend";
+import { assertWhatsAppSendAllowed } from "@/server/org-usage";
+import { requireStaffOrgId, resolveServiceOrgId, tryJobOrgId } from "@/server/org-context";
 import { loadWhatsAppConfig, type WhatsAppChannelConfig } from "@/server/whatsapp";
 import {
   analyzeWaTemplateFromRow,
@@ -14,7 +16,6 @@ import {
 
 export { countTemplateVars } from "@/lib/wa-template-params";
 
-import { DEFAULT_ORG_ID } from "@/server/org-context";
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
 
 export type WaTemplateComponent = {
@@ -127,7 +128,7 @@ async function persistWabaId(wabaId: string, cfg: WhatsAppChannelConfig) {
           business_account_id: wabaId,
         },
       })
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await requireStaffOrgId())
       .eq("type", "whatsapp");
   } catch {
     // non-fatal — sync can still proceed with resolved id
@@ -165,7 +166,7 @@ async function resolveWabaConfig(): Promise<{
   cfg: WhatsAppChannelConfig & { access_token: string; business_account_id: string };
   wabaCorrected: boolean;
 }> {
-  const cfg = await loadWhatsAppConfig();
+  const cfg = await loadWhatsAppConfig(await requireStaffOrgId());
   if (!cfg.access_token) {
     throw new Error("WhatsApp access token is missing. Configure it under Channels → WhatsApp.");
   }
@@ -261,7 +262,7 @@ async function fetchAllMetaTemplates(wabaId: string, accessToken: string): Promi
 }
 
 export const previewWhatsAppTemplateSync = createServerFn({ method: "GET" }).handler(async () => {
-  const cfg = await loadWhatsAppConfig();
+  const cfg = await loadWhatsAppConfig(await requireStaffOrgId());
   if (!cfg.access_token) {
     throw new Error("WhatsApp access token is missing. Configure it under Channels → WhatsApp.");
   }
@@ -276,7 +277,7 @@ export const previewWhatsAppTemplateSync = createServerFn({ method: "GET" }).han
     createServiceSupabase()
       .from("wa_message_templates")
       .select("id", { count: "exact", head: true })
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await requireStaffOrgId())
       .eq("channel_type", "whatsapp"),
   ]);
 
@@ -330,7 +331,7 @@ export const syncWhatsAppTemplatesFromMeta = createServerFn({ method: "POST" }).
     const { data: existing } = await supabase
       .from("wa_message_templates")
       .select("id, status, body_text, header_text, footer_text, category, updated_at")
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await requireStaffOrgId())
       .eq("name", t.name)
       .eq("language", language)
       .maybeSingle();
@@ -350,7 +351,7 @@ export const syncWhatsAppTemplatesFromMeta = createServerFn({ method: "POST" }).
       isNew || contentChanged || (metaUpdatedMs > 0 && metaUpdatedMs > existingUpdatedMs);
 
     const payload = {
-      org_id: DEFAULT_ORG_ID,
+      org_id: await requireStaffOrgId(),
       channel_type: "whatsapp",
       name: t.name,
       language,
@@ -459,7 +460,7 @@ export const submitWhatsAppTemplateToMeta = createServerFn({ method: "POST" })
       .from("wa_message_templates")
       .upsert(
         {
-          org_id: DEFAULT_ORG_ID,
+          org_id: await requireStaffOrgId(),
           channel_type: "whatsapp",
           name: data.name,
           language: data.language,
@@ -494,10 +495,12 @@ export async function sendWhatsAppTemplateMessage(options: {
   headerTextParams?: string[];
   cfg?: WhatsAppChannelConfig;
 }) {
-  const config = options.cfg || (await loadWhatsAppConfig());
+  const config = options.cfg || (await loadWhatsAppConfig(await requireStaffOrgId()));
   if (!config.phone_number_id || !config.access_token) {
     throw new Error("WhatsApp is not configured (phone number id / access token)");
   }
+  const orgId = tryJobOrgId() || (await resolveServiceOrgId());
+  await assertWhatsAppSendAllowed(orgId);
   const to =
     (await import("@/lib/whatsapp-window")).normalizeWhatsAppDigits(options.toPhone) ||
     options.toPhone.replace(/\D/g, "");
@@ -617,7 +620,7 @@ export async function logWhatsAppTemplateSendToInbox(options: {
       .from("conversations")
       .select("id")
       .eq("id", conversationId)
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await requireStaffOrgId())
       .maybeSingle();
     if (!existing) conversationId = null;
   }
@@ -628,6 +631,7 @@ export async function logWhatsAppTemplateSendToInbox(options: {
       supabase,
       phone,
       options.visitorName || undefined,
+      await requireStaffOrgId(),
     );
     conversationId = convo.id as string;
   }
@@ -638,7 +642,7 @@ export async function logWhatsAppTemplateSendToInbox(options: {
   const { data: tpl } = await supabase
     .from("wa_message_templates")
     .select("name, body_text, language")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await requireStaffOrgId())
     .eq("name", options.templateName)
     .order("updated_at", { ascending: false })
     .limit(1)
@@ -657,7 +661,7 @@ export async function logWhatsAppTemplateSendToInbox(options: {
   const { data: msg, error } = await supabase
     .from("messages")
     .insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: await requireStaffOrgId(),
       conversation_id: conversationId,
       sender: options.sender || "ai",
       body,
@@ -692,7 +696,7 @@ export const runWhatsAppBroadcast = createServerFn({ method: "POST" })
   .validator(z.object({ broadcastId: z.string().uuid() }))
   .handler(async ({ data }) => {
     const supabase = createServiceSupabase();
-    const cfg = await loadWhatsAppConfig();
+    const cfg = await loadWhatsAppConfig(await requireStaffOrgId());
     if (!cfg.phone_number_id || !cfg.access_token) {
       throw new Error("WhatsApp is not configured");
     }
@@ -701,7 +705,7 @@ export const runWhatsAppBroadcast = createServerFn({ method: "POST" })
       .from("broadcasts")
       .select("*")
       .eq("id", data.broadcastId)
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await requireStaffOrgId())
       .maybeSingle();
     if (bErr) throw new Error(bErr.message);
     if (!broadcast) throw new Error("Broadcast not found");
@@ -837,7 +841,7 @@ export const runWhatsAppBroadcast = createServerFn({ method: "POST" })
       const { data: dirRows } = await supabase
         .from("sales_person_directory")
         .select("email, display_name, mobile, is_active")
-        .eq("org_id", DEFAULT_ORG_ID)
+        .eq("org_id", await requireStaffOrgId())
         .eq("is_active", true);
       salesDirectory = (dirRows || []) as typeof salesDirectory;
     }
@@ -965,7 +969,7 @@ export const sendInboxWhatsAppTemplate = createServerFn({ method: "POST" })
         "id, channel, visitor_phone, visitor_name, metadata, widget_session_id, status, assignee_label",
       )
       .eq("id", data.conversationId)
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await requireStaffOrgId())
       .maybeSingle();
     if (cErr) throw new Error(cErr.message);
     if (!convo) throw new Error("Conversation not found");
@@ -979,7 +983,7 @@ export const sendInboxWhatsAppTemplate = createServerFn({ method: "POST" })
       .from("wa_message_templates")
       .select("*")
       .eq("id", data.templateId)
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await requireStaffOrgId())
       .maybeSingle();
     if (tErr) throw new Error(tErr.message);
     if (!tpl) throw new Error("Template not found");
@@ -1039,7 +1043,7 @@ export const sendInboxWhatsAppTemplate = createServerFn({ method: "POST" })
     const { data: msg, error: mErr } = await supabase
       .from("messages")
       .insert({
-        org_id: DEFAULT_ORG_ID,
+        org_id: await requireStaffOrgId(),
         conversation_id: data.conversationId,
         sender: "agent",
         body: `[Template: ${tpl.name}] ${previewBody}`.slice(0, 8000),

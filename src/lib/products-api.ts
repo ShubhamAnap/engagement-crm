@@ -1,4 +1,5 @@
-﻿import { getBrowserSupabase } from "@/lib/supabase";
+﻿import { assertOrgStoragePath, orgStoragePath } from "@/lib/org-storage";
+import { getBrowserSupabase } from "@/lib/supabase";
 import type { DbCategoryCatalogue, DbProduct, StockStatus } from "@/lib/db-types";
 import { downloadCsv } from "@/lib/csv";
 import {
@@ -234,7 +235,7 @@ export async function uploadProductCataloguePdf(options: {
 
   const supabase = getBrowserSupabase();
   const safeName = file.name.replace(/[^\w.\-]+/g, "_") || "catalogue.pdf";
-  const storagePath = `${orgId}/products/${productId}/${safeName}`;
+  const storagePath = orgStoragePath(orgId, "products", productId, safeName);
 
   const via = await uploadToKnowledgeBucket({
     storagePath,
@@ -280,7 +281,7 @@ export async function removeProductCataloguePdf(options: {
   const supabase = getBrowserSupabase();
 
   if (storagePath) {
-    await supabase.storage.from(KNOWLEDGE_BUCKET).remove([storagePath]);
+    await supabase.storage.from(KNOWLEDGE_BUCKET).remove([assertOrgStoragePath(storagePath, orgId)]);
   }
 
   const { data, error } = await supabase
@@ -349,7 +350,7 @@ export async function uploadCategoryCataloguePdf(options: {
 
   const supabase = getBrowserSupabase();
   const safeName = file.name.replace(/[^\w.\-]+/g, "_") || "catalogue.pdf";
-  const storagePath = `${orgId}/category-catalogues/${key}/${safeName}`;
+  const storagePath = orgStoragePath(orgId, "category-catalogues", key, safeName);
 
   const attempt = async () =>
     supabase.storage.from(KNOWLEDGE_BUCKET).upload(storagePath, file, {
@@ -401,7 +402,7 @@ export async function removeCategoryCataloguePdf(options: {
   const { orgId, categoryKey, storagePath } = options;
   const supabase = getBrowserSupabase();
   if (storagePath) {
-    await supabase.storage.from(KNOWLEDGE_BUCKET).remove([storagePath]);
+    await supabase.storage.from(KNOWLEDGE_BUCKET).remove([assertOrgStoragePath(storagePath, orgId)]);
   }
   const { error } = await supabase
     .from("product_category_catalogues")
@@ -445,7 +446,7 @@ export async function uploadProductImage(options: {
   const contentType =
     file.type ||
     (ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg");
-  const storagePath = `${orgId}/products/${productId}/card.${ext}`;
+  const storagePath = orgStoragePath(orgId, "products", productId, `card.${ext}`);
 
   const via = await uploadToKnowledgeBucket({
     storagePath,
@@ -489,7 +490,7 @@ export async function removeProductImage(options: {
   const { orgId, productId, storagePath } = options;
   const supabase = getBrowserSupabase();
   if (storagePath) {
-    await supabase.storage.from(KNOWLEDGE_BUCKET).remove([storagePath]);
+    await supabase.storage.from(KNOWLEDGE_BUCKET).remove([assertOrgStoragePath(storagePath, orgId)]);
   }
   const { data, error } = await supabase
     .from("products")

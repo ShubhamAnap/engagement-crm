@@ -10,7 +10,7 @@ import {
 import { previewSpecialistKey, type ExtraRoutingMatcher } from "@/lib/agent-routing";
 import { resolveLlmModel } from "@/server/llm-gateway";
 
-import { DEFAULT_ORG_ID } from "@/server/org-context";
+import { resolveServiceOrgId, tryJobOrgId } from "@/server/org-context";
 
 /** Default master orchestrator key (Support / EnerBot). */
 export const MASTER_AGENT_KEY = "support";
@@ -25,36 +25,38 @@ export async function loadAgentById(agentId: string): Promise<DbAgent | null> {
   return (data as DbAgent) || null;
 }
 
-export async function loadAgentByKey(key: string, orgId: string = DEFAULT_ORG_ID): Promise<DbAgent | null> {
+export async function loadAgentByKey(key: string, orgId?: string): Promise<DbAgent | null> {
+  const id = orgId || (await resolveServiceOrgId());
   const supabase = createServiceSupabase();
   const { data } = await supabase
     .from("agents")
     .select("*")
-    .eq("org_id", orgId)
+    .eq("org_id", id)
     .eq("key", key)
     .maybeSingle();
   return (data as DbAgent) || null;
 }
 
-export async function loadMasterAgent(orgId: string = DEFAULT_ORG_ID): Promise<DbAgent | null> {
+export async function loadMasterAgent(orgId?: string): Promise<DbAgent | null> {
+  const id = orgId || (await resolveServiceOrgId());
   const supabase = createServiceSupabase();
   const { data: flagged } = await supabase
     .from("agents")
     .select("*")
-    .eq("org_id", orgId)
+    .eq("org_id", id)
     .eq("status", "Active")
     .contains("config", { is_master: true })
     .limit(1)
     .maybeSingle();
   if (flagged) return flagged as DbAgent;
 
-  const support = await loadAgentByKey(MASTER_AGENT_KEY, orgId);
+  const support = await loadAgentByKey(MASTER_AGENT_KEY, id);
   if (support && support.status === "Active") return support;
 
   const { data: anyActive } = await supabase
     .from("agents")
     .select("*")
-    .eq("org_id", orgId)
+    .eq("org_id", id)
     .eq("status", "Active")
     .order("name", { ascending: true })
     .limit(1)
@@ -94,7 +96,7 @@ export async function resolveAgentStack(options: {
   message?: string;
   previousSpecialistKey?: string | null;
 }): Promise<AgentStack> {
-  const orgId = options.orgId || DEFAULT_ORG_ID;
+  const orgId = options.orgId || tryJobOrgId() || (await resolveServiceOrgId());
   const master = await loadMasterAgent(orgId);
   const extraMatchers = await loadExtraRoutingMatchers(orgId);
 

@@ -260,15 +260,20 @@ export const fireAutomationTrigger = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }) => {
+    const { requireStaffOrgId, runWithOrg } = await import("@/server/org-context");
+    const orgId = await requireStaffOrgId();
     const { runAutomations } = await import("@/server/automation-engine");
-    return runAutomations(data.trigger, {
-      leadId: data.leadId,
-      conversationId: data.conversationId,
-      toStatus: data.toStatus,
-      source: data.source,
-      priority: data.priority,
-      channel: data.channel,
-    });
+    return runWithOrg(orgId, () =>
+      runAutomations(data.trigger, {
+        orgId,
+        leadId: data.leadId,
+        conversationId: data.conversationId,
+        toStatus: data.toStatus,
+        source: data.source,
+        priority: data.priority,
+        channel: data.channel,
+      }),
+    );
   });
 
 /** Test-run one workflow against an optional lead / conversation. */
@@ -281,6 +286,8 @@ export const testAutomationRun = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }) => {
+    const { requireStaffOrgId, runWithOrg } = await import("@/server/org-context");
+    const orgId = await requireStaffOrgId();
     const { createServiceSupabase } = await import("@/lib/supabase");
     const { runSingleAutomation } = await import("@/server/automation-engine");
     const supabase = createServiceSupabase();
@@ -292,7 +299,7 @@ export const testAutomationRun = createServerFn({ method: "POST" })
       const { data: lead } = await supabase
         .from("leads")
         .select("id")
-        .eq("org_id", ENERTECH_ORG_ID)
+        .eq("org_id", orgId)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -303,27 +310,35 @@ export const testAutomationRun = createServerFn({ method: "POST" })
       throw new Error("No lead found to test against — create a lead first");
     }
 
-    return runSingleAutomation(data.automationId, { leadId, conversationId });
+    return runWithOrg(orgId, () =>
+      runSingleAutomation(data.automationId, { orgId, leadId, conversationId }),
+    );
   });
 
 /** Process leads whose next_follow_up_at is past (also called by cron). */
 export const processDueFollowUpsFn = createServerFn({ method: "POST" }).handler(async () => {
+  const { requireStaffOrgId, runWithOrg } = await import("@/server/org-context");
+  const orgId = await requireStaffOrgId();
   const { processDueFollowUps, processScheduledAutomationSteps } = await import(
     "@/server/automation-engine"
   );
-  const [followUps, waits] = await Promise.all([
-    processDueFollowUps(),
-    processScheduledAutomationSteps(),
-  ]);
-  return { ...followUps, waits };
+  return runWithOrg(orgId, async () => {
+    const [followUps, waits] = await Promise.all([
+      processDueFollowUps(orgId),
+      processScheduledAutomationSteps(orgId),
+    ]);
+    return { ...followUps, waits };
+  });
 });
 
 /** Follow-up Agent: propose today's campaign for Approve/Reject (also called by cron once/day). */
 export const proposeDailyFollowUpCampaignFn = createServerFn({ method: "POST" })
   .validator(z.object({ force: z.boolean().optional() }))
   .handler(async ({ data }) => {
+    const { requireStaffOrgId, runWithOrg } = await import("@/server/org-context");
+    const orgId = await requireStaffOrgId();
     const { proposeDailyFollowUpCampaign } = await import("@/server/followup-agent");
-    return proposeDailyFollowUpCampaign({ force: data.force });
+    return runWithOrg(orgId, () => proposeDailyFollowUpCampaign({ force: data.force }));
   });
 
 export async function listPendingApprovals(
@@ -359,8 +374,10 @@ export const approveAutomationApprovalFn = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }) => {
+    const { requireStaffOrgId, runWithOrg } = await import("@/server/org-context");
+    const orgId = await requireStaffOrgId();
     const { approveAutomationApproval } = await import("@/server/automation-engine");
-    return approveAutomationApproval(data.approvalId, data.resolvedBy);
+    return runWithOrg(orgId, () => approveAutomationApproval(data.approvalId, data.resolvedBy));
   });
 
 export const rejectAutomationApprovalFn = createServerFn({ method: "POST" })
@@ -371,8 +388,10 @@ export const rejectAutomationApprovalFn = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }) => {
+    const { requireStaffOrgId, runWithOrg } = await import("@/server/org-context");
+    const orgId = await requireStaffOrgId();
     const { rejectAutomationApproval } = await import("@/server/automation-engine");
-    await rejectAutomationApproval(data.approvalId, data.resolvedBy);
+    await runWithOrg(orgId, () => rejectAutomationApproval(data.approvalId, data.resolvedBy));
     return { ok: true };
   });
 
@@ -384,8 +403,12 @@ export const bulkApproveAutomationApprovalsFn = createServerFn({ method: "POST" 
     }),
   )
   .handler(async ({ data }) => {
+    const { requireStaffOrgId, runWithOrg } = await import("@/server/org-context");
+    const orgId = await requireStaffOrgId();
     const { bulkApproveAutomationApprovals } = await import("@/server/automation-engine");
-    return bulkApproveAutomationApprovals(data.approvalIds ?? "all", data.resolvedBy);
+    return runWithOrg(orgId, () =>
+      bulkApproveAutomationApprovals(data.approvalIds ?? "all", data.resolvedBy),
+    );
   });
 
 export const bulkRejectAutomationApprovalsFn = createServerFn({ method: "POST" })
@@ -396,6 +419,10 @@ export const bulkRejectAutomationApprovalsFn = createServerFn({ method: "POST" }
     }),
   )
   .handler(async ({ data }) => {
+    const { requireStaffOrgId, runWithOrg } = await import("@/server/org-context");
+    const orgId = await requireStaffOrgId();
     const { bulkRejectAutomationApprovals } = await import("@/server/automation-engine");
-    return bulkRejectAutomationApprovals(data.approvalIds ?? "all", data.resolvedBy);
+    return runWithOrg(orgId, () =>
+      bulkRejectAutomationApprovals(data.approvalIds ?? "all", data.resolvedBy),
+    );
   });

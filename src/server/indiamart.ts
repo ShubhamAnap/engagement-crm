@@ -15,7 +15,7 @@ import {
   type MarketplaceAutoSyncFields,
 } from "@/lib/marketplace-auto-sync";
 
-import { DEFAULT_ORG_ID } from "@/server/org-context";
+import { allowEnvChannelFallback, resolveServiceOrgId } from "@/server/org-context";
 const PULL_URL = "https://mapi.indiamart.com/wservce/crm/crmListing/v2/";
 
 export type IndiaMartBackfillState = {
@@ -78,13 +78,14 @@ function envConfig(): IndiaMartChannelConfig {
 }
 
 export async function loadIndiaMartConfig(): Promise<IndiaMartChannelConfig> {
-  const fromEnv = envConfig();
+  const orgId = await resolveServiceOrgId();
+  const fromEnv = allowEnvChannelFallback(orgId) ? envConfig() : {};
   try {
     const supabase = createServiceSupabase();
     const { data } = await supabase
       .from("channels")
       .select("config, detail")
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .eq("type", "indiamart")
       .maybeSingle();
     const cfg = ((data?.config as IndiaMartChannelConfig) || {}) as IndiaMartChannelConfig;
@@ -195,7 +196,7 @@ async function getIndiaMartChannelId(supabase: ReturnType<typeof createServiceSu
   const { data } = await supabase
     .from("channels")
     .select("id")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("type", "indiamart")
     .maybeSingle();
   return data?.id as string | undefined;
@@ -220,7 +221,7 @@ export async function ingestIndiaMartEnquiry(enquiry: IndiaMartEnquiry): Promise
   const { data: existingLead } = await supabase
     .from("leads")
     .select("id")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("source", "indiamart")
     .filter("metadata->>indiamart_query_id", "eq", queryId)
     .limit(1)
@@ -252,7 +253,7 @@ export async function ingestIndiaMartEnquiry(enquiry: IndiaMartEnquiry): Promise
   const { data: lead, error: leadError } = await supabase
     .from("leads")
     .insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: await resolveServiceOrgId(),
       external_ref: `IM-${queryId.slice(-8)}`,
       score: enquiry.QUERY_TYPE === "B" ? 70 : 60,
       status: "New",
@@ -290,7 +291,7 @@ export async function ingestIndiaMartEnquiry(enquiry: IndiaMartEnquiry): Promise
       const { data } = await supabase
         .from("customers")
         .select("id")
-        .eq("org_id", DEFAULT_ORG_ID)
+        .eq("org_id", await resolveServiceOrgId())
         .eq("email", email)
         .maybeSingle();
       existingCustomer = data as { id: string } | null;
@@ -299,7 +300,7 @@ export async function ingestIndiaMartEnquiry(enquiry: IndiaMartEnquiry): Promise
       const { data } = await supabase
         .from("customers")
         .select("id")
-        .eq("org_id", DEFAULT_ORG_ID)
+        .eq("org_id", await resolveServiceOrgId())
         .eq("phone", phone)
         .maybeSingle();
       existingCustomer = data as { id: string } | null;
@@ -310,7 +311,7 @@ export async function ingestIndiaMartEnquiry(enquiry: IndiaMartEnquiry): Promise
       const { data: createdCust } = await supabase
         .from("customers")
         .insert({
-          org_id: DEFAULT_ORG_ID,
+          org_id: await resolveServiceOrgId(),
           name,
           email,
           phone,
@@ -330,7 +331,7 @@ export async function ingestIndiaMartEnquiry(enquiry: IndiaMartEnquiry): Promise
   const { data: convo, error: convoError } = await supabase
     .from("conversations")
     .insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: await resolveServiceOrgId(),
       customer_id: customerId,
       lead_id: lead.id,
       channel_id: channelId || null,
@@ -360,7 +361,7 @@ export async function ingestIndiaMartEnquiry(enquiry: IndiaMartEnquiry): Promise
   if (convoError) throw new Error(convoError.message);
 
   await supabase.from("messages").insert({
-    org_id: DEFAULT_ORG_ID,
+    org_id: await resolveServiceOrgId(),
     conversation_id: convo.id,
     sender: "customer",
     body: message.slice(0, 8000) || subject,
@@ -411,7 +412,7 @@ async function stampIndiaMartApiHit(cfg: IndiaMartChannelConfig) {
     .update({
       config: { ...cfg, last_api_hit_at: hitAt },
     })
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("type", "indiamart");
   return hitAt;
 }
@@ -490,7 +491,7 @@ export async function syncIndiaMartWindow(options?: { days?: number }): Promise<
       is_enabled: true,
       health: 100,
     })
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("type", "indiamart");
 
   return { fetched: enquiries.length, created, skipped, errors };
@@ -538,7 +539,7 @@ async function saveIndiaMartConfig(config: IndiaMartChannelConfig, detail?: stri
   const supabase = createServiceSupabase();
   const patch: Record<string, unknown> = { config };
   if (detail) patch.detail = detail;
-  await supabase.from("channels").update(patch).eq("org_id", DEFAULT_ORG_ID).eq("type", "indiamart");
+  await supabase.from("channels").update(patch).eq("org_id", await resolveServiceOrgId()).eq("type", "indiamart");
 }
 
 /**
@@ -842,7 +843,7 @@ export async function ensureIndiaMartChannelRow(): Promise<{
   const { data: existing } = await supabase
     .from("channels")
     .select("id")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("type", "indiamart")
     .maybeSingle();
 
@@ -853,7 +854,7 @@ export async function ensureIndiaMartChannelRow(): Promise<{
   const { data: inserted, error } = await supabase
     .from("channels")
     .insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: await resolveServiceOrgId(),
       type: "indiamart",
       name: "IndiaMART",
       status: "Disconnected",
@@ -924,7 +925,7 @@ export const saveIndiaMartChannelConfig = createServerFn({ method: "POST" })
         health: enable ? 100 : 0,
         name: "IndiaMART",
       })
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await resolveServiceOrgId())
       .eq("type", "indiamart")
       .select("*")
       .single();

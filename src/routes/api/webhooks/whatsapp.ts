@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { createServiceSupabase } from "@/lib/supabase";
+import { verifyTokenMatchesAnyOrg } from "@/server/org-context";
 import { readAndVerifyMetaWebhookBody } from "@/server/meta-webhook-verify";
-import { handleWhatsAppInboundPayload, loadWhatsAppConfig } from "@/server/whatsapp";
+import { handleWhatsAppInboundPayload } from "@/server/whatsapp";
 
 /**
  * Meta WhatsApp Cloud API webhook.
@@ -17,9 +19,17 @@ export const Route = createFileRoute("/api/webhooks/whatsapp")({
         const mode = url.searchParams.get("hub.mode");
         const token = url.searchParams.get("hub.verify_token");
         const challenge = url.searchParams.get("hub.challenge");
-        const cfg = await loadWhatsAppConfig();
+        const supabase = createServiceSupabase();
+        const ok =
+          Boolean(mode === "subscribe" && token) &&
+          (await verifyTokenMatchesAnyOrg(
+            supabase,
+            "whatsapp",
+            token || "",
+            process.env.WHATSAPP_VERIFY_TOKEN,
+          ));
 
-        if (mode === "subscribe" && token && cfg.verify_token && token === cfg.verify_token) {
+        if (ok) {
           return new Response(challenge || "", {
             status: 200,
             headers: { "Content-Type": "text/plain" },
@@ -33,12 +43,10 @@ export const Route = createFileRoute("/api/webhooks/whatsapp")({
           const verified = await readAndVerifyMetaWebhookBody(request);
           if (!verified.ok) return verified.response;
 
-          // Always acknowledge quickly; process inbound messages.
           await handleWhatsAppInboundPayload(verified.payload);
           return Response.json({ ok: true });
         } catch (err) {
           console.error("WhatsApp webhook error", err);
-          // Still 200 so Meta does not retry forever on app bugs; log for ops.
           return Response.json(
             { ok: false, error: err instanceof Error ? err.message : "webhook error" },
             { status: 200 },

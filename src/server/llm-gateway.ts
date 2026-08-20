@@ -1,4 +1,6 @@
 import { parseOpenAiUsage, recordSpendEvent } from "@/server/api-spend";
+import { assertAiUsageAllowed, loadOrgOpenAiKey } from "@/server/org-usage";
+import { tryJobOrgId } from "@/server/org-context";
 
 export type LlmFeature =
   | "agents.reply"
@@ -27,8 +29,8 @@ function envPolicy(): LlmGatewayRuntimePolicy {
 }
 
 let runtimePolicy = envPolicy();
-let loadedAt = 0;
-let loading: Promise<void> | null = null;
+const policyByOrg = new Map<string, { at: number; policy: LlmGatewayRuntimePolicy }>();
+const loadingByOrg = new Map<string, Promise<void>>();
 
 export function applyLlmGatewayPolicy(partial: Partial<LlmGatewayRuntimePolicy>) {
   const env = envPolicy();
@@ -39,25 +41,46 @@ export function applyLlmGatewayPolicy(partial: Partial<LlmGatewayRuntimePolicy>)
     summaryModel: String(partial.summaryModel || "").trim() || env.summaryModel,
     embeddingModel: String(partial.embeddingModel || "").trim() || env.embeddingModel,
   };
-  loadedAt = Date.now();
 }
 
-export async function ensureLlmGatewaySettingsLoaded() {
-  if (Date.now() - loadedAt < GATEWAY_CACHE_MS) return;
-  if (loading) return loading;
-  loading = (async () => {
+export async function ensureLlmGatewaySettingsLoaded(orgId?: string | null) {
+  const id = orgId || tryJobOrgId();
+  if (!id) {
+    runtimePolicy = envPolicy();
+    return;
+  }
+  const cached = policyByOrg.get(id);
+  if (cached && Date.now() - cached.at < GATEWAY_CACHE_MS) {
+    runtimePolicy = cached.policy;
+    return;
+  }
+  const pending = loadingByOrg.get(id);
+  if (pending) {
+    await pending;
+    const again = policyByOrg.get(id);
+    if (again) runtimePolicy = again.policy;
+    return;
+  }
+  const loading = (async () => {
     try {
       const { loadLlmGatewayRuntimePolicy } = await import("./llm-gateway-settings");
-      const saved = await loadLlmGatewayRuntimePolicy();
-      if (saved) applyLlmGatewayPolicy(saved);
-      else loadedAt = Date.now();
+      const saved = await loadLlmGatewayRuntimePolicy(id);
+      if (saved) {
+        applyLlmGatewayPolicy(saved);
+        policyByOrg.set(id, { at: Date.now(), policy: { ...runtimePolicy } });
+      } else {
+        const env = envPolicy();
+        runtimePolicy = env;
+        policyByOrg.set(id, { at: Date.now(), policy: env });
+      }
     } catch (err) {
       console.error("llm gateway settings cache failed", err);
-      loadedAt = Date.now();
+      runtimePolicy = envPolicy();
     } finally {
-      loading = null;
+      loadingByOrg.delete(id);
     }
   })();
+  loadingByOrg.set(id, loading);
   return loading;
 }
 
@@ -115,10 +138,20 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function getOpenAiApiKey(): string {
+function getPlatformOpenAiApiKey(): string {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY is not configured");
   return apiKey;
+}
+
+async function resolveOpenAiApiKey(orgId?: string | null): Promise<string> {
+  const id = orgId || tryJobOrgId();
+  if (id) {
+    const orgKey = await loadOrgOpenAiKey(id);
+    if (orgKey) return orgKey;
+    await assertAiUsageAllowed(id);
+  }
+  return getPlatformOpenAiApiKey();
 }
 
 function isRetryableStatus(status: number): boolean {
@@ -211,8 +244,9 @@ export async function requestOpenAiChatCompletion(
   usage: { promptTokens: number; completionTokens: number; totalTokens: number };
   raw: unknown;
 }> {
-  await ensureLlmGatewaySettingsLoaded();
-  const apiKey = getOpenAiApiKey();
+  await ensureLlmGatewaySettingsLoaded(options.orgId);
+  const orgId = options.orgId || tryJobOrgId();
+  const apiKey = await resolveOpenAiApiKey(orgId);
   const feature = options.feature || "chat.reply";
   const model = resolveLlmModel(feature, options.model);
   const candidates = [model, ...listFallbackModels(feature)];
@@ -274,8 +308,9 @@ export async function requestOpenAiEmbeddings(
   usage: { promptTokens: number; completionTokens: number; totalTokens: number };
   raw: unknown;
 }> {
-  await ensureLlmGatewaySettingsLoaded();
-  const apiKey = getOpenAiApiKey();
+  await ensureLlmGatewaySettingsLoaded(options.orgId);
+  const orgId = options.orgId || tryJobOrgId();
+  const apiKey = await resolveOpenAiApiKey(orgId);
   const feature = options.feature || "knowledge.embedding";
   const model = resolveLlmModel(feature, options.model);
   const responseJson = (await withOpenAiRetry(

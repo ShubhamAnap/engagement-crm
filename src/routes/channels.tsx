@@ -132,7 +132,7 @@ function Page() {
     (typeof window !== "undefined"
       ? (import.meta.env.VITE_APP_URL as string) || window.location.origin
       : (import.meta.env.VITE_APP_URL as string) || "") || "";
-  const widgetKey = (import.meta.env.VITE_WIDGET_PUBLIC_KEY as string) || "";
+  const widgetKey = websiteWidgetKey || (import.meta.env.VITE_WIDGET_PUBLIC_KEY as string) || "";
 
   const [copied, setCopied] = useState(false);
   const [webhookCopied, setWebhookCopied] = useState(false);
@@ -207,6 +207,7 @@ function Page() {
   const [wbNextDateField, setWbNextDateField] = useState("next_follow_up_date");
   const [wbDescField, setWbDescField] = useState("description");
   const [websiteOriginsText, setWebsiteOriginsText] = useState("");
+  const [websiteWidgetKey, setWebsiteWidgetKey] = useState("");
   const [websiteOriginsLoaded, setWebsiteOriginsLoaded] = useState(false);
   const [wpSiteUrl, setWpSiteUrl] = useState(WORDPRESS_DEFAULT_SITE);
   const [wpConsumerKey, setWpConsumerKey] = useState("");
@@ -380,6 +381,8 @@ function Page() {
           ? raw.allowed_origins.map(String)
           : [];
         setWebsiteOriginsText(formatAllowedOriginsText(list));
+        const key = String(raw.widget_public_key || "").trim();
+        setWebsiteWidgetKey(key || ((import.meta.env.VITE_WIDGET_PUBLIC_KEY as string) || ""));
       } catch {
         if (!cancelled) setWebsiteOriginsText("");
       } finally {

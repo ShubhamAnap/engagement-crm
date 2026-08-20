@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AcceptInviteRouteImport } from './routes/accept-invite'
 import { Route as AgentsRouteImport } from './routes/agents'
 import { Route as AiChatRouteImport } from './routes/ai-chat'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
@@ -26,28 +27,40 @@ import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as KnowledgeRouteImport } from './routes/knowledge'
 import { Route as LeadsRouteImport } from './routes/leads'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as PipelineRouteImport } from './routes/pipeline'
+import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as ProductsRouteImport } from './routes/products'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SignupRouteImport } from './routes/signup'
+import { Route as StatusRouteImport } from './routes/status'
+import { Route as TermsRouteImport } from './routes/terms'
 import { Route as ToolsRouteImport } from './routes/tools'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiSignupRouteImport } from './routes/api/signup'
+import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as CSkuRouteImport } from './routes/c.$sku'
 import { Route as DDocumentIdRouteImport } from './routes/d.$documentId'
 import { Route as FFileSlugRouteImport } from './routes/f.$fileSlug'
+import { Route as PlatformIndexRouteImport } from './routes/platform/index'
 import { Route as ApiCronAutomationsRouteImport } from './routes/api/cron/automations'
 import { Route as ApiWebhooksEmailRouteImport } from './routes/api/webhooks/email'
 import { Route as ApiWebhooksFacebookRouteImport } from './routes/api/webhooks/facebook'
 import { Route as ApiWebhooksIndiamartRouteImport } from './routes/api/webhooks/indiamart'
 import { Route as ApiWebhooksInstagramRouteImport } from './routes/api/webhooks/instagram'
+import { Route as ApiWebhooksRazorpayRouteImport } from './routes/api/webhooks/razorpay'
 import { Route as ApiWebhooksWhatsappRouteImport } from './routes/api/webhooks/whatsapp'
 import { Route as ApiOauthGmailCallbackRouteImport } from './routes/api/oauth/gmail/callback'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AcceptInviteRoute = AcceptInviteRouteImport.update({
+  id: '/accept-invite',
+  path: '/accept-invite',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AgentsRoute = AgentsRouteImport.update({
@@ -130,9 +143,19 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PipelineRoute = PipelineRouteImport.update({
   id: '/pipeline',
   path: '/pipeline',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProductsRoute = ProductsRouteImport.update({
@@ -155,6 +178,16 @@ const SignupRoute = SignupRouteImport.update({
   path: '/signup',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StatusRoute = StatusRouteImport.update({
+  id: '/status',
+  path: '/status',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ToolsRoute = ToolsRouteImport.update({
   id: '/tools',
   path: '/tools',
@@ -170,6 +203,11 @@ const ApiSignupRoute = ApiSignupRouteImport.update({
   path: '/api/signup',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthCallbackRoute = AuthCallbackRouteImport.update({
+  id: '/auth/callback',
+  path: '/auth/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CSkuRoute = CSkuRouteImport.update({
   id: '/c/$sku',
   path: '/c/$sku',
@@ -183,6 +221,11 @@ const DDocumentIdRoute = DDocumentIdRouteImport.update({
 const FFileSlugRoute = FFileSlugRouteImport.update({
   id: '/f/$fileSlug',
   path: '/f/$fileSlug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlatformIndexRoute = PlatformIndexRouteImport.update({
+  id: '/platform/',
+  path: '/platform/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiCronAutomationsRoute = ApiCronAutomationsRouteImport.update({
@@ -210,6 +253,11 @@ const ApiWebhooksInstagramRoute = ApiWebhooksInstagramRouteImport.update({
   path: '/api/webhooks/instagram',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWebhooksRazorpayRoute = ApiWebhooksRazorpayRouteImport.update({
+  id: '/api/webhooks/razorpay',
+  path: '/api/webhooks/razorpay',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiWebhooksWhatsappRoute = ApiWebhooksWhatsappRouteImport.update({
   id: '/api/webhooks/whatsapp',
   path: '/api/webhooks/whatsapp',
@@ -223,6 +271,7 @@ const ApiOauthGmailCallbackRoute = ApiOauthGmailCallbackRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/accept-invite': typeof AcceptInviteRoute
   '/agents': typeof AgentsRoute
   '/ai-chat': typeof AiChatRoute
   '/analytics': typeof AnalyticsRoute
@@ -239,27 +288,35 @@ export interface FileRoutesByFullPath {
   '/knowledge': typeof KnowledgeRoute
   '/leads': typeof LeadsRoute
   '/login': typeof LoginRoute
+  '/onboarding': typeof OnboardingRoute
   '/pipeline': typeof PipelineRoute
+  '/privacy': typeof PrivacyRoute
   '/products': typeof ProductsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
+  '/status': typeof StatusRoute
+  '/terms': typeof TermsRoute
   '/tools': typeof ToolsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/signup': typeof ApiSignupRoute
+  '/auth/callback': typeof AuthCallbackRoute
   '/c/$sku': typeof CSkuRoute
   '/d/$documentId': typeof DDocumentIdRoute
   '/f/$fileSlug': typeof FFileSlugRoute
+  '/platform/': typeof PlatformIndexRoute
   '/api/cron/automations': typeof ApiCronAutomationsRoute
   '/api/webhooks/email': typeof ApiWebhooksEmailRoute
   '/api/webhooks/facebook': typeof ApiWebhooksFacebookRoute
   '/api/webhooks/indiamart': typeof ApiWebhooksIndiamartRoute
   '/api/webhooks/instagram': typeof ApiWebhooksInstagramRoute
+  '/api/webhooks/razorpay': typeof ApiWebhooksRazorpayRoute
   '/api/webhooks/whatsapp': typeof ApiWebhooksWhatsappRoute
   '/api/oauth/gmail/callback': typeof ApiOauthGmailCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/accept-invite': typeof AcceptInviteRoute
   '/agents': typeof AgentsRoute
   '/ai-chat': typeof AiChatRoute
   '/analytics': typeof AnalyticsRoute
@@ -276,28 +333,36 @@ export interface FileRoutesByTo {
   '/knowledge': typeof KnowledgeRoute
   '/leads': typeof LeadsRoute
   '/login': typeof LoginRoute
+  '/onboarding': typeof OnboardingRoute
   '/pipeline': typeof PipelineRoute
+  '/privacy': typeof PrivacyRoute
   '/products': typeof ProductsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
+  '/status': typeof StatusRoute
+  '/terms': typeof TermsRoute
   '/tools': typeof ToolsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/signup': typeof ApiSignupRoute
+  '/auth/callback': typeof AuthCallbackRoute
   '/c/$sku': typeof CSkuRoute
   '/d/$documentId': typeof DDocumentIdRoute
   '/f/$fileSlug': typeof FFileSlugRoute
+  '/platform': typeof PlatformIndexRoute
   '/api/cron/automations': typeof ApiCronAutomationsRoute
   '/api/webhooks/email': typeof ApiWebhooksEmailRoute
   '/api/webhooks/facebook': typeof ApiWebhooksFacebookRoute
   '/api/webhooks/indiamart': typeof ApiWebhooksIndiamartRoute
   '/api/webhooks/instagram': typeof ApiWebhooksInstagramRoute
+  '/api/webhooks/razorpay': typeof ApiWebhooksRazorpayRoute
   '/api/webhooks/whatsapp': typeof ApiWebhooksWhatsappRoute
   '/api/oauth/gmail/callback': typeof ApiOauthGmailCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/accept-invite': typeof AcceptInviteRoute
   '/agents': typeof AgentsRoute
   '/ai-chat': typeof AiChatRoute
   '/analytics': typeof AnalyticsRoute
@@ -314,22 +379,29 @@ export interface FileRoutesById {
   '/knowledge': typeof KnowledgeRoute
   '/leads': typeof LeadsRoute
   '/login': typeof LoginRoute
+  '/onboarding': typeof OnboardingRoute
   '/pipeline': typeof PipelineRoute
+  '/privacy': typeof PrivacyRoute
   '/products': typeof ProductsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
+  '/status': typeof StatusRoute
+  '/terms': typeof TermsRoute
   '/tools': typeof ToolsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/signup': typeof ApiSignupRoute
+  '/auth/callback': typeof AuthCallbackRoute
   '/c/$sku': typeof CSkuRoute
   '/d/$documentId': typeof DDocumentIdRoute
   '/f/$fileSlug': typeof FFileSlugRoute
+  '/platform/': typeof PlatformIndexRoute
   '/api/cron/automations': typeof ApiCronAutomationsRoute
   '/api/webhooks/email': typeof ApiWebhooksEmailRoute
   '/api/webhooks/facebook': typeof ApiWebhooksFacebookRoute
   '/api/webhooks/indiamart': typeof ApiWebhooksIndiamartRoute
   '/api/webhooks/instagram': typeof ApiWebhooksInstagramRoute
+  '/api/webhooks/razorpay': typeof ApiWebhooksRazorpayRoute
   '/api/webhooks/whatsapp': typeof ApiWebhooksWhatsappRoute
   '/api/oauth/gmail/callback': typeof ApiOauthGmailCallbackRoute
 }
@@ -337,6 +409,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/accept-invite'
     | '/agents'
     | '/ai-chat'
     | '/analytics'
@@ -353,27 +426,35 @@ export interface FileRouteTypes {
     | '/knowledge'
     | '/leads'
     | '/login'
+    | '/onboarding'
     | '/pipeline'
+    | '/privacy'
     | '/products'
     | '/reports'
     | '/settings'
     | '/signup'
+    | '/status'
+    | '/terms'
     | '/tools'
     | '/api/health'
     | '/api/signup'
+    | '/auth/callback'
     | '/c/$sku'
     | '/d/$documentId'
     | '/f/$fileSlug'
+    | '/platform/'
     | '/api/cron/automations'
     | '/api/webhooks/email'
     | '/api/webhooks/facebook'
     | '/api/webhooks/indiamart'
     | '/api/webhooks/instagram'
+    | '/api/webhooks/razorpay'
     | '/api/webhooks/whatsapp'
     | '/api/oauth/gmail/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/accept-invite'
     | '/agents'
     | '/ai-chat'
     | '/analytics'
@@ -390,27 +471,35 @@ export interface FileRouteTypes {
     | '/knowledge'
     | '/leads'
     | '/login'
+    | '/onboarding'
     | '/pipeline'
+    | '/privacy'
     | '/products'
     | '/reports'
     | '/settings'
     | '/signup'
+    | '/status'
+    | '/terms'
     | '/tools'
     | '/api/health'
     | '/api/signup'
+    | '/auth/callback'
     | '/c/$sku'
     | '/d/$documentId'
     | '/f/$fileSlug'
+    | '/platform'
     | '/api/cron/automations'
     | '/api/webhooks/email'
     | '/api/webhooks/facebook'
     | '/api/webhooks/indiamart'
     | '/api/webhooks/instagram'
+    | '/api/webhooks/razorpay'
     | '/api/webhooks/whatsapp'
     | '/api/oauth/gmail/callback'
   id:
     | '__root__'
     | '/'
+    | '/accept-invite'
     | '/agents'
     | '/ai-chat'
     | '/analytics'
@@ -427,28 +516,36 @@ export interface FileRouteTypes {
     | '/knowledge'
     | '/leads'
     | '/login'
+    | '/onboarding'
     | '/pipeline'
+    | '/privacy'
     | '/products'
     | '/reports'
     | '/settings'
     | '/signup'
+    | '/status'
+    | '/terms'
     | '/tools'
     | '/api/health'
     | '/api/signup'
+    | '/auth/callback'
     | '/c/$sku'
     | '/d/$documentId'
     | '/f/$fileSlug'
+    | '/platform/'
     | '/api/cron/automations'
     | '/api/webhooks/email'
     | '/api/webhooks/facebook'
     | '/api/webhooks/indiamart'
     | '/api/webhooks/instagram'
+    | '/api/webhooks/razorpay'
     | '/api/webhooks/whatsapp'
     | '/api/oauth/gmail/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AcceptInviteRoute: typeof AcceptInviteRoute
   AgentsRoute: typeof AgentsRoute
   AiChatRoute: typeof AiChatRoute
   AnalyticsRoute: typeof AnalyticsRoute
@@ -465,22 +562,29 @@ export interface RootRouteChildren {
   KnowledgeRoute: typeof KnowledgeRoute
   LeadsRoute: typeof LeadsRoute
   LoginRoute: typeof LoginRoute
+  OnboardingRoute: typeof OnboardingRoute
   PipelineRoute: typeof PipelineRoute
+  PrivacyRoute: typeof PrivacyRoute
   ProductsRoute: typeof ProductsRoute
   ReportsRoute: typeof ReportsRoute
   SettingsRoute: typeof SettingsRoute
   SignupRoute: typeof SignupRoute
+  StatusRoute: typeof StatusRoute
+  TermsRoute: typeof TermsRoute
   ToolsRoute: typeof ToolsRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiSignupRoute: typeof ApiSignupRoute
+  AuthCallbackRoute: typeof AuthCallbackRoute
   CSkuRoute: typeof CSkuRoute
   DDocumentIdRoute: typeof DDocumentIdRoute
   FFileSlugRoute: typeof FFileSlugRoute
+  PlatformIndexRoute: typeof PlatformIndexRoute
   ApiCronAutomationsRoute: typeof ApiCronAutomationsRoute
   ApiWebhooksEmailRoute: typeof ApiWebhooksEmailRoute
   ApiWebhooksFacebookRoute: typeof ApiWebhooksFacebookRoute
   ApiWebhooksIndiamartRoute: typeof ApiWebhooksIndiamartRoute
   ApiWebhooksInstagramRoute: typeof ApiWebhooksInstagramRoute
+  ApiWebhooksRazorpayRoute: typeof ApiWebhooksRazorpayRoute
   ApiWebhooksWhatsappRoute: typeof ApiWebhooksWhatsappRoute
   ApiOauthGmailCallbackRoute: typeof ApiOauthGmailCallbackRoute
 }
@@ -492,6 +596,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/accept-invite': {
+      id: '/accept-invite'
+      path: '/accept-invite'
+      fullPath: '/accept-invite'
+      preLoaderRoute: typeof AcceptInviteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/agents': {
@@ -606,11 +717,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pipeline': {
       id: '/pipeline'
       path: '/pipeline'
       fullPath: '/pipeline'
       preLoaderRoute: typeof PipelineRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/products': {
@@ -641,6 +766,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SignupRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/status': {
+      id: '/status'
+      path: '/status'
+      fullPath: '/status'
+      preLoaderRoute: typeof StatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/tools': {
       id: '/tools'
       path: '/tools'
@@ -662,6 +801,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSignupRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/auth/callback': {
+      id: '/auth/callback'
+      path: '/auth/callback'
+      fullPath: '/auth/callback'
+      preLoaderRoute: typeof AuthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/c/$sku': {
       id: '/c/$sku'
       path: '/c/$sku'
@@ -681,6 +827,13 @@ declare module '@tanstack/react-router' {
       path: '/f/$fileSlug'
       fullPath: '/f/$fileSlug'
       preLoaderRoute: typeof FFileSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/platform/': {
+      id: '/platform/'
+      path: '/platform'
+      fullPath: '/platform/'
+      preLoaderRoute: typeof PlatformIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/cron/automations': {
@@ -718,6 +871,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiWebhooksInstagramRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/webhooks/razorpay': {
+      id: '/api/webhooks/razorpay'
+      path: '/api/webhooks/razorpay'
+      fullPath: '/api/webhooks/razorpay'
+      preLoaderRoute: typeof ApiWebhooksRazorpayRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/webhooks/whatsapp': {
       id: '/api/webhooks/whatsapp'
       path: '/api/webhooks/whatsapp'
@@ -737,6 +897,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AcceptInviteRoute: AcceptInviteRoute,
   AgentsRoute: AgentsRoute,
   AiChatRoute: AiChatRoute,
   AnalyticsRoute: AnalyticsRoute,
@@ -753,22 +914,29 @@ const rootRouteChildren: RootRouteChildren = {
   KnowledgeRoute: KnowledgeRoute,
   LeadsRoute: LeadsRoute,
   LoginRoute: LoginRoute,
+  OnboardingRoute: OnboardingRoute,
   PipelineRoute: PipelineRoute,
+  PrivacyRoute: PrivacyRoute,
   ProductsRoute: ProductsRoute,
   ReportsRoute: ReportsRoute,
   SettingsRoute: SettingsRoute,
   SignupRoute: SignupRoute,
+  StatusRoute: StatusRoute,
+  TermsRoute: TermsRoute,
   ToolsRoute: ToolsRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiSignupRoute: ApiSignupRoute,
+  AuthCallbackRoute: AuthCallbackRoute,
   CSkuRoute: CSkuRoute,
   DDocumentIdRoute: DDocumentIdRoute,
   FFileSlugRoute: FFileSlugRoute,
+  PlatformIndexRoute: PlatformIndexRoute,
   ApiCronAutomationsRoute: ApiCronAutomationsRoute,
   ApiWebhooksEmailRoute: ApiWebhooksEmailRoute,
   ApiWebhooksFacebookRoute: ApiWebhooksFacebookRoute,
   ApiWebhooksIndiamartRoute: ApiWebhooksIndiamartRoute,
   ApiWebhooksInstagramRoute: ApiWebhooksInstagramRoute,
+  ApiWebhooksRazorpayRoute: ApiWebhooksRazorpayRoute,
   ApiWebhooksWhatsappRoute: ApiWebhooksWhatsappRoute,
   ApiOauthGmailCallbackRoute: ApiOauthGmailCallbackRoute,
 }

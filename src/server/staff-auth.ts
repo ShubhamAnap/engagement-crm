@@ -85,3 +85,45 @@ export async function requireStaffUser(): Promise<StaffAuth> {
     profile: profile as StaffProfile,
   };
 }
+
+/** Signed-in user without requiring a profiles row (OAuth onboarding / invite accept). */
+export async function requireAuthUser(): Promise<{ user: User; profile: StaffProfile | null }> {
+  const token = extractAccessToken();
+  if (!token) unauthorized();
+
+  let user: User | null = null;
+  const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
+  const anon = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
+
+  if (url && anon) {
+    try {
+      const anonClient = createClient(url, anon, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const { data } = await anonClient.auth.getUser(token);
+      user = data.user ?? null;
+    } catch (err) {
+      console.warn("auth getUser failed, trying service role", err);
+    }
+  }
+
+  const service = createServiceSupabase();
+  if (!user) {
+    const { data, error } = await service.auth.getUser(token);
+    if (error || !data.user) unauthorized();
+    user = data.user;
+  }
+
+  const { data: profile } = await service
+    .from("profiles")
+    .select("id, org_id, role, email, is_active, permissions")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profile?.is_active === false) unauthorized("Account disabled");
+
+  return {
+    user,
+    profile: profile?.org_id ? (profile as StaffProfile) : null,
+  };
+}

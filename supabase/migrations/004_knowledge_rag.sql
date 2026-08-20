@@ -106,6 +106,7 @@ values ('knowledge', 'knowledge', true)
 on conflict (id) do update set public = excluded.public;
 
 -- Public read for catalogue downloads; authenticated write for org staff.
+-- After 039_storage_org_isolation.sql, do not re-apply these blanket policies.
 drop policy if exists knowledge_storage_public_read on storage.objects;
 create policy knowledge_storage_public_read
   on storage.objects for select

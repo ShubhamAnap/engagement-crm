@@ -12,7 +12,6 @@ import { proxyStorageObject } from "@/server/storage-proxy";
  * ("This site can't be loaded"). For normal browser Accept: text/html we serve a small
  * download page; Meta/WhatsApp fetchers and ?download=1 still get the raw PDF.
  */
-const ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
 async function findDocByShortId(
   supabase: ReturnType<typeof createServiceSupabase>,
@@ -23,7 +22,6 @@ async function findDocByShortId(
   const { data: ranged, error: rangeErr } = await supabase
     .from("knowledge_documents")
     .select("id, storage_path, mime_type, title, metadata, status")
-    .eq("org_id", ORG_ID)
     .gte("id", `${id}-0000-0000-0000-000000000000`)
     .lte("id", `${id}-ffff-ffff-ffff-ffffffffffff`)
     .limit(20);
@@ -44,7 +42,6 @@ async function findDocByShortId(
   const { data: all, error: allErr } = await supabase
     .from("knowledge_documents")
     .select("id, storage_path, mime_type, title, metadata, status")
-    .eq("org_id", ORG_ID)
     .eq("status", "ready")
     .limit(300);
 

@@ -73,7 +73,7 @@ export const returnConversationToAiServer = createServerFn({ method: "POST" })
     await processWidgetCustomerTurn(
       supabase,
       { conversationId: data.conversationId, body: pending.body },
-      { insertCustomerMessage: false },
+      { insertCustomerMessage: false, orgId: String(row.org_id) },
     );
     return { resumed: true as const, channel };
   });

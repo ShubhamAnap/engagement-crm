@@ -11,7 +11,7 @@ import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 import type { DbProduct, StockStatus } from "@/lib/db-types";
 
-import { DEFAULT_ORG_ID } from "@/server/org-context";
+import { allowEnvChannelFallback, resolveServiceOrgId } from "@/server/org-context";
 export const WORDPRESS_DEFAULT_SITE = "https://enertechups.com";
 const MAX_PRODUCTS = 500;
 const FETCH_TIMEOUT_MS = 25_000;
@@ -372,11 +372,13 @@ function wooAuthHeader(key: string, secret: string): Record<string, string> {
 }
 
 export async function loadWordpressConfig(): Promise<WordpressChannelConfig> {
+  const orgId = await resolveServiceOrgId();
+  const allowEnv = allowEnvChannelFallback(orgId);
   const supabase = createServiceSupabase();
   const { data, error } = await supabase
     .from("channels")
     .select("config")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", orgId)
     .eq("type", "wordpress")
     .maybeSingle();
   if (error && /invalid input value for enum|wordpress/i.test(error.message)) {
@@ -385,18 +387,20 @@ export async function loadWordpressConfig(): Promise<WordpressChannelConfig> {
   const cfg = asRecord(data?.config);
   const site =
     str(cfg.site_url) ||
-    envTrim("WOO_SITE_URL") ||
-    envTrim("WORDPRESS_SITE_URL") ||
-    envTrim("WOOCOMMERCE_URL") ||
-    WORDPRESS_DEFAULT_SITE;
+    (allowEnv
+      ? envTrim("WOO_SITE_URL") ||
+        envTrim("WORDPRESS_SITE_URL") ||
+        envTrim("WOOCOMMERCE_URL") ||
+        WORDPRESS_DEFAULT_SITE
+      : "");
   return {
     site_url: normalizeSiteUrl(site),
     consumer_key:
-      str(cfg.consumer_key) || envTrim("WOO_CONSUMER_KEY") || envTrim("WOOCOMMERCE_CONSUMER_KEY"),
+      str(cfg.consumer_key) ||
+      (allowEnv ? envTrim("WOO_CONSUMER_KEY") || envTrim("WOOCOMMERCE_CONSUMER_KEY") : ""),
     consumer_secret:
       str(cfg.consumer_secret) ||
-      envTrim("WOO_CONSUMER_SECRET") ||
-      envTrim("WOOCOMMERCE_CONSUMER_SECRET"),
+      (allowEnv ? envTrim("WOO_CONSUMER_SECRET") || envTrim("WOOCOMMERCE_CONSUMER_SECRET") : ""),
     last_sync_at: str(cfg.last_sync_at) || null,
     last_sync_result: str(cfg.last_sync_result) || null,
     last_sync_error: str(cfg.last_sync_error) || null,
@@ -640,7 +644,7 @@ async function stampSync(patch: {
       is_enabled: patch.is_enabled ?? undefined,
       updated_at: new Date().toISOString(),
     })
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("type", "wordpress");
 }
 
@@ -695,7 +699,7 @@ async function upsertProducts(mapped: MappedWooProduct[]): Promise<{
   const { data: existingRows, error: listErr } = await supabase
     .from("products")
     .select("*")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .limit(1000);
   if (listErr) throw new Error(listErr.message);
 
@@ -744,7 +748,7 @@ async function upsertProducts(mapped: MappedWooProduct[]): Promise<{
         bySku.set(nextRow.sku.toLowerCase(), nextRow);
       } else {
         const insertRow = {
-            org_id: DEFAULT_ORG_ID,
+            org_id: await resolveServiceOrgId(),
             sku: item.sku,
             name: item.name,
             category: item.category,
@@ -809,7 +813,7 @@ export const getWordpressSetup = createServerFn({ method: "GET" }).handler(async
   const { data: channel, error } = await supabase
     .from("channels")
     .select("id, is_enabled, status")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("type", "wordpress")
     .maybeSingle();
   if (error && /invalid input value for enum|wordpress/i.test(error.message)) {
@@ -858,13 +862,13 @@ async function ensureWordpressChannelRow(): Promise<{
   const { data: existing } = await supabase
     .from("channels")
     .select("id")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("type", "wordpress")
     .maybeSingle();
   if (existing) return { ok: true, created: false, error: null };
 
   const { error } = await supabase.from("channels").insert({
-    org_id: DEFAULT_ORG_ID,
+    org_id: await resolveServiceOrgId(),
     type: "wordpress",
     name: "WordPress / WooCommerce",
     status: "Disconnected",
@@ -923,7 +927,7 @@ export const saveWordpressChannelConfig = createServerFn({ method: "POST" })
         is_enabled: data.enable ?? true,
         updated_at: new Date().toISOString(),
       })
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await resolveServiceOrgId())
       .eq("type", "wordpress");
     if (error) {
       if (/invalid input value for enum|wordpress/i.test(error.message)) {

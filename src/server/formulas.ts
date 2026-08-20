@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
 
-import { DEFAULT_ORG_ID } from "@/server/org-context";
+import { requireStaffOrgId } from "@/server/org-context";
 
 /** Company rule: 1 kW = 1.2 kVA (internal conversion). */
 export const KW_TO_KVA_FACTOR = 1.2;
@@ -173,7 +173,7 @@ export const listSizingFormulas = createServerFn({ method: "GET" }).handler(asyn
   const { data, error } = await supabase
     .from("sizing_formulas")
     .select("*")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await requireStaffOrgId())
     .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
   if (error) throw new Error(migrationHint(error.message));
@@ -185,7 +185,7 @@ export const listLoadApplications = createServerFn({ method: "GET" }).handler(as
   const { data, error } = await supabase
     .from("load_applications")
     .select("*")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await requireStaffOrgId())
     .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
   if (error) throw new Error(migrationHint(error.message));
@@ -212,7 +212,7 @@ export const createSizingFormula = createServerFn({ method: "POST" })
     const { data: row, error } = await supabase
       .from("sizing_formulas")
       .insert({
-        org_id: DEFAULT_ORG_ID,
+        org_id: await requireStaffOrgId(),
         name: data.name.trim(),
         category: data.category,
         description: data.description?.trim() || null,
@@ -250,7 +250,7 @@ export const updateSizingFormula = createServerFn({ method: "POST" })
         is_active: rest.is_active,
       })
       .eq("id", id)
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await requireStaffOrgId())
       .select("*")
       .single();
     if (error) throw new Error(migrationHint(error.message));
@@ -265,7 +265,7 @@ export const deleteSizingFormula = createServerFn({ method: "POST" })
       .from("sizing_formulas")
       .delete()
       .eq("id", data.id)
-      .eq("org_id", DEFAULT_ORG_ID);
+      .eq("org_id", await requireStaffOrgId());
     if (error) throw new Error(migrationHint(error.message));
     return { ok: true };
   });
@@ -278,14 +278,14 @@ export const duplicateSizingFormula = createServerFn({ method: "POST" })
       .from("sizing_formulas")
       .select("*")
       .eq("id", data.id)
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await requireStaffOrgId())
       .maybeSingle();
     if (error) throw new Error(migrationHint(error.message));
     if (!src) throw new Error("Formula not found");
     const { data: row, error: insErr } = await supabase
       .from("sizing_formulas")
       .insert({
-        org_id: DEFAULT_ORG_ID,
+        org_id: await requireStaffOrgId(),
         name: `${src.name} (copy)`,
         category: src.category,
         description: src.description,
@@ -321,7 +321,7 @@ export const createLoadApplication = createServerFn({ method: "POST" })
     const { data: row, error } = await supabase
       .from("load_applications")
       .insert({
-        org_id: DEFAULT_ORG_ID,
+        org_id: await requireStaffOrgId(),
         name: data.name.trim(),
         watts: data.watts,
         surge_watts: data.surge_watts ?? null,
@@ -355,7 +355,7 @@ export const updateLoadApplication = createServerFn({ method: "POST" })
         is_active: rest.is_active,
       })
       .eq("id", id)
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await requireStaffOrgId())
       .select("*")
       .single();
     if (error) throw new Error(migrationHint(error.message));
@@ -370,7 +370,7 @@ export const deleteLoadApplication = createServerFn({ method: "POST" })
       .from("load_applications")
       .delete()
       .eq("id", data.id)
-      .eq("org_id", DEFAULT_ORG_ID);
+      .eq("org_id", await requireStaffOrgId());
     if (error) throw new Error(migrationHint(error.message));
     return { ok: true };
   });
@@ -388,7 +388,7 @@ export const runSizingFormula = createServerFn({ method: "POST" })
       .from("sizing_formulas")
       .select("*")
       .eq("id", data.formulaId)
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await requireStaffOrgId())
       .maybeSingle();
     if (error) throw new Error(migrationHint(error.message));
     if (!row) throw new Error("Formula not found");

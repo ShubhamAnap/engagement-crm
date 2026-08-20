@@ -1,4 +1,5 @@
-﻿import { getBrowserSupabase } from "@/lib/supabase";
+﻿import { orgStoragePath } from "@/lib/org-storage";
+import { getBrowserSupabase } from "@/lib/supabase";
 import type { DbConversation, DbMessage, ChannelType, DbCustomer, DbLead, PriorityLevel } from "@/lib/db-types";
 import { buildPlaceholderAiReply } from "@/lib/chat-replies";
 import { normalizeWhatsAppDigits } from "@/lib/whatsapp-window";
@@ -288,7 +289,7 @@ export async function uploadAgentAttachment(options: {
 
   const supabase = getBrowserSupabase();
   const safeName = file.name.replace(/[^\w.\-()+ ]+/g, "_").slice(0, 120);
-  const storagePath = `chat/${orgId}/${conversationId}/agent-${Date.now()}-${safeName}`;
+  const storagePath = orgStoragePath(orgId, "chat", conversationId, `agent-${Date.now()}-${safeName}`);
 
   const { error: uploadError } = await supabase.storage.from(ATTACH_BUCKET).upload(storagePath, file, {
     contentType: file.type || "application/octet-stream",

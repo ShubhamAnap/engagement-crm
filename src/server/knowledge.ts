@@ -8,7 +8,8 @@ import { isServiceIntent } from "@/lib/conversation-guards";
 import { isEducateOnlyAsk, wantsSiteInstallOrReferencePhotos } from "@/lib/conversation-intent";
 import { shortenStorageUrl } from "@/server/shorten-urls";
 
-import { DEFAULT_ORG_ID } from "@/server/org-context";
+import { assertOrgStoragePath, orgStoragePath } from "@/lib/org-storage";
+import { requireStaffOrgId } from "@/server/org-context";
 const BUCKET = "knowledge";
 
 function publicFileUrl(path: string): string {
@@ -243,6 +244,7 @@ async function refreshCollectionCounts(supabase: ReturnType<typeof createService
 
 async function indexBuffer(options: {
   supabase: ReturnType<typeof createServiceSupabase>;
+  orgId: string;
   documentId: string;
   collectionId: string;
   fileName: string;
@@ -251,7 +253,7 @@ async function indexBuffer(options: {
   buffer: Buffer;
   storagePath: string;
 }) {
-  const { supabase, documentId, collectionId, fileName, title, mimeType, buffer, storagePath } = options;
+  const { supabase, orgId, documentId, collectionId, fileName, title, mimeType, buffer, storagePath } = options;
   const sourceUrl = publicFileUrl(storagePath);
 
   const { data: collection } = await supabase
@@ -314,7 +316,7 @@ async function indexBuffer(options: {
   }
 
   const rows = chunks.map((content, index) => ({
-    org_id: DEFAULT_ORG_ID,
+    org_id: orgId,
     document_id: documentId,
     collection_id: collectionId,
     chunk_index: index,
@@ -360,11 +362,12 @@ export const ensureKnowledgeStorage = createServerFn({ method: "POST" }).handler
 });
 
 export const listKnowledgeCollections = createServerFn({ method: "GET" }).handler(async () => {
+  const orgId = await requireStaffOrgId();
   const supabase = createServiceSupabase();
   const { data, error } = await supabase
     .from("knowledge_collections")
     .select("*")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", orgId)
     .order("name", { ascending: true });
   if (error) throw new Error(error.message);
   return data ?? [];
@@ -373,11 +376,12 @@ export const listKnowledgeCollections = createServerFn({ method: "GET" }).handle
 export const listKnowledgeDocuments = createServerFn({ method: "POST" })
   .validator(z.object({ collectionId: z.string().uuid().optional() }))
   .handler(async ({ data }) => {
+    const orgId = await requireStaffOrgId();
     const supabase = createServiceSupabase();
     let q = supabase
       .from("knowledge_documents")
       .select("*, collection:knowledge_collections(id, name)")
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .order("created_at", { ascending: false })
       .limit(100);
     if (data.collectionId) q = q.eq("collection_id", data.collectionId);
@@ -400,11 +404,12 @@ export const createKnowledgeCollection = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }) => {
+    const orgId = await requireStaffOrgId();
     const supabase = createServiceSupabase();
     const { data: created, error } = await supabase
       .from("knowledge_collections")
       .insert({
-        org_id: DEFAULT_ORG_ID,
+        org_id: orgId,
         name: data.name.trim(),
         description: data.description?.trim() || null,
         purpose: data.purpose || null,
@@ -433,11 +438,12 @@ export const updateKnowledgeCollection = createServerFn({ method: "POST" })
     if (data.description !== undefined) patch.description = data.description.trim() || null;
     if (data.purpose !== undefined) patch.purpose = data.purpose;
     if (!Object.keys(patch).length) return { ok: true };
+    const orgId = await requireStaffOrgId();
     const { error } = await supabase
       .from("knowledge_collections")
       .update(patch)
       .eq("id", data.collectionId)
-      .eq("org_id", DEFAULT_ORG_ID);
+      .eq("org_id", orgId);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -451,11 +457,12 @@ export const reindexKnowledgeDocument = createServerFn({ method: "POST" })
 export const reindexKnowledgeCollection = createServerFn({ method: "POST" })
   .validator(z.object({ collectionId: z.string().uuid() }))
   .handler(async ({ data }) => {
+    const orgId = await requireStaffOrgId();
     const supabase = createServiceSupabase();
     const { data: docs, error } = await supabase
       .from("knowledge_documents")
       .select("id, title, storage_path")
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .eq("collection_id", data.collectionId)
       .not("storage_path", "is", null)
       .order("created_at", { ascending: true });
@@ -486,12 +493,13 @@ async function prepareUploadRecord(data: {
   assertSupportedFile(data.fileName, data.mimeType);
   await ensureKnowledgeBucket();
 
+  const orgId = await requireStaffOrgId();
   const supabase = createServiceSupabase();
   const { data: collection, error: collectionError } = await supabase
     .from("knowledge_collections")
     .select("id")
     .eq("id", data.collectionId)
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", orgId)
     .maybeSingle();
   if (collectionError) throw new Error(collectionError.message);
   if (!collection) throw new Error("Collection not found");
@@ -499,7 +507,7 @@ async function prepareUploadRecord(data: {
   const { data: doc, error: docError } = await supabase
     .from("knowledge_documents")
     .insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: orgId,
       collection_id: data.collectionId,
       title: data.title.trim(),
       mime_type: data.mimeType || null,
@@ -511,7 +519,7 @@ async function prepareUploadRecord(data: {
   if (docError) throw new Error(docError.message);
 
   const safeName = data.fileName.replace(/[^\w.\-]+/g, "_");
-  const storagePath = `${DEFAULT_ORG_ID}/${data.collectionId}/${doc.id}/${safeName}`;
+  const storagePath = orgStoragePath(orgId, data.collectionId, doc.id, safeName);
   const sourceUrl = publicFileUrl(storagePath);
 
   await supabase
@@ -546,7 +554,6 @@ async function indexDocumentById(documentId: string) {
     .from("knowledge_documents")
     .select("*")
     .eq("id", documentId)
-    .eq("org_id", DEFAULT_ORG_ID)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!doc) throw new Error("Document not found");
@@ -568,6 +575,7 @@ async function indexDocumentById(documentId: string) {
   try {
     return await indexBuffer({
       supabase,
+      orgId: String(doc.org_id),
       documentId: doc.id as string,
       collectionId: doc.collection_id as string,
       fileName,
@@ -611,19 +619,21 @@ async function uploadBytesToPreparedDocument(options: {
     throw new Error("File too large (max 12 MB).");
   }
 
+  const orgId = await requireStaffOrgId();
   const { data: doc, error } = await supabase
     .from("knowledge_documents")
     .select("id, storage_path, metadata")
     .eq("id", options.documentId)
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", orgId)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!doc?.storage_path) throw new Error("Prepared document missing storage_path");
+  const storagePath = assertOrgStoragePath(String(doc.storage_path), orgId);
 
   const fileName =
     String((doc.metadata as { fileName?: string } | null)?.fileName || "document") || "document";
 
-  const { error: uploadError } = await supabase.storage.from(BUCKET).upload(doc.storage_path as string, buffer, {
+  const { error: uploadError } = await supabase.storage.from(BUCKET).upload(storagePath, buffer, {
     contentType: options.mimeType || "application/octet-stream",
     upsert: true,
   });
@@ -699,18 +709,20 @@ export const uploadKnowledgeDocument = createServerFn({ method: "POST" })
 export const deleteKnowledgeDocument = createServerFn({ method: "POST" })
   .validator(z.object({ documentId: z.string().uuid() }))
   .handler(async ({ data }) => {
+    const orgId = await requireStaffOrgId();
     const supabase = createServiceSupabase();
     const { data: doc, error } = await supabase
       .from("knowledge_documents")
       .select("*")
       .eq("id", data.documentId)
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!doc) throw new Error("Document not found");
 
     if (doc.storage_path) {
-      await supabase.storage.from(BUCKET).remove([doc.storage_path as string]);
+      const path = assertOrgStoragePath(String(doc.storage_path), orgId);
+      await supabase.storage.from(BUCKET).remove([path]);
     }
     const { error: delError } = await supabase.from("knowledge_documents").delete().eq("id", data.documentId);
     if (delError) throw new Error(delError.message);
@@ -728,12 +740,13 @@ export const updateKnowledgeDocumentTags = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }) => {
+    const orgId = await requireStaffOrgId();
     const supabase = createServiceSupabase();
     const { data: doc, error } = await supabase
       .from("knowledge_documents")
       .select("id, metadata")
       .eq("id", data.documentId)
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!doc) throw new Error("Document not found");
@@ -751,7 +764,7 @@ export const updateKnowledgeDocumentTags = createServerFn({ method: "POST" })
       .from("knowledge_documents")
       .update({ metadata: nextMeta, updated_at: new Date().toISOString() })
       .eq("id", data.documentId)
-      .eq("org_id", DEFAULT_ORG_ID);
+      .eq("org_id", orgId);
     if (updError) throw new Error(updError.message);
     return { ok: true, tags };
   });
@@ -879,8 +892,10 @@ export function knowledgeIsUseful(chunks: RetrievedChunk[]): boolean {
 export async function retrieveKnowledgeContext(
   query: string,
   limit = 6,
-  options?: { collectionIds?: string[] },
+  options?: { collectionIds?: string[]; orgId: string },
 ): Promise<RetrievedChunk[]> {
+  const orgId = options?.orgId;
+  if (!orgId) throw new Error("orgId is required for knowledge retrieval");
   const supabase = createServiceSupabase();
   const keywords = queryKeywords(query);
   const fetchCount = Math.min(24, Math.max(limit * 3, limit + 4));
@@ -888,7 +903,7 @@ export async function retrieveKnowledgeContext(
     const embedding = await embedQuery(query);
     const { data, error } = await supabase.rpc("match_knowledge_chunks", {
       query_embedding: toVectorLiteral(embedding),
-      match_org_id: DEFAULT_ORG_ID,
+      match_org_id: orgId,
       match_count: fetchCount,
       match_threshold: 0.48,
     });
@@ -1105,14 +1120,14 @@ function buildClarifyMessage(options: CatalogueClarifyOption[]): string {
   return `Which catalogue do you need?\n${lines.join("\n")}\n\nReply with the number or product name.`;
 }
 
-async function loadDatasheetRows(): Promise<DatasheetRow[]> {
+async function loadDatasheetRows(orgId: string): Promise<DatasheetRow[]> {
   const supabase = createServiceSupabase();
   const { data: docs } = await supabase
     .from("knowledge_documents")
     .select(
       "id, title, source_url, storage_path, mime_type, metadata, collection:knowledge_collections(name, purpose)",
     )
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", orgId)
     .eq("status", "ready")
     .order("updated_at", { ascending: false })
     .limit(80);
@@ -1312,6 +1327,7 @@ export function resolveCatalogueChoice(
 export async function resolveCatalogueRequest(
   query: string,
   options?: {
+    orgId: string;
     pendingOptions?: Array<{
       documentId: string;
       label: string;
@@ -1323,6 +1339,9 @@ export async function resolveCatalogueRequest(
 ): Promise<CatalogueSearchResult> {
   const q = String(query || "").trim();
   if (!q) {
+    return { mode: "none", downloads: [], clarifyOptions: [], message: "" };
+  }
+  if (!options?.orgId) {
     return { mode: "none", downloads: [], clarifyOptions: [], message: "" };
   }
 
@@ -1384,7 +1403,7 @@ export async function resolveCatalogueRequest(
     return { mode: "none", downloads: [], clarifyOptions: [], message: "" };
   }
 
-  const rows = await loadDatasheetRows();
+  const rows = await loadDatasheetRows(options.orgId);
   if (rows.length === 0) {
     return { mode: "none", downloads: [], clarifyOptions: [], message: "" };
   }
@@ -1478,8 +1497,8 @@ export async function resolveCatalogueRequest(
 }
 
 /** @deprecated Prefer resolveCatalogueRequest — returns at most one matched PDF (never dumps all). */
-export async function findCatalogueDownloads(query: string): Promise<CatalogueDownload[]> {
-  const result = await resolveCatalogueRequest(query);
+export async function findCatalogueDownloads(query: string, orgId: string): Promise<CatalogueDownload[]> {
+  const result = await resolveCatalogueRequest(query, { orgId });
   return result.downloads;
 }
 
@@ -1601,10 +1620,12 @@ export async function findReferenceImages(
   query: string,
   limit = REFERENCE_PHOTOS_LIMIT,
   options?: {
+    orgId: string;
     excludeDocumentIds?: string[];
     preferCollection?: string | null;
   },
 ): Promise<ReferenceImage[]> {
+  if (!options?.orgId) return [];
   if (isEducateOnlyAsk(query)) return [];
   const askingMore = customerAskedForMorePhotos(query);
   const prefer = String(options?.preferCollection || "").trim();
@@ -1621,7 +1642,7 @@ export async function findReferenceImages(
   const { data: docs, error } = await supabase
     .from("knowledge_documents")
     .select("id, title, source_url, storage_path, mime_type, metadata, collection:knowledge_collections(name)")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", options.orgId)
     .eq("status", "ready")
     .order("updated_at", { ascending: false })
     .limit(200);

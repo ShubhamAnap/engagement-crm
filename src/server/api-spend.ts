@@ -3,9 +3,7 @@
  */
 import { createServiceSupabase } from "@/lib/supabase";
 
-import { DEFAULT_ORG_ID } from "@/server/org-context";
-
-export const SPEND_ORG_ID = DEFAULT_ORG_ID;
+import { tryJobOrgId } from "@/server/org-context";
 
 export type SpendKind = "openai_chat" | "openai_embed" | "whatsapp_session" | "whatsapp_template";
 export type SpendVendor = "openai" | "meta";
@@ -31,7 +29,8 @@ function asInt(n: unknown, fallback = 0): number {
 
 export async function recordSpendEvent(input: SpendEventInput): Promise<void> {
   try {
-    const orgId = input.orgId || SPEND_ORG_ID;
+    const orgId = input.orgId || tryJobOrgId();
+    if (!orgId) return;
     const promptTokens = asInt(input.promptTokens);
     const completionTokens = asInt(input.completionTokens);
     const totalTokens = asInt(input.totalTokens, promptTokens + completionTokens);

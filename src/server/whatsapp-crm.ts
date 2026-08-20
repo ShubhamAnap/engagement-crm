@@ -1,7 +1,5 @@
 import type { createServiceSupabase } from "@/lib/supabase";
 
-import { DEFAULT_ORG_ID } from "@/server/org-context";
-
 type Sb = ReturnType<typeof createServiceSupabase>;
 
 /** Create/link Customer + Lead for WhatsApp phone (mirrors website chat CRM). */
@@ -16,7 +14,8 @@ export async function ensureWhatsAppLeadCustomer(
     tags?: string[] | null;
   },
   phone: string,
-  profileName?: string | null,
+  profileName: string | null | undefined,
+  orgId: string,
 ) {
   const digits = phone.replace(/\D/g, "");
   if (!digits) return;
@@ -29,7 +28,7 @@ export async function ensureWhatsAppLeadCustomer(
     const { data: byPhone } = await supabase
       .from("customers")
       .select("id, name, phone")
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .eq("phone", digits)
       .maybeSingle();
     if (byPhone?.id) {
@@ -38,7 +37,7 @@ export async function ensureWhatsAppLeadCustomer(
       const { data: created } = await supabase
         .from("customers")
         .insert({
-          org_id: DEFAULT_ORG_ID,
+          org_id: orgId,
           name,
           phone: digits,
           metadata: { source: "whatsapp" },
@@ -53,7 +52,7 @@ export async function ensureWhatsAppLeadCustomer(
     const { data: openLead } = await supabase
       .from("leads")
       .select("id")
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .eq("phone", digits)
       .order("updated_at", { ascending: false })
       .limit(1)
@@ -64,7 +63,7 @@ export async function ensureWhatsAppLeadCustomer(
       const { data: createdLead } = await supabase
         .from("leads")
         .insert({
-          org_id: DEFAULT_ORG_ID,
+          org_id: orgId,
           name,
           phone: digits,
           source: "WhatsApp",

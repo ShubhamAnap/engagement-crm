@@ -17,7 +17,7 @@ import { isOffTopicMessage } from "@/lib/enertech-scope";
 import { isProductIntent } from "@/server/product-pack";
 import { isEducateOnlyAsk } from "@/lib/conversation-intent";
 
-import { DEFAULT_ORG_ID } from "@/server/org-context";
+import { allowEnvChannelFallback, resolveServiceOrgId } from "@/server/org-context";
 
 export type EmailChannelConfig = {
   from_email?: string;
@@ -45,13 +45,14 @@ function envConfig(): EmailChannelConfig {
 }
 
 export async function loadEmailConfig(): Promise<EmailChannelConfig> {
-  const fromEnv = envConfig();
+  const orgId = await resolveServiceOrgId();
+  const fromEnv = allowEnvChannelFallback(orgId) ? envConfig() : {};
   try {
     const supabase = createServiceSupabase();
     const { data } = await supabase
       .from("channels")
       .select("config, detail")
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .eq("type", "email")
       .maybeSingle();
     const cfg = ((data?.config as EmailChannelConfig) || {}) as EmailChannelConfig;
@@ -151,7 +152,7 @@ async function getEmailChannelId(supabase: ReturnType<typeof createServiceSupaba
   const { data } = await supabase
     .from("channels")
     .select("id")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("type", "email")
     .maybeSingle();
   return data?.id as string | undefined;
@@ -180,7 +181,7 @@ async function findOrCreateEmailConversation(
   const { data: existing } = await supabase
     .from("conversations")
     .select("*")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("channel", "email")
     .eq("widget_session_id", sessionKey)
     .order("updated_at", { ascending: false })
@@ -203,7 +204,7 @@ async function findOrCreateEmailConversation(
   const { data: created, error } = await supabase
     .from("conversations")
     .insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: await resolveServiceOrgId(),
       channel_id: channelId || null,
       channel: "email",
       external_ref: externalRef,
@@ -234,6 +235,7 @@ export type InboundEmailPayload = {
 };
 
 export async function handleInboundEmail(payload: InboundEmailPayload) {
+  const orgId = await resolveServiceOrgId();
   const supabase = createServiceSupabase();
   const from = payload.from?.trim();
   const text = (payload.text || payload.html?.replace(/<[^>]+>/g, " ") || "").trim();
@@ -249,7 +251,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
     const { data: dup } = await supabase
       .from("messages")
       .select("id")
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .filter("metadata->>email_message_id", "eq", payload.messageId)
       .limit(1)
       .maybeSingle();
@@ -261,7 +263,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
   const { data: customerMsg, error: msgError } = await supabase
     .from("messages")
     .insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: await resolveServiceOrgId(),
       conversation_id: convo.id,
       sender: "customer",
       body: text.slice(0, 8000),
@@ -307,7 +309,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
       })
       .eq("id", convo.id);
     await supabase.from("messages").insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: await resolveServiceOrgId(),
       conversation_id: convo.id,
       sender: "ai",
       body: wait,
@@ -357,13 +359,14 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
       .order("created_at", { ascending: true })
       .limit(20);
     const stack = await resolveAgentStack({
+      orgId,
       channel: "email",
       message: text,
       previousSpecialistKey: specialistKeyFromMeta(prevMetaLang),
     });
     const agentCfg = agentReplyConfig(stack);
     const [chunks] = await Promise.all([
-      retrieveKnowledgeContext(text, 6, { collectionIds: agentCfg.knowledgeCollectionIds }),
+      retrieveKnowledgeContext(text, 6, { orgId, collectionIds: agentCfg.knowledgeCollectionIds }),
     ]);
     const catalogue = await resolveCatalogueRequest(text);
     const { sanitizeAssistantFileLinks, shortenDownloadLinks } = await import("@/server/shorten-urls");
@@ -381,6 +384,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
       educateOnly || isProductIntent(text)
         ? []
         : await findReferenceImages(text, 3, {
+            orgId,
             excludeDocumentIds: sentPhotoIds,
             preferCollection: askingMore ? lastCollection : null,
           });
@@ -484,6 +488,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
     } else {
       const { buildProductsContextForAi } = await import("@/server/product-pack");
       const productsContext = await buildProductsContextForAi(text, 10, {
+        orgId,
         categories: agentCfg.productCategories,
       });
       const downloadLinks = downloadLinksFromChunks(chunks);
@@ -543,7 +548,7 @@ export async function handleInboundEmail(payload: InboundEmailPayload) {
   }
 
   await supabase.from("messages").insert({
-    org_id: DEFAULT_ORG_ID,
+    org_id: await resolveServiceOrgId(),
     conversation_id: convo.id,
     sender: "ai",
     body: reply,
@@ -601,7 +606,7 @@ export async function persistEmailChannelConfig(data: {
       status: enable ? "Connected" : "Disconnected",
       health: enable ? 100 : 0,
     })
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("type", "email")
     .select("id, type, name, status, is_enabled, detail, health, updated_at")
     .single();
@@ -624,7 +629,7 @@ export async function sendAgentEmailReply(conversationId: string, body: string) 
     .from("conversations")
     .select("id, channel, visitor_email, subject, metadata, widget_session_id")
     .eq("id", conversationId)
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!convo) throw new Error("Conversation not found");

@@ -13,7 +13,6 @@ import {
   storagePathFromPublicUrl,
 } from "@/lib/short-links";
 
-import { DEFAULT_ORG_ID } from "@/server/org-context";
 const BUCKET = "knowledge";
 const STORAGE_URL_RE =
   /https?:\/\/[^\s)\]>"']+\/storage\/v1\/object\/public\/knowledge\/[^\s)\]>"']+/gi;
@@ -56,7 +55,6 @@ export async function shortenStorageUrl(url: string): Promise<string> {
     const { data: product } = await supabase
       .from("products")
       .select("sku")
-      .eq("org_id", DEFAULT_ORG_ID)
       .eq("id", productId)
       .maybeSingle();
     const sku = String(product?.sku || "").trim();
@@ -71,7 +69,6 @@ export async function shortenStorageUrl(url: string): Promise<string> {
   const { data: doc } = await supabase
     .from("knowledge_documents")
     .select("id, title, metadata")
-    .eq("org_id", DEFAULT_ORG_ID)
     .eq("storage_path", storagePath)
     .maybeSingle();
   if (doc?.id) {
@@ -87,12 +84,16 @@ export async function shortenStorageUrl(url: string): Promise<string> {
   // Fuzzy: match by filename only (do not invent from partial title stems)
   const filePart = storagePath.split("/").pop() || "";
   if (filePart.length >= 3) {
-    const { data: candidates } = await supabase
+    const orgFromPath = storagePath.split("/")[0] || "";
+    let q = supabase
       .from("knowledge_documents")
       .select("id, title, metadata, storage_path")
-      .eq("org_id", DEFAULT_ORG_ID)
       .eq("status", "ready")
       .limit(40);
+    if (/^[0-9a-f-]{36}$/i.test(orgFromPath)) {
+      q = q.eq("org_id", orgFromPath);
+    }
+    const { data: candidates } = await q;
     const lowerFile = filePart.toLowerCase();
     const hit =
       (candidates || []).find((c) => {

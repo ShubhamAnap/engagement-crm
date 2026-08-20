@@ -1,5 +1,7 @@
 -- Fix / bootstrap Knowledge Storage bucket + policies
 -- Run this in Supabase SQL Editor if uploads fail with "bucket not found" or RLS errors.
+-- After 039_storage_org_isolation.sql, do not re-apply the blanket SELECT/INSERT policies below;
+-- they allow any authenticated user to list/write the whole bucket.
 
 insert into storage.buckets (id, name, public, file_size_limit)
 values ('knowledge', 'knowledge', true, 15728640)

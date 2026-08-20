@@ -1,7 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { orgStoragePath } from "@/lib/org-storage";
 import { createServiceSupabase } from "@/lib/supabase";
 import { recordSpendEvent } from "@/server/api-spend";
+import { assertWhatsAppSendAllowed } from "@/server/org-usage";
 import { withInboxSnoozeCleared } from "@/lib/inbox-snooze";
 import { generateOpenAiReply } from "@/server/openai";
 import { resolveLlmModel } from "@/server/llm-gateway";
@@ -54,7 +56,16 @@ import { ensureWhatsAppLeadCustomer } from "@/server/whatsapp-crm";
 import { findReferenceImages, resolveCatalogueRequest, retrieveKnowledgeContext, wantsReferenceImages, customerAskedForMorePhotos, formatKnowledgeContext, downloadLinksFromChunks } from "@/server/knowledge";
 import { resolveProductPackRequest, buildProductPackMedia, buildProductsContextForAi, isProductIntent } from "@/server/product-pack";
 
-import { DEFAULT_ORG_ID } from "@/server/org-context";
+import {
+  DEFAULT_ORG_ID,
+  allowEnvChannelFallback,
+  assertUniqueChannelConfig,
+  requireStaffOrgId,
+  resolveChannelByConfig,
+  resolveServiceOrgId,
+  runWithOrg,
+  tryJobOrgId,
+} from "@/server/org-context";
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
 
 export type WhatsAppChannelConfig = {
@@ -75,14 +86,14 @@ function envConfig(): WhatsAppChannelConfig {
   };
 }
 
-export async function loadWhatsAppConfig(): Promise<WhatsAppChannelConfig> {
-  const fromEnv = envConfig();
+export async function loadWhatsAppConfig(orgId: string): Promise<WhatsAppChannelConfig> {
+  const fromEnv = allowEnvChannelFallback(orgId) ? envConfig() : {};
   try {
     const supabase = createServiceSupabase();
     const { data } = await supabase
       .from("channels")
       .select("config, detail, is_enabled, status")
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .eq("type", "whatsapp")
       .maybeSingle();
     const cfg = ((data?.config as WhatsAppChannelConfig) || {}) as WhatsAppChannelConfig;
@@ -98,15 +109,54 @@ export async function loadWhatsAppConfig(): Promise<WhatsAppChannelConfig> {
   }
 }
 
+export async function loadWhatsAppConfigForInbound(payload: unknown): Promise<{
+  orgId: string;
+  cfg: WhatsAppChannelConfig;
+}> {
+  const phoneNumberId = extractWhatsAppPhoneNumberId(payload);
+  const supabase = createServiceSupabase();
+  if (phoneNumberId) {
+    const hit = await resolveChannelByConfig(supabase, {
+      type: "whatsapp",
+      configKey: "phone_number_id",
+      configValue: phoneNumberId,
+    });
+    if (hit) {
+      return { orgId: hit.orgId, cfg: await loadWhatsAppConfig(hit.orgId) };
+    }
+    const envId = (process.env.WHATSAPP_PHONE_NUMBER_ID || "").trim();
+    if (envId && envId === phoneNumberId) {
+      return { orgId: DEFAULT_ORG_ID, cfg: await loadWhatsAppConfig(DEFAULT_ORG_ID) };
+    }
+  }
+  throw new Error("Unknown WhatsApp phone_number_id — no matching workspace channel");
+}
+
+function extractWhatsAppPhoneNumberId(payload: unknown): string {
+  const root = payload as {
+    entry?: Array<{
+      changes?: Array<{ value?: { metadata?: { phone_number_id?: string } } }>;
+    }>;
+  };
+  for (const entry of root.entry || []) {
+    for (const change of entry.changes || []) {
+      const id = String(change.value?.metadata?.phone_number_id || "").trim();
+      if (id) return id;
+    }
+  }
+  return "";
+}
+
 export function whatsappConfigReady(cfg: WhatsAppChannelConfig): boolean {
   return Boolean(cfg.phone_number_id && cfg.access_token && cfg.verify_token);
 }
 
 export async function sendWhatsAppText(toPhone: string, body: string, cfg?: WhatsAppChannelConfig) {
-  const config = cfg || (await loadWhatsAppConfig());
-  if (!config.phone_number_id || !config.access_token) {
+  const config = cfg;
+  if (!config?.phone_number_id || !config.access_token) {
     throw new Error("WhatsApp is not configured (missing phone_number_id or access_token)");
   }
+  await assertWhatsAppSendAllowed(tryJobOrgId() || (await resolveServiceOrgId()));
   const { normalizeWhatsAppDigits } = await import("@/lib/whatsapp-window");
   const to = normalizeWhatsAppDigits(toPhone) || toPhone.replace(/\D/g, "");
   if (!to) throw new Error("Invalid WhatsApp recipient phone");
@@ -155,13 +205,14 @@ export function extractWhatsAppOutboundId(json: Record<string, unknown> | null |
 export async function downloadAndStoreWhatsAppMedia(options: {
   mediaId: string;
   conversationId: string;
+  orgId: string;
   mediaKind: string;
   fileNameHint?: string | null;
   mimeHint?: string | null;
   cfg?: WhatsAppChannelConfig;
 }): Promise<{ url: string; storagePath: string; mimeType: string; fileName: string } | null> {
-  const config = options.cfg || (await loadWhatsAppConfig());
-  if (!config.access_token) return null;
+  const config = options.cfg;
+  if (!config?.access_token) return null;
 
   const metaRes = await fetch(`${GRAPH_BASE}/${options.mediaId}`, {
     headers: { Authorization: `Bearer ${config.access_token}` },
@@ -224,7 +275,7 @@ export async function downloadAndStoreWhatsAppMedia(options: {
     "_",
   );
   const fileName = /\.[a-z0-9]+$/i.test(rawName) ? rawName.slice(0, 120) : `${rawName.slice(0, 100)}.${extFromMime}`;
-  const storagePath = `chat/${DEFAULT_ORG_ID}/${options.conversationId}/inbound-${Date.now()}-${fileName}`;
+  const storagePath = orgStoragePath(options.orgId, "chat", options.conversationId, `inbound-${Date.now()}-${fileName}`);
 
   const supabase = createServiceSupabase();
   try {
@@ -274,6 +325,7 @@ async function applyWhatsAppStatusUpdates(
       href?: string;
     }>;
   }>,
+  orgId: string,
 ) {
   for (const st of statuses) {
     const wamid = st.id;
@@ -284,7 +336,7 @@ async function applyWhatsAppStatusUpdates(
     const { data: row } = await supabase
       .from("messages")
       .select("id, metadata")
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .filter("metadata->>wa_message_id", "eq", wamid)
       .limit(1)
       .maybeSingle();
@@ -324,10 +376,11 @@ export async function sendWhatsAppImage(options: {
   caption?: string;
   cfg?: WhatsAppChannelConfig;
 }) {
-  const config = options.cfg || (await loadWhatsAppConfig());
-  if (!config.phone_number_id || !config.access_token) {
+  const config = options.cfg;
+  if (!config?.phone_number_id || !config.access_token) {
     throw new Error("WhatsApp is not configured (missing phone_number_id or access_token)");
   }
+  await assertWhatsAppSendAllowed(tryJobOrgId() || (await resolveServiceOrgId()));
   const { normalizeWhatsAppDigits } = await import("@/lib/whatsapp-window");
   const to = normalizeWhatsAppDigits(options.toPhone) || options.toPhone.replace(/\D/g, "");
   if (!to) throw new Error("Invalid WhatsApp recipient phone");
@@ -376,10 +429,11 @@ export async function sendWhatsAppDocument(options: {
   caption?: string;
   cfg?: WhatsAppChannelConfig;
 }) {
-  const config = options.cfg || (await loadWhatsAppConfig());
-  if (!config.phone_number_id || !config.access_token) {
+  const config = options.cfg;
+  if (!config?.phone_number_id || !config.access_token) {
     throw new Error("WhatsApp is not configured (missing phone_number_id or access_token)");
   }
+  await assertWhatsAppSendAllowed(tryJobOrgId() || (await resolveServiceOrgId()));
   const { normalizeWhatsAppDigits } = await import("@/lib/whatsapp-window");
   const to = normalizeWhatsAppDigits(options.toPhone) || options.toPhone.replace(/\D/g, "");
   if (!to) throw new Error("Invalid WhatsApp recipient phone");
@@ -427,11 +481,14 @@ export async function sendWhatsAppDocument(options: {
   return json;
 }
 
-async function getWhatsAppChannelId(supabase: ReturnType<typeof createServiceSupabase>) {
+async function getWhatsAppChannelId(
+  supabase: ReturnType<typeof createServiceSupabase>,
+  orgId: string,
+) {
   const { data } = await supabase
     .from("channels")
     .select("id")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", orgId)
     .eq("type", "whatsapp")
     .maybeSingle();
   return data?.id as string | undefined;
@@ -440,7 +497,8 @@ async function getWhatsAppChannelId(supabase: ReturnType<typeof createServiceSup
 export async function findOrCreateWhatsAppConversation(
   supabase: ReturnType<typeof createServiceSupabase>,
   phone: string,
-  profileName?: string,
+  profileName: string | undefined,
+  orgId: string,
 ) {
   const normalized = phone.replace(/\D/g, "");
   const sessionKey = `wa:${normalized}`;
@@ -448,7 +506,7 @@ export async function findOrCreateWhatsAppConversation(
   const { data: existing } = await supabase
     .from("conversations")
     .select("*")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", orgId)
     .eq("channel", "whatsapp")
     .eq("widget_session_id", sessionKey)
     .order("updated_at", { ascending: false })
@@ -465,13 +523,13 @@ export async function findOrCreateWhatsAppConversation(
     return existing;
   }
 
-  const channelId = await getWhatsAppChannelId(supabase);
+  const channelId = await getWhatsAppChannelId(supabase, orgId);
   const externalRef = `WA-${normalized.slice(-6) || Date.now().toString().slice(-6)}`;
 
   const { data: created, error } = await supabase
     .from("conversations")
     .insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: orgId,
       channel_id: channelId || null,
       channel: "whatsapp",
       external_ref: externalRef,
@@ -508,7 +566,7 @@ async function sendGreetingTemplateFallback(options: {
   const { data: rows } = await options.supabase
     .from("wa_message_templates")
     .select("name, language, status, body_text")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .order("updated_at", { ascending: false })
     .limit(40);
 
@@ -611,9 +669,14 @@ function extractWhatsAppInteractiveText(msg: WaInboundMsg): string | null {
   return null;
 }
 
-export async function handleWhatsAppInboundPayload(payload: unknown) {
+export async function handleWhatsAppInboundPayload(
+  payload: unknown,
+): Promise<Array<{ conversationId: string; messageId: string }>> {
+  const { orgId, cfg } = await loadWhatsAppConfigForInbound(payload);
+  if (tryJobOrgId() !== orgId) {
+    return runWithOrg(orgId, () => handleWhatsAppInboundPayload(payload));
+  }
   const supabase = createServiceSupabase();
-  const cfg = await loadWhatsAppConfig();
   const root = payload as {
     entry?: Array<{
       changes?: Array<{
@@ -648,7 +711,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
       // Delivery / read / seen — ticks only. Do NOT open or bump conversations.
       if (value.statuses?.length) {
         try {
-          await applyWhatsAppStatusUpdates(supabase, value.statuses);
+          await applyWhatsAppStatusUpdates(supabase, value.statuses, orgId);
         } catch (err) {
           console.error("WA status update failed", err);
         }
@@ -665,9 +728,9 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
         // Button / list reply → treat as text (never as a "file")
         const interactiveText = extractWhatsAppInteractiveText(msg);
         if (msgType === "button" || msgType === "interactive") {
-          const convo = await findOrCreateWhatsAppConversation(supabase, from, contactName);
+          const convo = await findOrCreateWhatsAppConversation(supabase, from, contactName, orgId);
           try {
-            await ensureWhatsAppLeadCustomer(supabase, convo as never, from, contactName);
+            await ensureWhatsAppLeadCustomer(supabase, convo as never, from, contactName, orgId);
           } catch (err) {
             console.error("WA CRM link failed", err);
           }
@@ -676,7 +739,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             const { data: dup } = await supabase
               .from("messages")
               .select("id")
-              .eq("org_id", DEFAULT_ORG_ID)
+              .eq("org_id", orgId)
               .filter("metadata->>wa_message_id", "eq", msg.id)
               .limit(1)
               .maybeSingle();
@@ -685,7 +748,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           const { data: customerMsg, error: msgError } = await supabase
             .from("messages")
             .insert({
-              org_id: DEFAULT_ORG_ID,
+              org_id: orgId,
               conversation_id: convo.id,
               sender: "customer",
               body,
@@ -729,9 +792,9 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           continue;
         } else if (msgType !== "text" && WA_MEDIA_TYPES.has(msgType)) {
           // Real media — download to storage, preview in Inbox, open 24h window
-          const convo = await findOrCreateWhatsAppConversation(supabase, from, contactName);
+          const convo = await findOrCreateWhatsAppConversation(supabase, from, contactName, orgId);
           try {
-            await ensureWhatsAppLeadCustomer(supabase, convo as never, from, contactName);
+            await ensureWhatsAppLeadCustomer(supabase, convo as never, from, contactName, orgId);
           } catch (err) {
             console.error("WA CRM link failed", err);
           }
@@ -761,7 +824,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             const { data: dup } = await supabase
               .from("messages")
               .select("id")
-              .eq("org_id", DEFAULT_ORG_ID)
+              .eq("org_id", orgId)
               .filter("metadata->>wa_message_id", "eq", msg.id)
               .limit(1)
               .maybeSingle();
@@ -788,6 +851,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               stored = await downloadAndStoreWhatsAppMedia({
                 mediaId,
                 conversationId: convo.id as string,
+                orgId,
                 mediaKind,
                 fileNameHint: msg.document?.filename || fileHint,
                 mimeHint,
@@ -801,7 +865,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           const { data: customerMsg, error: mediaInsertErr } = await supabase
             .from("messages")
             .insert({
-              org_id: DEFAULT_ORG_ID,
+              org_id: orgId,
               conversation_id: convo.id,
               sender: "customer",
               body,
@@ -858,7 +922,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             console.error("WA media ack failed", err);
           }
           await supabase.from("messages").insert({
-            org_id: DEFAULT_ORG_ID,
+            org_id: orgId,
             conversation_id: convo.id,
             sender: "ai",
             body: outboundAck,
@@ -885,19 +949,19 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           const { data: dup } = await supabase
             .from("messages")
             .select("id")
-            .eq("org_id", DEFAULT_ORG_ID)
+            .eq("org_id", orgId)
             .filter("metadata->>wa_message_id", "eq", msg.id)
             .limit(1)
             .maybeSingle();
           if (dup) continue;
         }
 
-        const convo = await findOrCreateWhatsAppConversation(supabase, from, contactName);
+        const convo = await findOrCreateWhatsAppConversation(supabase, from, contactName, orgId);
 
         const { data: customerMsg, error: msgError } = await supabase
           .from("messages")
           .insert({
-            org_id: DEFAULT_ORG_ID,
+            org_id: orgId,
             conversation_id: convo.id,
             sender: "customer",
             body: text,
@@ -956,7 +1020,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             const { data: marketRows } = await supabase
               .from("conversations")
               .select("id, visitor_phone")
-              .eq("org_id", DEFAULT_ORG_ID)
+              .eq("org_id", orgId)
               .in("channel", ["indiamart", "tradeindia"])
               .not("visitor_phone", "is", null)
               .order("updated_at", { ascending: false })
@@ -1037,7 +1101,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             })
             .eq("id", convo.id);
           await supabase.from("messages").insert({
-            org_id: DEFAULT_ORG_ID,
+            org_id: orgId,
             conversation_id: convo.id,
             sender: "ai",
             body: wait,
@@ -1058,7 +1122,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
         }
 
         try {
-          await ensureWhatsAppLeadCustomer(supabase, convo as never, from, contactName);
+          await ensureWhatsAppLeadCustomer(supabase, convo as never, from, contactName, orgId);
         } catch (err) {
           console.error("WA CRM link failed", err);
         }
@@ -1076,7 +1140,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               })
               .eq("id", convo.id);
             await supabase.from("messages").insert({
-              org_id: DEFAULT_ORG_ID,
+              org_id: orgId,
               conversation_id: convo.id,
               sender: "ai",
               body: ack,
@@ -1139,7 +1203,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
                 .from("leads")
                 .select("requirement, product_label, sales_person")
                 .eq("id", leadId)
-                .eq("org_id", DEFAULT_ORG_ID)
+                .eq("org_id", orgId)
                 .maybeSingle();
               leadRequirement =
                 (lead?.requirement as string) ||
@@ -1154,7 +1218,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
                 const { data: lead } = await supabase
                   .from("leads")
                   .select("requirement, product_label, phone, sales_person")
-                  .eq("org_id", DEFAULT_ORG_ID)
+                  .eq("org_id", orgId)
                   .not("phone", "is", null)
                   .order("updated_at", { ascending: false })
                   .limit(80);
@@ -1185,7 +1249,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               requirement: salesGate.requirement || leadRequirement,
             });
             await supabase.from("messages").insert({
-              org_id: DEFAULT_ORG_ID,
+              org_id: orgId,
               conversation_id: convo.id,
               sender: "ai",
               body: reply,
@@ -1214,7 +1278,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             const lastDoc = lastOutboundDocument(historyRows);
             reply = documentAckReplyForLang(sessionLang, lastDoc?.fileName);
             await supabase.from("messages").insert({
-              org_id: DEFAULT_ORG_ID,
+              org_id: orgId,
               conversation_id: convo.id,
               sender: "ai",
               body: reply,
@@ -1263,7 +1327,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               powerHint: extractPowerHint(text),
             });
             await supabase.from("messages").insert({
-              org_id: DEFAULT_ORG_ID,
+              org_id: orgId,
               conversation_id: convo.id,
               sender: "ai",
               body: reply,
@@ -1303,7 +1367,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
 
             if (prevWin.open) {
               await supabase.from("messages").insert({
-                org_id: DEFAULT_ORG_ID,
+                org_id: orgId,
                 conversation_id: convo.id,
                 sender: "ai",
                 body: reply,
@@ -1325,7 +1389,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               if (!sentTpl) {
                 // Prefer short free-text welcome over a wrong / sample template
                 await supabase.from("messages").insert({
-                  org_id: DEFAULT_ORG_ID,
+                  org_id: orgId,
                   conversation_id: convo.id,
                   sender: "ai",
                   body: reply,
@@ -1370,6 +1434,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             educateOnly || wantsReferenceImages(text)
               ? { mode: "none" as const }
               : await resolveProductPackRequest(text, {
+                  orgId,
                   pendingProducts,
                   presentation: "whatsapp",
                 });
@@ -1425,7 +1490,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               }));
 
             await supabase.from("messages").insert({
-              org_id: DEFAULT_ORG_ID,
+              org_id: orgId,
               conversation_id: convo.id,
               sender: "ai",
               body:
@@ -1477,7 +1542,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
                         cfg,
                       });
                       await supabase.from("messages").insert({
-                        org_id: DEFAULT_ORG_ID,
+                        org_id: orgId,
                         conversation_id: convo.id,
                         sender: "ai",
                         body: `Catalogue PDF: ${fileName}\n${item.catalogueUrl}`,
@@ -1511,8 +1576,8 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             });
             const agentCfg = agentReplyConfig(stack);
             const [chunks, productsContext] = await Promise.all([
-              retrieveKnowledgeContext(text, 8, { collectionIds: agentCfg.knowledgeCollectionIds }),
-              buildProductsContextForAi(text, 10, { categories: agentCfg.productCategories }),
+              retrieveKnowledgeContext(text, 8, { orgId, collectionIds: agentCfg.knowledgeCollectionIds }),
+              buildProductsContextForAi(text, 10, { orgId, categories: agentCfg.productCategories }),
             ]);
             const knowledgeContext = formatKnowledgeContext(chunks);
             const { sanitizeAssistantFileLinks } = await import("@/server/shorten-urls");
@@ -1558,7 +1623,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             });
             (inspector.metadata as Record<string, unknown>).product_kb_fallback = true;
             await supabase.from("messages").insert({
-              org_id: DEFAULT_ORG_ID,
+              org_id: orgId,
               conversation_id: convo.id,
               sender: "ai",
               body: reply,
@@ -1577,6 +1642,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           const catalogue = educateOnly
             ? { mode: "none" as const, downloads: [] as [], clarifyOptions: [] as [], message: "" }
             : await resolveCatalogueRequest(text, {
+                orgId,
                 pendingOptions: pendingCatalogue,
               });
 
@@ -1629,7 +1695,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               .eq("id", convo.id);
 
             await supabase.from("messages").insert({
-              org_id: DEFAULT_ORG_ID,
+              org_id: orgId,
               conversation_id: convo.id,
               sender: "ai",
               body: reply,
@@ -1657,7 +1723,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
                   cfg,
                 });
                 await supabase.from("messages").insert({
-                  org_id: DEFAULT_ORG_ID,
+                  org_id: orgId,
                   conversation_id: convo.id,
                   sender: "ai",
                   body: `Catalogue PDF: ${fileName}\n${docUrl}`,
@@ -1711,7 +1777,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
                 .eq("id", convo.id);
             }
             await supabase.from("messages").insert({
-              org_id: DEFAULT_ORG_ID,
+              org_id: orgId,
               conversation_id: convo.id,
               sender: "ai",
               body: reply,
@@ -1748,8 +1814,9 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           });
           const agentCfgEarly = agentReplyConfig(stackEarly);
           const [chunks, referenceImages] = await Promise.all([
-            retrieveKnowledgeContext(text, 6, { collectionIds: agentCfgEarly.knowledgeCollectionIds }),
+            retrieveKnowledgeContext(text, 6, { orgId, collectionIds: agentCfgEarly.knowledgeCollectionIds }),
             findReferenceImages(text, 3, {
+              orgId,
               excludeDocumentIds: sentPhotoIds,
               preferCollection: askingMore ? lastCollection : null,
             }),
@@ -1800,7 +1867,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               .eq("id", convo.id);
 
             await supabase.from("messages").insert({
-              org_id: DEFAULT_ORG_ID,
+              org_id: orgId,
               conversation_id: convo.id,
               sender: "ai",
               body: reply,
@@ -1853,7 +1920,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
               })
               .eq("id", convo.id);
             await supabase.from("messages").insert({
-              org_id: DEFAULT_ORG_ID,
+              org_id: orgId,
               conversation_id: convo.id,
               sender: "ai",
               body: reply,
@@ -1861,7 +1928,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             });
             try {
               await supabase.from("notifications").insert({
-                org_id: DEFAULT_ORG_ID,
+                org_id: orgId,
                 title: "Customer asked for photos / assets",
                 body: text.slice(0, 160),
                 href: `/inbox?c=${convo.id}`,
@@ -1887,7 +1954,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
                   ? "Sir, atapare available reference photos share kele. Catalogue kinva service pahije asel tar sanga."
                   : "Sir, I have shared all available reference photos for now. Please tell me if you need a catalogue or service help.";
             await supabase.from("messages").insert({
-              org_id: DEFAULT_ORG_ID,
+              org_id: orgId,
               conversation_id: convo.id,
               sender: "ai",
               body: reply,
@@ -1918,7 +1985,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
             });
             (inspector.metadata as Record<string, unknown>).off_topic = true;
             await supabase.from("messages").insert({
-              org_id: DEFAULT_ORG_ID,
+              org_id: orgId,
               conversation_id: convo.id,
               sender: "ai",
               body: reply,
@@ -1936,6 +2003,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
 
           const knowledgeContext = formatKnowledgeContext(chunks);
           const productsContext = await buildProductsContextForAi(text, 10, {
+            orgId,
             categories: agentCfgEarly.productCategories,
           });
           const stack = stackEarly;
@@ -1994,7 +2062,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
           }
 
           await supabase.from("messages").insert({
-            org_id: DEFAULT_ORG_ID,
+            org_id: orgId,
             conversation_id: convo.id,
             sender: "ai",
             body: reply,
@@ -2020,7 +2088,7 @@ export async function handleWhatsAppInboundPayload(payload: unknown) {
         }
 
         await supabase.from("messages").insert({
-          org_id: DEFAULT_ORG_ID,
+          org_id: orgId,
           conversation_id: convo.id,
           sender: "ai",
           body: reply,
@@ -2054,6 +2122,7 @@ export const saveWhatsAppChannelConfig = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }) => {
+    const orgId = await requireStaffOrgId();
     const supabase = createServiceSupabase();
     const config: WhatsAppChannelConfig = {
       phone_number_id: data.phoneNumberId.trim(),
@@ -2062,6 +2131,14 @@ export const saveWhatsAppChannelConfig = createServerFn({ method: "POST" })
       business_account_id: data.businessAccountId?.trim() || undefined,
       display_phone: data.displayPhone?.trim() || undefined,
     };
+
+    await assertUniqueChannelConfig({
+      supabase,
+      type: "whatsapp",
+      configKey: "phone_number_id",
+      configValue: config.phone_number_id || "",
+      exceptOrgId: orgId,
+    });
 
     const enable = data.enable ?? true;
     const { data: updated, error } = await supabase
@@ -2073,7 +2150,7 @@ export const saveWhatsAppChannelConfig = createServerFn({ method: "POST" })
         status: enable ? "Connected" : "Disconnected",
         health: enable ? 100 : 0,
       })
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .eq("type", "whatsapp")
       .select("*")
       .single();
@@ -2087,7 +2164,8 @@ export const saveWhatsAppChannelConfig = createServerFn({ method: "POST" })
   });
 
 export const getWhatsAppSetupInfo = createServerFn({ method: "GET" }).handler(async () => {
-  const cfg = await loadWhatsAppConfig();
+  const orgId = await requireStaffOrgId();
+  const cfg = await loadWhatsAppConfig(orgId);
   const appUrl = process.env.VITE_APP_URL || process.env.APP_URL || "";
   return {
     configured: whatsappConfigReady(cfg),
@@ -2103,7 +2181,8 @@ export const getWhatsAppSetupInfo = createServerFn({ method: "GET" }).handler(as
 
 /** Verify Phone Number ID + access token against Meta Graph API. */
 export const testWhatsAppConnection = createServerFn({ method: "POST" }).handler(async () => {
-  const cfg = await loadWhatsAppConfig();
+  const orgId = await requireStaffOrgId();
+  const cfg = await loadWhatsAppConfig(orgId);
   if (!cfg.phone_number_id || !cfg.access_token) {
     throw new Error("Save Phone Number ID and Access Token under Channels → WhatsApp first.");
   }
@@ -2171,7 +2250,7 @@ export const testWhatsAppConnection = createServerFn({ method: "POST" }).handler
       .update({
         config: { ...cfg, business_account_id: wabaFromPhone },
       })
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .eq("type", "whatsapp");
     wabaCorrected = true;
     cfg.business_account_id = wabaFromPhone;
@@ -2189,7 +2268,7 @@ export const testWhatsAppConnection = createServerFn({ method: "POST" }).handler
         is_enabled: true,
         health: 100,
       })
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .eq("type", "whatsapp");
   }
 
@@ -2226,12 +2305,14 @@ export const sendWhatsAppAgentReply = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }) => {
+    const orgId = await requireStaffOrgId();
+    const cfg = await loadWhatsAppConfig(orgId);
     const supabase = createServiceSupabase();
     const { data: convo, error } = await supabase
       .from("conversations")
       .select("id, channel, visitor_phone, metadata, widget_session_id, wa_last_customer_at")
       .eq("id", data.conversationId)
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!convo) throw new Error("Conversation not found");
@@ -2286,6 +2367,7 @@ export const sendWhatsAppAgentReply = createServerFn({ method: "POST" })
           toPhone: phone,
           imageUrl: data.attachment.url,
           caption: data.attachment.caption || undefined,
+          cfg,
         });
         waMessageId = extractWhatsAppOutboundId(json as Record<string, unknown>);
       } else {
@@ -2294,11 +2376,12 @@ export const sendWhatsAppAgentReply = createServerFn({ method: "POST" })
           documentUrl: data.attachment.url,
           fileName,
           caption: data.attachment.caption || undefined,
+          cfg,
         });
         waMessageId = extractWhatsAppOutboundId(json as Record<string, unknown>);
       }
     } else {
-      const json = await sendWhatsAppText(phone, data.body);
+      const json = await sendWhatsAppText(phone, data.body, cfg);
       waMessageId = extractWhatsAppOutboundId(json as Record<string, unknown>);
     }
     return { ok: true, window: win, via: marketplace ? channel : "whatsapp", waMessageId };
@@ -2315,12 +2398,13 @@ export const sendWhatsAppProductRecommendation = createServerFn({ method: "POST"
     }),
   )
   .handler(async ({ data }) => {
+    const orgId = await requireStaffOrgId();
     const supabase = createServiceSupabase();
     const { data: convo, error } = await supabase
       .from("conversations")
       .select("id, channel, visitor_phone, metadata, widget_session_id, wa_last_customer_at")
       .eq("id", data.conversationId)
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!convo) throw new Error("Conversation not found");
@@ -2363,7 +2447,7 @@ export const sendWhatsAppProductRecommendation = createServerFn({ method: "POST"
       .from("products")
       .select("*")
       .eq("id", data.productId)
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .maybeSingle();
     if (productError) throw new Error(productError.message);
     if (!product) throw new Error("Product not found");
@@ -2378,9 +2462,11 @@ export const sendWhatsAppProductRecommendation = createServerFn({ method: "POST"
     }
 
     if (imageUrl) {
-      await sendWhatsAppImage({ toPhone: phone, imageUrl, caption });
+      const cfg = await loadWhatsAppConfig(orgId);
+      await sendWhatsAppImage({ toPhone: phone, imageUrl, caption, cfg });
     } else {
-      await sendWhatsAppText(phone, caption);
+      const cfg = await loadWhatsAppConfig(orgId);
+      await sendWhatsAppText(phone, caption, cfg);
     }
 
     const label = data.assigneeLabel?.trim() || "Human agent";
@@ -2389,7 +2475,7 @@ export const sendWhatsAppProductRecommendation = createServerFn({ method: "POST"
       : `📦 Recommended: ${product.name} (text — add a product image for photo cards)\n${caption}`;
 
     await supabase.from("messages").insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: orgId,
       conversation_id: data.conversationId,
       sender: "agent",
       sender_profile_id: data.profileId || null,

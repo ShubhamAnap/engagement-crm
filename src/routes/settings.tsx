@@ -20,6 +20,10 @@ import {
   uploadOrgLogo,
 } from "@/lib/profile-api";
 import { TeamSettingsPanel } from "@/components/settings/TeamSettingsPanel";
+import { AuditLogPanel } from "@/components/settings/AuditLogPanel";
+import { AccountDangerZonePanel } from "@/components/settings/AccountDangerZonePanel";
+import { OrgDangerZonePanel } from "@/components/settings/OrgDangerZonePanel";
+import { BillingSettingsPanel } from "@/components/settings/BillingSettingsPanel";
 import { LlmGatewaySettingsPanel } from "@/components/settings/LlmGatewaySettingsPanel";
 
 export const Route = createFileRoute("/settings")({
@@ -50,6 +54,7 @@ function Page() {
     requestedTab === "security" ||
     requestedTab === "channels" ||
     (isAdmin && requestedTab === "team") ||
+    (isAdmin && requestedTab === "billing") ||
     (isAdmin && requestedTab === "gateway")
       ? requestedTab
       : "profile";
@@ -211,6 +216,7 @@ function Page() {
               <TabsTrigger value="security">Security</TabsTrigger>
               <TabsTrigger value="channels">Channels</TabsTrigger>
               {isAdmin ? <TabsTrigger value="team">Team</TabsTrigger> : null}
+              {isAdmin ? <TabsTrigger value="billing">Billing</TabsTrigger> : null}
               {isAdmin ? <TabsTrigger value="gateway">AI Gateway</TabsTrigger> : null}
             </TabsList>
 
@@ -492,6 +498,9 @@ function Page() {
                   </Button>
                 </div>
               </Panel>
+              <div className="mt-4">
+                <AccountDangerZonePanel />
+              </div>
             </TabsContent>
 
             <TabsContent value="channels" className="mt-4">
@@ -507,8 +516,16 @@ function Page() {
             </TabsContent>
 
             {isAdmin ? (
+              <TabsContent value="billing" className="mt-4 space-y-4">
+                <BillingSettingsPanel />
+              </TabsContent>
+            ) : null}
+
+            {isAdmin ? (
               <TabsContent value="team" className="mt-4 space-y-4">
                 <TeamSettingsPanel />
+                <AuditLogPanel />
+                <OrgDangerZonePanel />
               </TabsContent>
             ) : null}
 

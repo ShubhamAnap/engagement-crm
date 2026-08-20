@@ -6,8 +6,6 @@ import { proxyStorageObject } from "@/server/storage-proxy";
  * Short knowledge-document link: /d/{documentId}
  * Streams file through this app (no redirect to supabase.co).
  */
-const ORG_ID = "a0000000-0000-4000-8000-000000000001";
-
 function extensionFromMime(mime: string | null | undefined): string {
   const m = String(mime || "").toLowerCase();
   if (m.includes("png")) return ".png";
@@ -48,7 +46,6 @@ export const Route = createFileRoute("/d/$documentId")({
           const { data: doc } = await supabase
             .from("knowledge_documents")
             .select("storage_path, mime_type, title, metadata, status")
-            .eq("org_id", ORG_ID)
             .eq("id", documentId)
             .maybeSingle();
 

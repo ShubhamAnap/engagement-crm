@@ -1,5 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { handleInboundEmail, loadEmailConfig } from "@/server/email-core";
+import { createServiceSupabase } from "@/lib/supabase";
+import { handleInboundEmail } from "@/server/email-core";
+import {
+  DEFAULT_ORG_ID,
+  resolveChannelByConfig,
+  runWithOrg,
+} from "@/server/org-context";
 
 /**
  * Inbound email webhook.
@@ -22,15 +28,19 @@ export const Route = createFileRoute("/api/webhooks/email")({
         }),
       POST: async ({ request }) => {
         try {
-          const cfg = await loadEmailConfig();
-          const secretHeader = request.headers.get("x-enertech-email-secret");
-          if (cfg.inbound_secret) {
-            if (!secretHeader || secretHeader !== cfg.inbound_secret) {
-              return new Response("Forbidden", { status: 403 });
-            }
-          } else {
-            console.warn("Email webhook: inbound_secret unset — accepting");
-          }
+          const secretHeader = (request.headers.get("x-enertech-email-secret") || "").trim();
+          if (!secretHeader) return new Response("Forbidden", { status: 403 });
+
+          const supabase = createServiceSupabase();
+          const hit = await resolveChannelByConfig(supabase, {
+            type: "email",
+            configKey: "inbound_secret",
+            configValue: secretHeader,
+          });
+          const envSecret = (process.env.EMAIL_INBOUND_SECRET || "").trim();
+          const orgId =
+            hit?.orgId || (envSecret && secretHeader === envSecret ? DEFAULT_ORG_ID : null);
+          if (!orgId) return new Response("Forbidden", { status: 403 });
 
           const contentType = request.headers.get("content-type") || "";
           let payload: {
@@ -62,14 +72,16 @@ export const Route = createFileRoute("/api/webhooks/email")({
             payload = (await request.json().catch(() => ({}))) as typeof payload;
           }
 
-          const result = await handleInboundEmail({
-            from: payload.from || "",
-            to: payload.to,
-            subject: payload.subject,
-            text: payload.text,
-            html: payload.html,
-            messageId: payload.messageId,
-          });
+          const result = await runWithOrg(orgId, () =>
+            handleInboundEmail({
+              from: payload.from || "",
+              to: payload.to,
+              subject: payload.subject,
+              text: payload.text,
+              html: payload.html,
+              messageId: payload.messageId,
+            }),
+          );
 
           return Response.json({ ok: true, ...result });
         } catch (err) {

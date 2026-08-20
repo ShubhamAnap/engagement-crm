@@ -16,7 +16,6 @@ import {
   resolveLlmModel,
 } from "@/server/llm-gateway";
 
-import { DEFAULT_ORG_ID } from "@/server/org-context";
 const MAX_MESSAGES = 40;
 /** ~2–3 short UI / CRM lines */
 const CRM_SUMMARY_MAX = 280;
@@ -255,7 +254,6 @@ export async function generateAndStoreConversationSummary(
       "id, org_id, lead_id, channel, visitor_name, metadata, lead:leads(id, name, company, requirement, product_label, notes, metadata)",
     )
     .eq("id", conversationId)
-    .eq("org_id", DEFAULT_ORG_ID)
     .maybeSingle();
   if (convoErr) throw new Error(convoErr.message);
   if (!convo) throw new Error("Conversation not found");
@@ -380,7 +378,6 @@ export async function ensureLeadFollowUpSummary(leadId: string): Promise<string 
     .from("leads")
     .select("id, notes, metadata")
     .eq("id", leadId)
-    .eq("org_id", DEFAULT_ORG_ID)
     .maybeSingle();
   if (!lead) return null;
 
@@ -394,7 +391,6 @@ export async function ensureLeadFollowUpSummary(leadId: string): Promise<string 
   const { data: convo } = await supabase
     .from("conversations")
     .select("id, metadata")
-    .eq("org_id", DEFAULT_ORG_ID)
     .eq("lead_id", leadId)
     .order("last_message_at", { ascending: false })
     .limit(1)
@@ -469,7 +465,6 @@ export const saveConversationSummary = createServerFn({ method: "POST" })
       .from("conversations")
       .select("id, lead_id, metadata")
       .eq("id", data.conversationId)
-      .eq("org_id", DEFAULT_ORG_ID)
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!convo) throw new Error("Conversation not found");

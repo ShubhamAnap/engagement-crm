@@ -43,6 +43,7 @@ export type SessionUser = {
     plan: string;
     logoUrl?: string | null;
     brandPrimary?: string | null;
+    isActive: boolean;
   };
 };
 

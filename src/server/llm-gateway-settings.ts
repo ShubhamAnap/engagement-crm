@@ -8,7 +8,7 @@ import { requireStaffUser } from "@/server/staff-auth";
 import { AGENT_MODEL_OPTIONS } from "@/lib/agent-prompts";
 import { applyLlmGatewayPolicy, type LlmGatewayRuntimePolicy } from "@/server/llm-gateway";
 
-import { DEFAULT_ORG_ID } from "@/server/org-context";
+import { resolveServiceOrgId } from "@/server/org-context";
 const CHAT_MODELS = new Set<string>(AGENT_MODEL_OPTIONS);
 const EMBEDDING_MODELS = new Set(["text-embedding-3-small"]);
 const PROVIDERS = ["openai", "anthropic", "google"] as const;
@@ -96,13 +96,16 @@ function rowToSettings(
   };
 }
 
-export async function loadLlmGatewayRuntimePolicy(): Promise<LlmGatewayRuntimePolicy | null> {
+export async function loadLlmGatewayRuntimePolicy(
+  orgId?: string,
+): Promise<LlmGatewayRuntimePolicy | null> {
   try {
+    const id = orgId || (await resolveServiceOrgId());
     const supabase = createServiceSupabase();
     const { data, error } = await supabase
       .from("llm_gateway_settings")
       .select("provider, default_chat_model, fallback_model, summary_model, embedding_model")
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", id)
       .maybeSingle();
     if (error) {
       if (isMissingTable(error)) return null;

@@ -11,7 +11,7 @@ import {
   type EmailMergeFields,
 } from "@/lib/email-merge";
 
-import { DEFAULT_ORG_ID } from "@/server/org-context";
+import { requireStaffOrgId, resolveServiceOrgId, allowEnvChannelFallback } from "@/server/org-context";
 const GOOGLE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN = "https://oauth2.googleapis.com/token";
 const GOOGLE_USERINFO = "https://www.googleapis.com/oauth2/v2/userinfo";
@@ -56,25 +56,29 @@ export function gmailRedirectUri() {
   return process.env.GMAIL_REDIRECT_URI || `${appBaseUrl()}/api/oauth/gmail/callback`;
 }
 
-async function loadEmailChannelRow() {
+async function loadEmailChannelRow(orgId?: string) {
+  const id = orgId || (await resolveServiceOrgId());
   const supabase = createServiceSupabase();
   const { data, error } = await supabase
     .from("channels")
     .select("id, config, is_enabled, detail")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", id)
     .eq("type", "email")
     .maybeSingle();
   if (error) throw new Error(error.message);
   return data;
 }
 
-export async function loadGmailAppCredentials(): Promise<GmailAppCredentials> {
-  const fromEnv: GmailAppCredentials = {
-    client_id: process.env.GMAIL_CLIENT_ID || undefined,
-    client_secret: process.env.GMAIL_CLIENT_SECRET || undefined,
-  };
+export async function loadGmailAppCredentials(orgId?: string): Promise<GmailAppCredentials> {
+  const id = orgId || (await resolveServiceOrgId());
+  const fromEnv: GmailAppCredentials = allowEnvChannelFallback(id)
+    ? {
+        client_id: process.env.GMAIL_CLIENT_ID || undefined,
+        client_secret: process.env.GMAIL_CLIENT_SECRET || undefined,
+      }
+    : {};
   try {
-    const row = await loadEmailChannelRow();
+    const row = await loadEmailChannelRow(id);
     const cfg = (row?.config || {}) as EmailChannelGmailConfig;
     return {
       client_id: cfg.client_id || fromEnv.client_id,
@@ -85,8 +89,8 @@ export async function loadGmailAppCredentials(): Promise<GmailAppCredentials> {
   }
 }
 
-export async function loadGmailConnection(): Promise<GmailConnection | null> {
-  const row = await loadEmailChannelRow();
+export async function loadGmailConnection(orgId?: string): Promise<GmailConnection | null> {
+  const row = await loadEmailChannelRow(orgId);
   const cfg = (row?.config || {}) as EmailChannelGmailConfig;
   const g = cfg.gmail;
   if (!g?.email || !g.tokens?.access_token) return null;
@@ -101,14 +105,15 @@ export function gmailConnected(conn: GmailConnection | null | undefined) {
   return Boolean(conn?.email && conn.tokens?.access_token);
 }
 
-async function saveEmailConfigPatch(patch: Record<string, unknown>, detail?: string) {
+async function saveEmailConfigPatch(patch: Record<string, unknown>, detail?: string, orgId?: string) {
   const supabase = createServiceSupabase();
-  const row = await loadEmailChannelRow();
+  const id = orgId || (await resolveServiceOrgId());
+  const row = await loadEmailChannelRow(id);
   const prev = ((row?.config || {}) as Record<string, unknown>) || {};
   const next = { ...prev, ...patch };
   if (!row?.id) {
     const { error } = await supabase.from("channels").insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: id,
       type: "email",
       name: "Email",
       is_enabled: true,
@@ -353,16 +358,17 @@ export async function sendGmailMessage(options: {
 /** Complete OAuth callback (code → tokens → save). */
 export async function completeGmailOAuth(code: string, state: string) {
   const decoded = decodeState(state);
-  if (decoded.org !== DEFAULT_ORG_ID) {
+  const orgId = String(decoded.org || "").trim();
+  if (!orgId) {
     throw new Error("Invalid OAuth state");
   }
-  const creds = await loadGmailAppCredentials();
+  const creds = await loadGmailAppCredentials(orgId);
   if (!gmailCredentialsReady(creds)) {
     throw new Error("Save Gmail Client ID and Client Secret first");
   }
   const tokens = await exchangeCode(code, creds);
   const profile = await fetchGoogleProfile(tokens.access_token);
-  const existing = await loadGmailConnection();
+  const existing = await loadGmailConnection(orgId);
   const connection: GmailConnection = {
     email: profile.email,
     name: profile.name,
@@ -383,12 +389,13 @@ export async function completeGmailOAuth(code: string, state: string) {
       from_name: profile.name || undefined,
     },
     `Gmail · ${profile.email}`,
+    orgId,
   );
   const supabase = createServiceSupabase();
   await supabase
     .from("channels")
     .update({ is_enabled: true })
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", orgId)
     .eq("type", "email");
   return connection;
 }
@@ -419,11 +426,12 @@ export async function fetchGmailSetupInfo() {
 }
 
 export async function createGmailConnectUrl() {
-  const creds = await loadGmailAppCredentials();
+  const orgId = await requireStaffOrgId();
+  const creds = await loadGmailAppCredentials(orgId);
   if (!gmailCredentialsReady(creds)) {
     throw new Error("Save Gmail OAuth Client ID and Client Secret first (like n8n credentials).");
   }
-  const state = encodeState({ org: DEFAULT_ORG_ID, t: String(Date.now()) });
+  const state = encodeState({ org: orgId, t: String(Date.now()) });
   return { url: buildGmailAuthUrl(creds, state) };
 }
 
@@ -454,7 +462,7 @@ export async function runEmailBroadcast(
     .from("broadcasts")
     .select("*")
     .eq("id", broadcastId)
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .maybeSingle();
   if (bErr) throw new Error(bErr.message);
   if (!broadcast) throw new Error("Broadcast not found");
@@ -532,7 +540,7 @@ export async function runEmailBroadcast(
       .select(
         "id, name, company, email, phone, requirement, sales_person, location, source, status, notes",
       )
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await resolveServiceOrgId())
       .in("id", leadIds);
     for (const lead of leads || []) {
       leadMap.set(lead.id as string, mergeFieldsFromLead(lead));
@@ -544,7 +552,7 @@ export async function runEmailBroadcast(
     const { data: customers } = await supabase
       .from("customers")
       .select("id, name, company, email, phone, notes")
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await resolveServiceOrgId())
       .in("id", customerIds);
     for (const customer of customers || []) {
       customerMap.set(customer.id as string, mergeFieldsFromCustomer(customer));
@@ -733,7 +741,7 @@ export async function tickPendingEmailBroadcasts(limit = 3): Promise<{
   const { data: rows, error } = await supabase
     .from("broadcasts")
     .select("id")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("channel_type", "email")
     .in("status", ["Queued", "Sending"])
     .order("created_at", { ascending: true })

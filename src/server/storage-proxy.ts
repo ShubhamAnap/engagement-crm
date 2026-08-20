@@ -23,16 +23,21 @@ export async function proxyStorageObject(options: {
   /** inline = preview in browser; attachment = force download (better on mobile WebViews) */
   disposition?: "inline" | "attachment";
 }): Promise<Response> {
+  const storagePath = String(options.storagePath || "").replace(/^\/+/, "");
+  if (!storagePath || storagePath.includes("..") || storagePath.includes("\\")) {
+    return new Response("Invalid file path", { status: 400 });
+  }
+
   const supabase = createServiceSupabase();
-  const { data, error } = await supabase.storage.from(BUCKET).download(options.storagePath);
+  const { data, error } = await supabase.storage.from(BUCKET).download(storagePath);
   if (error || !data) {
-    console.error("storage proxy download failed", options.storagePath, error?.message);
+      console.error("storage proxy download failed", storagePath, error?.message);
     return new Response("File unavailable", { status: 502 });
   }
 
   const bytes = new Uint8Array(await data.arrayBuffer());
   const fileName =
-    (options.downloadName || options.storagePath.split("/").pop() || "file.pdf").replace(
+    (options.downloadName || storagePath.split("/").pop() || "file.pdf").replace(
       /[\\"]/g,
       "",
     );
@@ -40,7 +45,7 @@ export async function proxyStorageObject(options: {
     options.mimeType ||
     data.type ||
     guessContentType(fileName) ||
-    guessContentType(options.storagePath);
+    guessContentType(storagePath);
   const disposition = options.disposition || "inline";
 
   return new Response(bytes, {

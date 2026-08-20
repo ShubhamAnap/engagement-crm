@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { createServiceSupabase } from "@/lib/supabase";
 import { readAndVerifyMetaWebhookBody } from "@/server/meta-webhook-verify";
-import { handleMetaInboundPayload, loadMetaConfig } from "@/server/meta-messenger";
+import { handleMetaInboundPayload } from "@/server/meta-messenger";
+import { verifyTokenMatchesAnyOrg } from "@/server/org-context";
 
 /**
  * Meta Facebook Messenger webhook.
@@ -16,9 +18,13 @@ export const Route = createFileRoute("/api/webhooks/facebook")({
         const mode = url.searchParams.get("hub.mode");
         const token = url.searchParams.get("hub.verify_token");
         const challenge = url.searchParams.get("hub.challenge");
-        const cfg = await loadMetaConfig("facebook");
-
-        if (mode === "subscribe" && token && cfg.verify_token && token === cfg.verify_token) {
+        const cfgOk = await verifyTokenMatchesAnyOrg(
+          createServiceSupabase(),
+          "facebook",
+          token || "",
+          process.env.FACEBOOK_VERIFY_TOKEN || process.env.META_VERIFY_TOKEN,
+        );
+        if (mode === "subscribe" && token && cfgOk) {
           return new Response(challenge || "", {
             status: 200,
             headers: { "Content-Type": "text/plain" },

@@ -1,3 +1,4 @@
+import { assertOrgStoragePath, orgStoragePath } from "@/lib/org-storage";
 import { ENERTECH_NAVY_HEX } from "@/lib/brand";
 import { getBrowserSupabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/types";
@@ -147,8 +148,8 @@ export async function uploadOrgLogo(file: File): Promise<{ logoUrl: string; logo
   const supabase = getBrowserSupabase();
   const ext = lower.includes(".") ? lower.slice(lower.lastIndexOf(".")) : ".png";
   const safeExt = ext === ".jpeg" ? ".jpg" : ext;
-  const brandingPath = `${orgId}/logo${safeExt}`;
-  const knowledgePath = `${orgId}/branding/logo${safeExt}`;
+  const brandingPath = orgStoragePath(orgId, `logo${safeExt}`);
+  const knowledgePath = orgStoragePath(orgId, "branding", `logo${safeExt}`);
 
   let bucket = BRANDING_BUCKET;
   let storagePath = brandingPath;
@@ -214,7 +215,11 @@ export async function removeOrgLogo(): Promise<void> {
       ? rawPath.split(":")
       : [BRANDING_BUCKET, rawPath];
     const path = rest.join(":") || rawPath;
-    await supabase.storage.from(bucket || BRANDING_BUCKET).remove([path]);
+    try {
+      await supabase.storage.from(bucket || BRANDING_BUCKET).remove([assertOrgStoragePath(path, orgId)]);
+    } catch {
+      /* legacy paths that are not `{orgId}/…` cannot be rewritten by client RLS */
+    }
     // Also try plain path in branding for older records
     if (!rawPath.includes(":")) {
       await supabase.storage.from(KNOWLEDGE_BUCKET).remove([rawPath]);
@@ -256,12 +261,13 @@ export async function uploadMyAvatar(file: File): Promise<{ avatarUrl: string }>
     .select("org_id")
     .eq("id", user.id)
     .single();
-  const orgId = (profile?.org_id as string) || "org";
+  const orgId = (profile?.org_id as string) || "";
+  if (!orgId) throw new Error("Profile is missing a workspace");
 
   const ext = lower.includes(".") ? lower.slice(lower.lastIndexOf(".")) : ".png";
   const safeExt = ext === ".jpeg" ? ".jpg" : ext === ".svg" ? ".png" : ext;
-  const brandingPath = `${orgId}/avatars/${user.id}${safeExt}`;
-  const knowledgePath = `${orgId}/avatars/${user.id}${safeExt}`;
+  const brandingPath = orgStoragePath(orgId, "avatars", `${user.id}${safeExt}`);
+  const knowledgePath = orgStoragePath(orgId, "avatars", `${user.id}${safeExt}`);
 
   let bucket = BRANDING_BUCKET;
   let storagePath = brandingPath;
@@ -322,13 +328,13 @@ export async function removeMyAvatar(): Promise<void> {
     .eq("id", user.id)
     .maybeSingle();
 
-  const orgId = (profile?.org_id as string) || "org";
-  // Best-effort remove common paths
+  const orgId = profile?.org_id as string | undefined;
+  if (!orgId) throw new Error("Profile is missing a workspace");
   const candidates = [
-    `${orgId}/avatars/${user.id}.png`,
-    `${orgId}/avatars/${user.id}.jpg`,
-    `${orgId}/avatars/${user.id}.webp`,
-    `${orgId}/avatars/${user.id}.gif`,
+    orgStoragePath(orgId, "avatars", `${user.id}.png`),
+    orgStoragePath(orgId, "avatars", `${user.id}.jpg`),
+    orgStoragePath(orgId, "avatars", `${user.id}.webp`),
+    orgStoragePath(orgId, "avatars", `${user.id}.gif`),
   ];
   await supabase.storage.from(BRANDING_BUCKET).remove(candidates);
   await supabase.storage.from(KNOWLEDGE_BUCKET).remove(candidates);

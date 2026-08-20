@@ -1,18 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { createServiceSupabase } from "@/lib/supabase";
 import {
   ingestIndiaMartEnquiry,
-  loadIndiaMartConfig,
   type IndiaMartEnquiry,
 } from "@/server/indiamart";
+import {
+  DEFAULT_ORG_ID,
+  resolveChannelByConfig,
+  runWithOrg,
+} from "@/server/org-context";
 
 /**
  * IndiaMART Push API webhook (real-time leads).
  * Point IndiaMART CRM Push "Other" webhook to:
  *   {VITE_APP_URL}/api/webhooks/indiamart
  *
- * Header: x-enertech-indiamart-secret (required in production; must match push_secret)
- *
- * Body may be the enquiry fields directly, or wrapped as { RESPONSE: {...} } / { body: { RESPONSE } }.
+ * Header: x-enertech-indiamart-secret (required; must match that org's push_secret)
  */
 export const Route = createFileRoute("/api/webhooks/indiamart")({
   server: {
@@ -25,15 +28,20 @@ export const Route = createFileRoute("/api/webhooks/indiamart")({
         }),
       POST: async ({ request }) => {
         try {
-          const cfg = await loadIndiaMartConfig();
-          const secretHeader = request.headers.get("x-enertech-indiamart-secret");
-          if (cfg.push_secret) {
-            if (!secretHeader || secretHeader !== cfg.push_secret) {
-              return new Response("Forbidden", { status: 403 });
-            }
-          } else {
-            console.warn("IndiaMART webhook: push_secret unset — accepting");
-          }
+          const secretHeader = (request.headers.get("x-enertech-indiamart-secret") || "").trim();
+          if (!secretHeader) return new Response("Forbidden", { status: 403 });
+
+          const supabase = createServiceSupabase();
+          const hit = await resolveChannelByConfig(supabase, {
+            type: "indiamart",
+            configKey: "push_secret",
+            configValue: secretHeader,
+          });
+          const envSecret = (process.env.INDIAMART_PUSH_SECRET || "").trim();
+          const orgId =
+            hit?.orgId ||
+            (envSecret && secretHeader === envSecret ? DEFAULT_ORG_ID : null);
+          if (!orgId) return new Response("Forbidden", { status: 403 });
 
           const payload = (await request.json()) as Record<string, unknown>;
           let enquiry: IndiaMartEnquiry | null = null;
@@ -54,7 +62,7 @@ export const Route = createFileRoute("/api/webhooks/indiamart")({
             return Response.json({ ok: false, error: "Missing UNIQUE_QUERY_ID" }, { status: 400 });
           }
 
-          const result = await ingestIndiaMartEnquiry(enquiry);
+          const result = await runWithOrg(orgId, () => ingestIndiaMartEnquiry(enquiry!));
           return Response.json({ ok: true, ...result });
         } catch (err) {
           console.error("IndiaMART webhook error", err);

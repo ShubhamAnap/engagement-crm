@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getBrowserSupabase } from "@/lib/supabase";
+import { isBusinessEmail } from "@/lib/auth-email";
 import { Building2, Eye, EyeOff, Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/signup")({
@@ -16,19 +17,6 @@ export const Route = createFileRoute("/signup")({
   }),
   component: SignupPage,
 });
-
-const FREE_EMAIL_DOMAINS = new Set([
-  "gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "aol.com",
-  "icloud.com", "mail.com", "protonmail.com", "yandex.com", "zoho.com",
-  "live.com", "msn.com", "me.com", "inbox.com", "gmx.com",
-  "rediffmail.com", "yahoo.co.in", "yahoo.in",
-]);
-
-function isBusinessEmail(email: string): boolean {
-  const domain = email.split("@")[1]?.toLowerCase();
-  if (!domain) return false;
-  return !FREE_EMAIL_DOMAINS.has(domain);
-}
 
 function isValidPhone(phone: string): boolean {
   const digits = phone.replace(/\D/g, "");
@@ -74,7 +62,7 @@ function SignupPage() {
     const supabase = getBrowserSupabase();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/` },
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
     });
     if (error) toast.error(error.message);
   }
@@ -279,7 +267,14 @@ function SignupPage() {
 
           <p className="mt-6 text-center text-[13px] text-muted-foreground">
             By signing up, you agree to our{" "}
-            <span className="text-foreground/70">Terms of Service</span>
+            <Link to="/terms" className="text-primary hover:underline">
+              Terms of Service
+            </Link>{" "}
+            and{" "}
+            <Link to="/privacy" className="text-primary hover:underline">
+              Privacy Policy
+            </Link>
+            .
           </p>
         </div>
 

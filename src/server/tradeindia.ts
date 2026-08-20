@@ -17,7 +17,7 @@ import {
   type MarketplaceAutoSyncFields,
 } from "@/lib/marketplace-auto-sync";
 
-import { DEFAULT_ORG_ID } from "@/server/org-context";
+import { allowEnvChannelFallback, resolveServiceOrgId } from "@/server/org-context";
 const PULL_URL = "https://www.tradeindia.com/utils/my_inquiry.html";
 
 export type TradeIndiaBackfillState = {
@@ -89,13 +89,14 @@ function envConfig(): TradeIndiaChannelConfig {
 }
 
 export async function loadTradeIndiaConfig(): Promise<TradeIndiaChannelConfig> {
-  const fromEnv = envConfig();
+  const orgId = await resolveServiceOrgId();
+  const fromEnv = allowEnvChannelFallback(orgId) ? envConfig() : {};
   try {
     const supabase = createServiceSupabase();
     const { data } = await supabase
       .from("channels")
       .select("config")
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .eq("type", "tradeindia")
       .maybeSingle();
     const cfg = ((data?.config as TradeIndiaChannelConfig) || {}) as TradeIndiaChannelConfig;
@@ -264,7 +265,7 @@ async function getTradeIndiaChannelId(supabase: ReturnType<typeof createServiceS
   const { data } = await supabase
     .from("channels")
     .select("id")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("type", "tradeindia")
     .maybeSingle();
   return data?.id as string | undefined;
@@ -285,7 +286,7 @@ export async function ingestTradeIndiaEnquiry(enquiry: TradeIndiaEnquiry): Promi
   const { data: existingLead } = await supabase
     .from("leads")
     .select("id")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("source", "tradeindia")
     .filter("metadata->>tradeindia_rfi_id", "eq", queryId)
     .limit(1)
@@ -327,7 +328,7 @@ export async function ingestTradeIndiaEnquiry(enquiry: TradeIndiaEnquiry): Promi
   const { data: lead, error: leadError } = await supabase
     .from("leads")
     .insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: await resolveServiceOrgId(),
       external_ref: `TI-${queryId.slice(-8)}`,
       score: isBuy ? 72 : 65,
       status: "New",
@@ -374,7 +375,7 @@ export async function ingestTradeIndiaEnquiry(enquiry: TradeIndiaEnquiry): Promi
       const { data } = await supabase
         .from("customers")
         .select("id")
-        .eq("org_id", DEFAULT_ORG_ID)
+        .eq("org_id", await resolveServiceOrgId())
         .eq("email", email)
         .maybeSingle();
       existingCustomer = data as { id: string } | null;
@@ -383,7 +384,7 @@ export async function ingestTradeIndiaEnquiry(enquiry: TradeIndiaEnquiry): Promi
       const { data } = await supabase
         .from("customers")
         .select("id")
-        .eq("org_id", DEFAULT_ORG_ID)
+        .eq("org_id", await resolveServiceOrgId())
         .eq("phone", phone)
         .maybeSingle();
       existingCustomer = data as { id: string } | null;
@@ -394,7 +395,7 @@ export async function ingestTradeIndiaEnquiry(enquiry: TradeIndiaEnquiry): Promi
       const { data: createdCust } = await supabase
         .from("customers")
         .insert({
-          org_id: DEFAULT_ORG_ID,
+          org_id: await resolveServiceOrgId(),
           name,
           email,
           phone,
@@ -414,7 +415,7 @@ export async function ingestTradeIndiaEnquiry(enquiry: TradeIndiaEnquiry): Promi
   const { data: convo, error: convoError } = await supabase
     .from("conversations")
     .insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: await resolveServiceOrgId(),
       customer_id: customerId,
       lead_id: lead.id,
       channel_id: channelId || null,
@@ -444,7 +445,7 @@ export async function ingestTradeIndiaEnquiry(enquiry: TradeIndiaEnquiry): Promi
   if (convoError) throw new Error(convoError.message);
 
   await supabase.from("messages").insert({
-    org_id: DEFAULT_ORG_ID,
+    org_id: await resolveServiceOrgId(),
     conversation_id: convo.id,
     sender: "customer",
     body: message.slice(0, 8000) || subject,
@@ -537,7 +538,7 @@ export async function syncTradeIndiaWindow(options?: { hours?: number }): Promis
       is_enabled: true,
       health: 100,
     })
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("type", "tradeindia");
 
   return { fetched: enquiries.length, created, skipped, errors };
@@ -584,7 +585,7 @@ async function saveTradeIndiaConfig(config: TradeIndiaChannelConfig, detail?: st
   const supabase = createServiceSupabase();
   const patch: Record<string, unknown> = { config };
   if (detail) patch.detail = detail;
-  await supabase.from("channels").update(patch).eq("org_id", DEFAULT_ORG_ID).eq("type", "tradeindia");
+  await supabase.from("channels").update(patch).eq("org_id", await resolveServiceOrgId()).eq("type", "tradeindia");
 }
 
 function tradeIndiaCooldownRemainingMs(cfg: TradeIndiaChannelConfig): number {
@@ -886,7 +887,7 @@ export async function ensureTradeIndiaChannelRow(): Promise<{
   const { data: existing } = await supabase
     .from("channels")
     .select("id")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("type", "tradeindia")
     .maybeSingle();
 
@@ -897,7 +898,7 @@ export async function ensureTradeIndiaChannelRow(): Promise<{
   const { data: inserted, error } = await supabase
     .from("channels")
     .insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: await resolveServiceOrgId(),
       type: "tradeindia",
       name: "TradeIndia",
       status: "Disconnected",
@@ -970,7 +971,7 @@ export const saveTradeIndiaChannelConfig = createServerFn({ method: "POST" })
         health: enable ? 100 : 0,
         name: "TradeIndia",
       })
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await resolveServiceOrgId())
       .eq("type", "tradeindia");
 
     if (error) throw new Error(error.message);
@@ -991,7 +992,7 @@ export const getTradeIndiaSetup = createServerFn({ method: "GET" }).handler(asyn
   const { data: row } = await supabase
     .from("channels")
     .select("id, is_enabled, status, detail, config")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("type", "tradeindia")
     .maybeSingle();
 

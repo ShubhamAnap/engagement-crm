@@ -184,7 +184,29 @@ function AuthenticatedShell() {
   const isFriendlyFileLink = pathname.startsWith("/f/");
   const isSignup = pathname === "/signup";
   const isForgotPassword = pathname === "/forgot-password";
-  const isPublic = isLogin || isSignup || isForgotPassword || isEmbed || isCatalogueShortLink || isDocShortLink || isFriendlyFileLink;
+  const isAuthCallback = pathname === "/auth/callback";
+  const isOnboarding = pathname === "/onboarding";
+  const isAcceptInvite = pathname === "/accept-invite";
+  const isTerms = pathname === "/terms";
+  const isPrivacy = pathname === "/privacy";
+  const isStatus = pathname === "/status";
+  const isPlatform = pathname === "/platform" || pathname.startsWith("/platform/");
+  const isPublic =
+    isLogin ||
+    isSignup ||
+    isForgotPassword ||
+    isAuthCallback ||
+    isOnboarding ||
+    isAcceptInvite ||
+    isTerms ||
+    isPrivacy ||
+    isStatus ||
+    isEmbed ||
+    isCatalogueShortLink ||
+    isDocShortLink ||
+    isFriendlyFileLink;
+  const isAuthFlow = isAuthCallback || isOnboarding || isAcceptInvite;
+  const isMinimalShell = isPublic || isPlatform;
 
   useEffect(() => {
     setMounted(true);
@@ -198,7 +220,14 @@ function AuthenticatedShell() {
   }, [loading, session, isPublic, navigate]);
 
   useEffect(() => {
-    if (loading || !session || !profile || isPublic) return;
+    if (loading || !session || isPublic) return;
+    if (!profile && !isAuthFlow) {
+      void navigate({ to: "/onboarding" });
+    }
+  }, [loading, session, profile, isPublic, isAuthFlow, navigate]);
+
+  useEffect(() => {
+    if (loading || !session || !profile || isMinimalShell) return;
     if (profile.isActive === false) {
       toast.error("This account is disabled. Contact your admin.");
       void signOut().then(() => navigate({ to: "/login" }));
@@ -215,14 +244,14 @@ function AuthenticatedShell() {
         void navigate({ to: fallback });
       }
     }
-  }, [loading, session, profile, pathname, isPublic, navigate, signOut]);
+  }, [loading, session, profile, pathname, isMinimalShell, navigate, signOut]);
 
   // Close mobile drawer after route changes
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
 
-  if (isPublic) {
+  if (isMinimalShell) {
     return <Outlet />;
   }
 
@@ -238,6 +267,14 @@ function AuthenticatedShell() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
         Redirecting to sign in…
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
+        Redirecting to setup…
       </div>
     );
   }

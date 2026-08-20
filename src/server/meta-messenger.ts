@@ -23,7 +23,14 @@ import {
 import { isProductIntent } from "@/server/product-pack";
 import { isEducateOnlyAsk } from "@/lib/conversation-intent";
 
-import { DEFAULT_ORG_ID } from "@/server/org-context";
+import {
+  DEFAULT_ORG_ID,
+  allowEnvChannelFallback,
+  resolveChannelByConfig,
+  resolveServiceOrgId,
+  runWithOrg,
+  tryJobOrgId,
+} from "@/server/org-context";
 const GRAPH_BASE = "https://graph.facebook.com/v21.0";
 
 export type MetaMessengerType = "facebook" | "instagram";
@@ -49,13 +56,14 @@ function envConfig(type: MetaMessengerType): MetaMessengerConfig {
 }
 
 export async function loadMetaConfig(type: MetaMessengerType): Promise<MetaMessengerConfig> {
-  const fromEnv = envConfig(type);
+  const orgId = await resolveServiceOrgId();
+  const fromEnv = allowEnvChannelFallback(orgId) ? envConfig(type) : {};
   try {
     const supabase = createServiceSupabase();
     const { data } = await supabase
       .from("channels")
       .select("config, detail")
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .eq("type", type)
       .maybeSingle();
     const cfg = ((data?.config as MetaMessengerConfig) || {}) as MetaMessengerConfig;
@@ -158,7 +166,7 @@ async function getChannelId(supabase: ReturnType<typeof createServiceSupabase>, 
   const { data } = await supabase
     .from("channels")
     .select("id")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("type", type)
     .maybeSingle();
   return data?.id as string | undefined;
@@ -177,7 +185,7 @@ async function findOrCreateMetaConversation(
   const { data: existing } = await supabase
     .from("conversations")
     .select("*")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("channel", type)
     .eq("widget_session_id", sessionKey)
     .order("updated_at", { ascending: false })
@@ -199,7 +207,7 @@ async function findOrCreateMetaConversation(
   const { data: created, error } = await supabase
     .from("conversations")
     .insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: await resolveServiceOrgId(),
       channel_id: channelId || null,
       channel: type,
       external_ref: externalRef,
@@ -242,8 +250,43 @@ function extractMessagingEvents(payload: unknown): MessagingEvent[] {
   return events;
 }
 
-export async function handleMetaInboundPayload(type: MetaMessengerType, payload: unknown) {
+export async function handleMetaInboundPayload(
+  type: MetaMessengerType,
+  payload: unknown,
+): Promise<Array<{ conversationId: string; messageId: string }>> {
   const supabase = createServiceSupabase();
+  const entryId = String(
+    (payload as { entry?: Array<{ id?: string }> })?.entry?.[0]?.id || "",
+  ).trim();
+  let orgId = tryJobOrgId();
+  if (!orgId && entryId) {
+    const byPage = await resolveChannelByConfig(supabase, {
+      type,
+      configKey: "page_id",
+      configValue: entryId,
+    });
+    const byIg =
+      type === "instagram"
+        ? await resolveChannelByConfig(supabase, {
+            type,
+            configKey: "ig_account_id",
+            configValue: entryId,
+          })
+        : null;
+    orgId = byPage?.orgId || byIg?.orgId;
+    const envPage = (process.env[`${type === "instagram" ? "INSTAGRAM" : "FACEBOOK"}_PAGE_ID`] ||
+      process.env.META_PAGE_ID ||
+      "").trim();
+    if (!orgId && envPage && envPage === entryId) orgId = DEFAULT_ORG_ID;
+  }
+  if (!orgId) {
+    console.warn("Meta inbound: unknown page/account id", type, entryId);
+    return [];
+  }
+  if (tryJobOrgId() !== orgId) {
+    return runWithOrg(orgId, () => handleMetaInboundPayload(type, payload));
+  }
+
   const cfg = await loadMetaConfig(type);
   const events = extractMessagingEvents(payload);
   const results: Array<{ conversationId: string; messageId: string }> = [];
@@ -260,7 +303,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
       const { data: dup } = await supabase
         .from("messages")
         .select("id")
-        .eq("org_id", DEFAULT_ORG_ID)
+        .eq("org_id", await resolveServiceOrgId())
         .filter(`metadata->>${msgMetaKey}`, "eq", mid)
         .limit(1)
         .maybeSingle();
@@ -272,7 +315,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
     const { data: customerMsg, error: msgError } = await supabase
       .from("messages")
       .insert({
-        org_id: DEFAULT_ORG_ID,
+        org_id: await resolveServiceOrgId(),
         conversation_id: convo.id,
         sender: "customer",
         body: text,
@@ -316,7 +359,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
         })
         .eq("id", convo.id);
       await supabase.from("messages").insert({
-        org_id: DEFAULT_ORG_ID,
+        org_id: await resolveServiceOrgId(),
         conversation_id: convo.id,
         sender: "ai",
         body: wait,
@@ -348,7 +391,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
           })
           .eq("id", convo.id);
         await supabase.from("messages").insert({
-          org_id: DEFAULT_ORG_ID,
+          org_id: await resolveServiceOrgId(),
           conversation_id: convo.id,
           sender: "ai",
           body: ack,
@@ -403,7 +446,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
         });
         (inspector.metadata as Record<string, unknown>).document_followup_ack = true;
         await supabase.from("messages").insert({
-          org_id: DEFAULT_ORG_ID,
+          org_id: await resolveServiceOrgId(),
           conversation_id: convo.id,
           sender: "ai",
           body: reply,
@@ -429,7 +472,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
             fileName?: string;
           }>)
         : [];
-      const catalogue = await resolveCatalogueRequest(text, { pendingOptions: pendingCatalogue });
+      const catalogue = await resolveCatalogueRequest(text, { orgId, pendingOptions: pendingCatalogue });
       const sentPhotoIds = Array.isArray(prevMeta.sent_reference_ids)
         ? (prevMeta.sent_reference_ids as string[])
         : [];
@@ -443,6 +486,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
         educateOnly || isProductIntent(text)
           ? []
           : await findReferenceImages(text, 3, {
+              orgId,
               excludeDocumentIds: sentPhotoIds,
               preferCollection: askingMore ? lastCollection : null,
             });
@@ -494,7 +538,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
           console.error("Meta photo reply send failed", err);
         }
         await supabase.from("messages").insert({
-          org_id: DEFAULT_ORG_ID,
+          org_id: await resolveServiceOrgId(),
           conversation_id: convo.id,
           sender: "ai",
           body: reply,
@@ -583,17 +627,19 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
         (inspector.metadata as Record<string, unknown>).off_topic = true;
       } else {
       const stack = await resolveAgentStack({
+        orgId,
         channel: type,
         message: text,
         previousSpecialistKey: specialistKeyFromMeta(prevMeta),
       });
       const agentCfg = agentReplyConfig(stack);
       const [chunks] = await Promise.all([
-        retrieveKnowledgeContext(text, 6, { collectionIds: agentCfg.knowledgeCollectionIds }),
+        retrieveKnowledgeContext(text, 6, { orgId, collectionIds: agentCfg.knowledgeCollectionIds }),
       ]);
       const { sanitizeAssistantFileLinks } = await import("@/server/shorten-urls");
       const { buildProductsContextForAi } = await import("@/server/product-pack");
       const productsContext = await buildProductsContextForAi(text, 10, {
+        orgId,
         categories: agentCfg.productCategories,
       });
       const downloadLinks = downloadLinksFromChunks(chunks);
@@ -646,7 +692,7 @@ export async function handleMetaInboundPayload(type: MetaMessengerType, payload:
     }
 
     await supabase.from("messages").insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: await resolveServiceOrgId(),
       conversation_id: convo.id,
       sender: "ai",
       body: reply,
@@ -697,7 +743,7 @@ export const saveMetaChannelConfig = createServerFn({ method: "POST" })
         status: enable ? "Connected" : "Disconnected",
         health: enable ? 100 : 0,
       })
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await resolveServiceOrgId())
       .eq("type", data.type)
       .select("*")
       .single();
@@ -739,7 +785,7 @@ export const sendMetaAgentReply = createServerFn({ method: "POST" })
       .from("conversations")
       .select("id, channel, metadata, widget_session_id")
       .eq("id", data.conversationId)
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await resolveServiceOrgId())
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!convo) throw new Error("Conversation not found");

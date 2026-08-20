@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createServiceSupabase } from "@/lib/supabase";
+import { listOrgIds, runWithOrg } from "@/server/org-context";
 import { captureException, structuredLog } from "@/lib/observability";
 import {
   processDueFollowUps,
@@ -58,46 +59,74 @@ async function runCron(request: Request): Promise<Response> {
   structuredLog("info", "cron started", { cronRunId, leaseHolder: holder });
 
   try {
-    const [followUps, waits, indiamart, tradeindia, imAuto, tiAuto, bmAuto, emailBc, dailyFollow] =
-      await Promise.all([
-        processDueFollowUps(),
-        processScheduledAutomationSteps().catch((err) => {
-          void captureException(err, { cronRunId, job: "waits" });
-          return { error: err instanceof Error ? err.message : "wait resume failed" };
-        }),
-        tickIndiaMartBackfill().catch((err) => {
-          void captureException(err, { cronRunId, job: "indiamart_backfill" });
-          return { error: err instanceof Error ? err.message : "indiamart tick failed" };
-        }),
-        tickTradeIndiaBackfill().catch((err) => {
-          void captureException(err, { cronRunId, job: "tradeindia_backfill" });
-          return { error: err instanceof Error ? err.message : "tradeindia tick failed" };
-        }),
-        tickIndiaMartAutoSync().catch((err) => {
-          void captureException(err, { cronRunId, job: "indiamart_auto" });
-          return { error: err instanceof Error ? err.message : "indiamart auto sync failed" };
-        }),
-        tickTradeIndiaAutoSync().catch((err) => {
-          void captureException(err, { cronRunId, job: "tradeindia_auto" });
-          return { error: err instanceof Error ? err.message : "tradeindia auto sync failed" };
-        }),
-        tickBrainmineAutoSync().catch((err) => {
-          void captureException(err, { cronRunId, job: "brainmine_auto" });
-          return { error: err instanceof Error ? err.message : "brainmine auto sync failed" };
-        }),
-        tickPendingEmailBroadcasts().catch((err) => {
-          void captureException(err, { cronRunId, job: "email_broadcast" });
-          return { error: err instanceof Error ? err.message : "email broadcast tick failed" };
-        }),
-        import("@/server/followup-agent")
-          .then((m) => m.proposeDailyFollowUpCampaign())
-          .catch((err) => {
-            void captureException(err, { cronRunId, job: "daily_followup" });
-            return {
-              error: err instanceof Error ? err.message : "daily follow-up propose failed",
-            };
+    const orgIds = await listOrgIds();
+    const followUps: unknown[] = [];
+    const waits: unknown[] = [];
+    const indiamart: unknown[] = [];
+    const tradeindia: unknown[] = [];
+    const imAuto: unknown[] = [];
+    const tiAuto: unknown[] = [];
+    const bmAuto: unknown[] = [];
+    const emailBc: unknown[] = [];
+    const dailyFollow: unknown[] = [];
+
+    for (const orgId of orgIds) {
+      await runWithOrg(orgId, async () => {
+        followUps.push(await processDueFollowUps(orgId));
+        waits.push(
+          await processScheduledAutomationSteps(orgId).catch((err) => {
+            void captureException(err, { cronRunId, job: "waits", orgId });
+            return { error: err instanceof Error ? err.message : "wait resume failed" };
           }),
-      ]);
+        );
+        indiamart.push(
+          await tickIndiaMartBackfill().catch((err) => {
+            void captureException(err, { cronRunId, job: "indiamart_backfill", orgId });
+            return { error: err instanceof Error ? err.message : "indiamart tick failed" };
+          }),
+        );
+        tradeindia.push(
+          await tickTradeIndiaBackfill().catch((err) => {
+            void captureException(err, { cronRunId, job: "tradeindia_backfill", orgId });
+            return { error: err instanceof Error ? err.message : "tradeindia tick failed" };
+          }),
+        );
+        imAuto.push(
+          await tickIndiaMartAutoSync().catch((err) => {
+            void captureException(err, { cronRunId, job: "indiamart_auto", orgId });
+            return { error: err instanceof Error ? err.message : "indiamart auto sync failed" };
+          }),
+        );
+        tiAuto.push(
+          await tickTradeIndiaAutoSync().catch((err) => {
+            void captureException(err, { cronRunId, job: "tradeindia_auto", orgId });
+            return { error: err instanceof Error ? err.message : "tradeindia auto sync failed" };
+          }),
+        );
+        bmAuto.push(
+          await tickBrainmineAutoSync().catch((err) => {
+            void captureException(err, { cronRunId, job: "brainmine_auto", orgId });
+            return { error: err instanceof Error ? err.message : "brainmine auto sync failed" };
+          }),
+        );
+        emailBc.push(
+          await tickPendingEmailBroadcasts().catch((err) => {
+            void captureException(err, { cronRunId, job: "email_broadcast", orgId });
+            return { error: err instanceof Error ? err.message : "email broadcast tick failed" };
+          }),
+        );
+        dailyFollow.push(
+          await import("@/server/followup-agent")
+            .then((m) => m.proposeDailyFollowUpCampaign())
+            .catch((err) => {
+              void captureException(err, { cronRunId, job: "daily_followup", orgId });
+              return {
+                error: err instanceof Error ? err.message : "daily follow-up propose failed",
+              };
+            }),
+        );
+      });
+    }
 
     const body = {
       success: true,

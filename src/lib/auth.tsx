@@ -13,6 +13,7 @@ import { AuthContext, type AuthState } from "@/lib/auth-context";
 import { hexToOklchCss, contrastingForegroundOklch } from "@/lib/color";
 import { useTheme } from "@/lib/theme";
 import { syncStaffAccessCookie } from "@/lib/staff-access-cookie";
+import { toast } from "sonner";
 import { initialsFromName, type Profile, type SessionUser } from "@/lib/types";
 import {
   DEFAULT_NEW_USER_PERMISSIONS,
@@ -37,7 +38,7 @@ async function fetchSessionUser(userId: string): Promise<SessionUser | null> {
   const baseSelect =
     "id, email, full_name, role, phone, job_title, avatar_url, org_id, organizations(id, name, short_name, plan)";
   const brandedSelect =
-    "id, email, full_name, role, phone, job_title, avatar_url, org_id, permissions, is_active, organizations(id, name, short_name, plan, logo_url, brand_primary)";
+    "id, email, full_name, role, phone, job_title, avatar_url, org_id, permissions, is_active, organizations(id, name, short_name, plan, logo_url, brand_primary, is_active)";
 
   let data: Record<string, unknown> | null = null;
   let error: { message?: string } | null = null;
@@ -65,9 +66,13 @@ async function fetchSessionUser(userId: string): Promise<SessionUser | null> {
     plan: string;
     logo_url?: string | null;
     brand_primary?: string | null;
+    is_active?: boolean;
   } | null;
 
   if (!org) return null;
+  if ((org as { is_active?: boolean }).is_active === false) {
+    throw new Error("ORG_DISABLED");
+  }
 
   const role = data.role as SessionUser["role"];
   const permissions = effectivePermissions({
@@ -93,6 +98,7 @@ async function fetchSessionUser(userId: string): Promise<SessionUser | null> {
       plan: org.plan,
       logoUrl: org.logo_url ?? null,
       brandPrimary: org.brand_primary ?? null,
+      isActive: org.is_active !== false,
     },
   };
 }
@@ -131,7 +137,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     enabled: Boolean(userId),
     queryFn: () => fetchSessionUser(userId!),
     staleTime: 60_000,
-    retry: 1,
+    retry: (count, error) => {
+      if (error instanceof Error && error.message === "ORG_DISABLED") return false;
+      return count < 1;
+    },
   });
 
   // Org brand accent is the only primary when set. Convert hex → oklch so mixes/tints stay clean.
@@ -170,6 +179,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     syncStaffAccessCookie(null);
     queryClient.removeQueries({ queryKey: ["auth"] });
   }, [queryClient]);
+
+  useEffect(() => {
+    if (profileQuery.error instanceof Error && profileQuery.error.message === "ORG_DISABLED") {
+      toast.error("This workspace has been disabled. Contact support.");
+      void signOut();
+    }
+  }, [profileQuery.error, signOut]);
 
   const refreshProfile = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ["auth", "profile"] });

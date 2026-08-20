@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, KeyRound, Pencil, Plus, UserX, UserCheck } from "lucide-react";
+import { Copy, KeyRound, Mail, Pencil, Plus, UserX, UserCheck, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -32,12 +32,17 @@ import {
 } from "@/lib/permissions";
 import {
   copyTeamMemberAccess,
-  createTeamMember,
   listTeamMembers,
   resetTeamMemberPassword,
   updateTeamMember,
   type TeamMemberRow,
 } from "@/server/team";
+import {
+  inviteTeamMember,
+  listOrgInvites,
+  revokeOrgInvite,
+  type PendingInvite,
+} from "@/server/org-invites";
 
 function PermissionChecklist({
   value,
@@ -170,7 +175,6 @@ export function TeamSettingsPanel() {
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [permissions, setPermissions] = useState<PermissionKey[]>([
     ...DEFAULT_NEW_USER_PERMISSIONS,
   ]);
@@ -185,28 +189,41 @@ export function TeamSettingsPanel() {
     queryFn: () => listTeamMembers(),
   });
 
-  const members = teamQuery.data ?? [];
+  const invitesQuery = useQuery({
+    queryKey: ["org-invites"],
+    queryFn: () => listOrgInvites(),
+  });
 
-  const createMutation = useMutation({
+  const members = teamQuery.data ?? [];
+  const invites = (invitesQuery.data ?? []).filter((i) => i.status === "pending") as PendingInvite[];
+
+  const inviteMutation = useMutation({
     mutationFn: () =>
-      createTeamMember({
+      inviteTeamMember({
         data: {
           fullName,
           email,
-          password,
           permissions,
         },
       }),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["team-members"] });
+      await queryClient.invalidateQueries({ queryKey: ["org-invites"] });
       setCreateOpen(false);
       setFullName("");
       setEmail("");
-      setPassword("");
       setPermissions([...DEFAULT_NEW_USER_PERMISSIONS]);
-      toast.success("User created");
+      toast.success("Invite sent by email");
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Create failed"),
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Invite failed"),
+  });
+
+  const revokeInviteMutation = useMutation({
+    mutationFn: (inviteId: string) => revokeOrgInvite({ data: { inviteId } }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["org-invites"] });
+      toast.success("Invite revoked");
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not revoke invite"),
   });
 
   const updateMutation = useMutation({
@@ -281,7 +298,6 @@ export function TeamSettingsPanel() {
   function openCreate() {
     setFullName("");
     setEmail("");
-    setPassword("");
     setPermissions([...DEFAULT_NEW_USER_PERMISSIONS]);
     setCreateOpen(true);
   }
@@ -296,10 +312,10 @@ export function TeamSettingsPanel() {
     <>
       <Panel
         title="Team"
-        description="Create users and tick which sections they can open. New users default to Dashboard + Inbox."
+        description="Invite users by email and choose which sections they can open. New users default to Dashboard + Inbox."
         action={
           <Button size="sm" className="gap-1.5" onClick={openCreate}>
-            <Plus className="size-3.5" /> Create user
+            <Plus className="size-3.5" /> Invite user
           </Button>
         }
       >
@@ -308,6 +324,7 @@ export function TeamSettingsPanel() {
         ) : members.length === 0 ? (
           <EmptyState title="No users" description="Create the first team member." />
         ) : (
+          <>
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full min-w-[640px] text-left text-sm">
               <thead className="border-b border-border bg-secondary/40 text-xs uppercase text-muted-foreground">
@@ -403,15 +420,45 @@ export function TeamSettingsPanel() {
               </tbody>
             </table>
           </div>
+          {invites.length > 0 ? (
+            <div className="mt-4 rounded-lg border border-dashed border-border bg-secondary/20 p-4">
+              <p className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
+                <Mail className="size-4" /> Pending invites
+              </p>
+              <ul className="space-y-2">
+                {invites.map((invite) => (
+                  <li
+                    key={invite.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  >
+                    <div>
+                      <p className="font-medium">{invite.full_name || invite.email}</p>
+                      <p className="text-xs text-muted-foreground">{invite.email}</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive"
+                      disabled={revokeInviteMutation.isPending}
+                      onClick={() => revokeInviteMutation.mutate(invite.id)}
+                    >
+                      <X className="mr-1 size-3.5" /> Revoke
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          </>
         )}
       </Panel>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>Create user</DialogTitle>
+            <DialogTitle>Invite user</DialogTitle>
             <DialogDescription>
-              Default access is Dashboard + Inbox. Tick more sections as needed.
+              They will receive an email to set a password and join your workspace.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -429,16 +476,6 @@ export function TeamSettingsPanel() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="team-password">Temporary password</Label>
-              <Input
-                id="team-password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Min 8 characters"
-              />
-            </div>
-            <div className="space-y-2">
               <Label>Section access</Label>
               <PermissionChecklist value={permissions} onChange={setPermissions} />
             </div>
@@ -451,12 +488,11 @@ export function TeamSettingsPanel() {
               disabled={
                 !fullName.trim() ||
                 !email.trim() ||
-                password.length < 8 ||
-                createMutation.isPending
+                inviteMutation.isPending
               }
-              onClick={() => createMutation.mutate()}
+              onClick={() => inviteMutation.mutate()}
             >
-              {createMutation.isPending ? "Creating…" : "Create"}
+              {inviteMutation.isPending ? "Sending…" : "Send invite"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -19,7 +19,7 @@ export const Route = createFileRoute("/login")({
 });
 
 function LoginPage() {
-  const { signIn, session, loading } = useAuth();
+  const { signIn, session, profile, loading } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -27,16 +27,16 @@ function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!loading && session) {
+    if (!loading && session && profile) {
       void navigate({ to: "/" });
     }
-  }, [loading, session, navigate]);
+  }, [loading, session, profile, navigate]);
 
   async function handleGoogleLogin() {
     const supabase = getBrowserSupabase();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/` },
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
     });
     if (error) toast.error(error.message);
   }
@@ -166,6 +166,13 @@ function LoginPage() {
           <Link to="/signup" className="font-semibold text-primary hover:underline">
             Create workspace
           </Link>
+        </p>
+        <p className="mt-3 text-center text-xs text-muted-foreground">
+          <Link to="/terms" className="hover:underline">Terms</Link>
+          {" · "}
+          <Link to="/privacy" className="hover:underline">Privacy</Link>
+          {" · "}
+          <Link to="/status" className="hover:underline">Status</Link>
         </p>
       </div>
     </div>

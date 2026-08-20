@@ -5,13 +5,92 @@
 
 ---
 
+### Session 2026-08-20 — Phase 6 (hardening / launch)
+
+**Done (repo):** Added self-delete account flow (Settings → Security), permanent workspace delete flow (Settings → Team → Danger zone), storage prefix cleanup for deleted orgs (`knowledge`, `branding`), launch/support documentation in `docs/launch-runbook.md`, and `npm run check:launch` for prelaunch readiness (migration/docs/env presence checks).
+
+**Ops before launch:**
+1. Run all required migrations: `039`, `040`, `041`, `042`.
+2. Complete the manual two-org isolation checklist in `docs/launch-runbook.md`.
+3. Test account deletion + permanent workspace deletion in staging first.
+4. Verify backup/restore drill and legal copy signoff before production launch.
+
+**Next:** Deploy only after the Phase 6 runbook is completed and signed off.
+
+---
+
+### Session 2026-08-20 — Phase 5 (platform admin + legal)
+
+**Done:** Platform super-admin console at `/platform` (list/inspect orgs, suspend/reactivate, plan override, billing credit). `platform_admins` table + `PLATFORM_ADMIN_EMAILS` env fallback. Append-only `audit_events` with Settings → Team audit panel. Legal pages `/terms`, `/privacy`. Public status page `/status` (wraps `/api/health`). Migration: `042_platform_admin.sql`.
+
+**Ops:**
+1. Run `042_platform_admin.sql` in Supabase SQL Editor.
+2. Grant platform access: `INSERT INTO platform_admins (user_id) SELECT id FROM profiles WHERE email = 'you@company.com';` OR set `PLATFORM_ADMIN_EMAILS=you@company.com` in env.
+3. Review/update legal copy in `src/routes/terms.tsx` and `privacy.tsx` before production.
+
+**Next:** Phase 6 (hardening / launch).
+
+---
+
+### Session 2026-08-20 — Phase 4 (billing + usage caps)
+
+**Done:** Plan tiers (`free` / `starter` / `pro` / `enterprise`) with hard caps on platform AI spend (INR/mo), WhatsApp messages, and team seats. Enforcement in LLM gateway, WhatsApp sends, and team invites. BYOK OpenAI key per org (bypasses platform AI cap). Settings → Billing shows usage meters + Razorpay upgrade checkout. Webhook: `/api/webhooks/razorpay`. Migration: `041_billing.sql`.
+
+**Ops:**
+1. Run `041_billing.sql` in Supabase SQL Editor.
+2. Optional Razorpay env: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `RAZORPAY_PLAN_STARTER`, `RAZORPAY_PLAN_PRO`.
+3. Razorpay dashboard → Webhook URL: `{APP_URL}/api/webhooks/razorpay` (events: subscription.activated, subscription.charged, subscription.cancelled, payment.failed).
+
+**Next:** Phase 5 (platform admin + legal).
+
+---
+
+### Session 2026-08-20 — Phase 3 (auth completeness)
+
+**Done:** Google OAuth now flows through `/auth/callback` → `bootstrapAuthSession` (accept pending invite, or `/onboarding` to provision workspace). Team invites replace admin-set passwords (`inviteTeamMember` + pending invite list). Signup uses shared `auth-email.ts`, IP rate-limit (`signup-rate-limit.ts`), optional `INVITE_ONLY=true`. Disabled orgs block all members (`organizations.is_active`). Admin can export JSON or disable workspace (Settings → Team → Danger zone). Migration: `supabase/migrations/040_auth_completeness.sql`.
+
+**Ops (before multi-org sales):**
+1. Run `039_storage_org_isolation.sql` and `040_auth_completeness.sql` in Supabase SQL Editor.
+2. Supabase Auth → URL config: add redirect URLs `{APP_URL}/auth/callback` and `{APP_URL}/accept-invite`.
+3. Optional env: `INVITE_ONLY=true` to block self-serve Google/email workspace creation.
+
+**Next:** Phase 4 (billing / usage caps).
+
+---
+
+**Done:** Service jobs no longer write into the legacy EnerTech org by default. `runWithOrg` / `resolveServiceOrgId()` thread the workspace through cron (every org), IndiaMART/email/Meta/WhatsApp inbound, automations, follow-up agent, Gmail broadcast ticks, WordPress catalog, agents/tools, API spend, and per-org LLM gateway cache. Env channel secrets still apply only to `DEFAULT_ORG_ID`.
+
+**Ops:** No deploy. Phase 2 SQL `039_storage_org_isolation.sql` still must be run on Supabase.
+
+**Next:** Phase 3 (Google first-login / invites / signup rate-limit / org disable).
+
+---
+
+### Session 2026-08-20 — Phase 2 (storage isolation)
+
+**Done:** Object paths are `{org_id}/…` (knowledge, products, catalogues, branding/logo, avatars, chat/WhatsApp attachments). Authenticated Storage RLS only allows list/write/delete when the first path segment equals `current_org_id()`. Buckets stay public so WhatsApp/Meta can fetch exact HTTPS URLs; listing the whole bucket is no longer allowed for authenticated users. Helper: `src/lib/org-storage.ts`. Migration: `supabase/migrations/039_storage_org_isolation.sql` (must be run in the Supabase SQL Editor). Chat uploads no longer use `chat/{orgId}/…`.
+
+**Ops:** Run `039_storage_org_isolation.sql` on the live project before selling multi-org. Do **not** re-run `005`/`015` storage policies after 039 (they reopen whole-bucket access). Old objects under `chat/{orgId}/…` remain readable via service role / public URL; new uploads use `{orgId}/chat/…`.
+
+**Not in this phase:** Deploy (wait until remaining phases). Phase 2 SQL `039` still must be run on Supabase.
+
+---
+
+### Session 2026-08-20 — Phase 1 (server org identity)
+
+**Done:** `org-context` helpers (`requireStaffOrgId`, `resolveChannelByConfig`, `resolveWebsiteByWidgetKey`, unique channel config). Staff knowledge/formulas/product-media use the logged-in org. WhatsApp inbound resolves org from Meta `phone_number_id`. Widget resolves org from per-org `widget_public_key` (seeded on signup). Public `/f` and `/d` look up by document id, not a hardcoded org. Cron follow-ups/waits loop every org. Gmail OAuth state carries org id. WhatsApp `phone_number_id` cannot be reused across orgs. Env WhatsApp/Gmail secrets apply only to the legacy `DEFAULT_ORG_ID` tenant.
+
+**Still DEFAULT_ORG_ID (intentional only):** env WhatsApp/Gmail/IndiaMART secrets and widget env key apply only to the legacy EnerTech tenant. Deprecated `resolveOrgFromChannel()` still returns DEFAULT if no match.
+
+---
+
 ### Session 2026-08-20 — Auth polish (login / signup / forgot password)
 
 **Change:** Premium login + signup UI. Signup requires a business email (blocks Gmail/Yahoo/etc.), optional mobile, min 8-char password. `/forgot-password` sends Supabase reset email. Google OAuth buttons on login/signup (needs Google provider in Supabase). Phone stored on profile at signup.
 
 **Files:** `src/routes/login.tsx`, `src/routes/signup.tsx`, `src/routes/forgot-password.tsx`, `src/routes/api/signup.ts`, `src/routes/__root.tsx`, `src/routeTree.gen.ts`.
 
-**Status:** UI shipped. Google OAuth is not live until Google Cloud + Supabase provider is configured. Google signup still does **not** create an org/profile.
+**Status:** UI shipped. Google OAuth requires Google Cloud + Supabase provider. Google signup **does** create org/profile via `/auth/callback` + `/onboarding` (Phase 3).
 
 ---
 
@@ -22,23 +101,23 @@ Honest status: signup + table RLS exist. Server jobs still use `DEFAULT_ORG_ID` 
 **Phase 0 — Ship current (this deploy)**  
 Auth/signup/white-label as-is. Fine for demos. Not isolated for live channels/AI.
 
-**Phase 1 — Server org identity (blocker)**  
-Kill hardcoded `DEFAULT_ORG_ID` in server handlers. Staff server fns use `requireStaffUser().profile.org_id`. Webhooks use `resolveOrgFromChannel()`. Cron loops enabled orgs. Public `/f/...` resolves from the file row, not a constant. Per-org `WIDGET_PUBLIC_KEY` (or widget key on channel config). Unique WhatsApp `phone_number_id` / Gmail / Meta page per org.
+**Phase 1 — Server org identity (done in repo)**  
+Staff, webhooks, and cron use the real org. Env secrets still merge only for the legacy EnerTech tenant.
 
-**Phase 2 — Storage + files (blocker)**  
-Paths under `<org_id>/…`. Storage RLS: read/write only that prefix. Knowledge/branding/product media/chat attachments. No public whole-bucket listing.
+**Phase 2 — Storage + files (done in repo; run SQL on Supabase)**  
+Paths under `<org_id>/…`. Storage RLS: authenticated list/write only that prefix (`039_storage_org_isolation.sql`). Knowledge/branding/product media/chat attachments. Buckets remain public for exact-URL fetch; no authenticated whole-bucket listing.
 
-**Phase 3 — Auth completeness**  
-Google first-login creates workspace *or* invite-only Google. Invite-by-email (no Admin-set password). Signup rate-limit/captcha. Email uniqueness per platform vs per-org decision. Disable/delete org + data export.
+**Phase 3 — Auth completeness (done in repo; run SQL on Supabase)**  
+Google first-login → `/auth/callback` → invite accept or `/onboarding` workspace. Invite-by-email (no admin password). Signup rate-limit + `INVITE_ONLY`. Email uniqueness on profiles. Disable org + JSON export in Settings.
 
-**Phase 4 — Cost + billing (sellable)**  
-Per-org OpenAI key **or** platform key with hard usage caps. Spend already logged — enforce limits. Razorpay/Stripe: Free vs paid, seats, AI/message caps. Plan string is display-only today.
+**Phase 4 — Cost + billing (done in repo; run SQL + Razorpay env)**  
+Plan tiers with hard AI/WA/seat caps. BYOK OpenAI key. Razorpay subscription checkout + webhook. Settings → Billing usage meters.
 
-**Phase 5 — Platform + legal**  
-Super-admin (suspend org, inspect, refund). Real Terms/Privacy. Audit log for team/channel/config. Status/uptime page optional.
+**Phase 5 — Platform + legal (done in repo; run SQL)**  
+Super-admin `/platform` console (suspend, inspect, plan override, billing credit). Audit log for team/billing/org actions. `/terms`, `/privacy`, `/status` pages.
 
-**Phase 6 — Hardening / launch**  
-Two-org isolation test (A cannot see B data, webhooks, files, widget). Backup/restore. Delete-account. Support runbook.
+**Phase 6 — Hardening / launch (partially done in repo; manual validation required)**  
+Delete-account flow. Permanent workspace delete. Launch/support runbook. Still requires manual two-org isolation pass, backup/restore drill, and pre-launch signoff.
 
 ---
 

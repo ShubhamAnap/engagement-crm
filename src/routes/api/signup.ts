@@ -1,11 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createServiceSupabase } from "@/lib/supabase";
+import { isBusinessEmail, normalizeAuthEmail } from "@/lib/auth-email";
+import { assertSignupRateLimit, inviteOnlyMode } from "@/server/signup-rate-limit";
+import { provisionOrganization } from "@/server/org-provision";
+import { findPendingInviteForEmail } from "@/server/org-invites";
 
 export const Route = createFileRoute("/api/signup")({
   server: {
     handlers: {
       POST: async ({ request }) => {
         try {
+          await assertSignupRateLimit(request);
+
           const body = await request.json();
           const { orgName, fullName, email, password, phone } = body as {
             orgName: string;
@@ -22,82 +28,40 @@ export const Route = createFileRoute("/api/signup")({
             return Response.json({ error: "Password must be at least 8 characters." }, { status: 400 });
           }
 
+          const normalizedEmail = normalizeAuthEmail(email);
+          if (!isBusinessEmail(normalizedEmail)) {
+            return Response.json(
+              { error: "Please use your business email (not Gmail, Yahoo, etc.)." },
+              { status: 400 },
+            );
+          }
+
           const supabase = createServiceSupabase();
 
-          // Check if email already exists
-          const { data: existingUser } = await supabase
-            .from("profiles")
-            .select("id")
-            .eq("email", email.trim().toLowerCase())
-            .maybeSingle();
-          if (existingUser) {
-            return Response.json({ error: "An account with this email already exists." }, { status: 409 });
+          if (inviteOnlyMode()) {
+            const invite = await findPendingInviteForEmail(normalizedEmail);
+            if (!invite) {
+              return Response.json(
+                { error: "Signup is invite-only. Ask your admin for an invite first." },
+                { status: 403 },
+              );
+            }
           }
 
-          const shortName = orgName.trim().split(/\s+/).slice(0, 2).join(" ");
-
-          // Create organization
-          const { data: org, error: orgErr } = await supabase
-            .from("organizations")
-            .insert({ name: orgName.trim(), short_name: shortName, plan: "Free" })
-            .select("id")
-            .single();
-          if (orgErr) throw new Error(orgErr.message);
-
-          // Create auth user via admin API
-          const { data: authUser, error: authErr } = await supabase.auth.admin.createUser({
-            email: email.trim().toLowerCase(),
+          const result = await provisionOrganization(supabase, {
+            orgName: orgName.trim(),
+            fullName: fullName.trim(),
+            email: normalizedEmail,
             password,
-            email_confirm: true,
-            phone: phone?.trim() || undefined,
-            user_metadata: { full_name: fullName.trim(), org_id: org.id },
-          });
-          if (authErr) {
-            await supabase.from("organizations").delete().eq("id", org.id);
-            throw new Error(authErr.message);
-          }
-
-          // Create profile (Admin role for the org creator)
-          const { error: profileErr } = await supabase.from("profiles").insert({
-            id: authUser.user.id,
-            org_id: org.id,
-            email: email.trim().toLowerCase(),
-            full_name: fullName.trim(),
-            role: "Admin",
             phone: phone?.trim() || null,
           });
-          if (profileErr) {
-            await supabase.auth.admin.deleteUser(authUser.user.id);
-            await supabase.from("organizations").delete().eq("id", org.id);
-            throw new Error(profileErr.message);
-          }
 
-          // Seed default channels for the new org
-          await supabase.from("channels").insert([
-            { org_id: org.id, type: "website", name: "Website Chat", status: "Connected", health: 100, detail: "embed widget", is_enabled: true },
-            { org_id: org.id, type: "whatsapp", name: "WhatsApp Business", status: "Disconnected", health: 0, is_enabled: false },
-            { org_id: org.id, type: "email", name: "Email", status: "Disconnected", health: 0, is_enabled: false },
-            { org_id: org.id, type: "instagram", name: "Instagram", status: "Disconnected", health: 0, is_enabled: false },
-            { org_id: org.id, type: "facebook", name: "Facebook Messenger", status: "Disconnected", health: 0, is_enabled: false },
-            { org_id: org.id, type: "indiamart", name: "IndiaMART", status: "Disconnected", health: 0, detail: "Lead Manager API", is_enabled: false },
-            { org_id: org.id, type: "tradeindia", name: "TradeIndia", status: "Disconnected", health: 0, detail: "Inquiry API", is_enabled: false },
-            { org_id: org.id, type: "brainmine", name: "Brainmine CRM+", status: "Disconnected", health: 0, detail: "External CRM lead sync", is_enabled: false },
-            { org_id: org.id, type: "wordpress", name: "WordPress / WooCommerce", status: "Disconnected", health: 0, detail: "Product catalog pull", is_enabled: false },
-          ]).throwOnError().catch((e) => console.warn("[signup] channel seed:", e));
-
-          // Seed default AI agents
-          await supabase.from("agents").insert([
-            { org_id: org.id, key: "support", name: "Support Agent", description: "General support and enquiry handling", status: "Active", model: "gpt-4o-mini", memory_enabled: true },
-            { org_id: org.id, key: "sales", name: "Sales Agent", description: "Product discovery, pricing guidance, lead capture", status: "Active", model: "gpt-4o-mini", memory_enabled: true },
-          ]).throwOnError().catch((e) => console.warn("[signup] agent seed:", e));
-
-          return Response.json({ ok: true, orgId: org.id });
+          return Response.json({ ok: true, orgId: result.orgId });
         } catch (err) {
           console.error("[signup]", err);
-          return Response.json(
-            { error: err instanceof Error ? err.message : "Signup failed" },
-            { status: 500 },
-          );
+          const message = err instanceof Error ? err.message : "Signup failed";
+          const status = /too many signup/i.test(message) ? 429 : 500;
+          return Response.json({ error: message }, { status });
         }
       },
     },

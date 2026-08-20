@@ -27,15 +27,13 @@ export {
   isEducateOnlyAsk,
 } from "@/lib/conversation-intent";
 
-import { DEFAULT_ORG_ID } from "@/server/org-context";
-
-async function loadCategoryCatalogueLookup(): Promise<CategoryCatalogueLookup> {
+async function loadCategoryCatalogueLookup(orgId: string): Promise<CategoryCatalogueLookup> {
   const supabase = createServiceSupabase();
   const map: CategoryCatalogueLookup = new Map();
   const { data, error } = await supabase
     .from("product_category_catalogues")
     .select("category_key, catalog_pdf_url, catalog_pdf_path")
-    .eq("org_id", DEFAULT_ORG_ID);
+    .eq("org_id", orgId);
   if (error) {
     if (!/does not exist|schema cache|product_category_catalogues/i.test(error.message)) {
       console.warn("loadCategoryCatalogueLookup", error.message);
@@ -426,18 +424,21 @@ function carouselIntro(count: number, _categoryLabel?: string | null): string {
 export async function resolveProductPackRequest(
   query: string,
   options?: {
+    orgId: string;
     pendingProducts?: Array<{ id: string; name: string }>;
     presentation?: "detail" | "carousel" | "whatsapp";
   },
 ): Promise<ProductPackResult> {
   const q = String(query || "").trim();
   const presentation = options?.presentation || "detail";
+  const orgId = options?.orgId;
+  if (!orgId) return { mode: "none" };
   if (!q) return { mode: "none" };
   if (isAckOnlyMessage(q) || isGreetingOnlyMessage(q)) return { mode: "none" };
   if (isServiceIntent(q) && !/^\d{1,2}$/.test(q)) return { mode: "none" };
 
   const supabase = createServiceSupabase();
-  const catLookup = await loadCategoryCatalogueLookup();
+  const catLookup = await loadCategoryCatalogueLookup(orgId);
 
   // Follow-up pick after clarify / carousel list
   if (options?.pendingProducts?.length) {
@@ -449,7 +450,7 @@ export async function resolveProductPackRequest(
         const { data } = await supabase
           .from("products")
           .select("*")
-          .eq("org_id", DEFAULT_ORG_ID)
+          .eq("org_id", orgId)
           .eq("id", pick.id)
           .eq("is_active", true)
           .maybeSingle();
@@ -467,7 +468,7 @@ export async function resolveProductPackRequest(
       const { data } = await supabase
         .from("products")
         .select("*")
-        .eq("org_id", DEFAULT_ORG_ID)
+        .eq("org_id", orgId)
         .eq("id", byName.id)
         .eq("is_active", true)
         .maybeSingle();
@@ -485,7 +486,7 @@ export async function resolveProductPackRequest(
   const { data, error } = await supabase
     .from("products")
     .select("*")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", orgId)
     .eq("is_active", true)
     .order("ai_weight", { ascending: false })
     .limit(400);
@@ -549,18 +550,18 @@ export async function resolveProductPackRequest(
 }
 
 /** Load one active product by id (for I need this). */
-export async function loadActiveProductById(productId: string): Promise<DbProduct | null> {
+export async function loadActiveProductById(productId: string, orgId: string): Promise<DbProduct | null> {
   const supabase = createServiceSupabase();
   const { data, error } = await supabase
     .from("products")
     .select("*")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", orgId)
     .eq("id", productId)
     .eq("is_active", true)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) return null;
-  const catLookup = await loadCategoryCatalogueLookup();
+  const catLookup = await loadCategoryCatalogueLookup(orgId);
   return inheritCategoryCatalogue(data as DbProduct, catLookup);
 }
 
@@ -614,13 +615,15 @@ function formatProductContextLine(p: DbProduct): string {
 export async function buildProductsContextForAi(
   query: string,
   limit = 10,
-  options?: { categories?: string[] },
+  options?: { orgId: string; categories?: string[] },
 ): Promise<string> {
+  const orgId = options?.orgId;
+  if (!orgId) return "";
   const supabase = createServiceSupabase();
   const { data, error } = await supabase
     .from("products")
     .select("*")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", orgId)
     .eq("is_active", true)
     .order("ai_weight", { ascending: false })
     .limit(80);
@@ -629,7 +632,7 @@ export async function buildProductsContextForAi(
     console.error("buildProductsContextForAi", error.message);
     return "";
   }
-  const catLookup = await loadCategoryCatalogueLookup();
+  const catLookup = await loadCategoryCatalogueLookup(orgId);
   let products = withInheritedCatalogues((data || []) as DbProduct[], catLookup);
   const want = (options?.categories || []).map((c) => normalizeCategoryKey(c)).filter(Boolean);
   if (want.length) {

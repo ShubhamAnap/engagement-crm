@@ -13,9 +13,10 @@ import { normalizeWhatsAppDigits } from "@/lib/whatsapp-window";
 
 export type { AutomationAction, AutomationTrigger } from "@/lib/automation-types";
 
-import { DEFAULT_ORG_ID } from "@/server/org-context";
+import { resolveServiceOrgId } from "@/server/org-context";
 
 export type AutomationContext = {
+  orgId?: string | null;
   leadId?: string | null;
   conversationId?: string | null;
   toStatus?: string | null;
@@ -54,13 +55,16 @@ async function enrichContext(
   ctx: AutomationContext,
 ): Promise<AutomationContext> {
   const out: AutomationContext = { ...ctx };
+  if (!out.orgId) {
+    out.orgId = await resolveServiceOrgId();
+  }
 
   if (out.conversationId && !out.channel) {
     const { data: convo } = await supabase
       .from("conversations")
       .select("channel, lead_id, visitor_name, visitor_company, visitor_phone, visitor_email")
       .eq("id", out.conversationId)
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await resolveServiceOrgId())
       .maybeSingle();
     if (convo) {
       out.channel = (convo.channel as string) || out.channel;
@@ -79,7 +83,7 @@ async function enrichContext(
         "name, company, phone, email, source, priority, status, sales_person, requirement, location, notes",
       )
       .eq("id", out.leadId)
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await resolveServiceOrgId())
       .maybeSingle();
     if (lead) {
       out.leadName = out.leadName || (lead.name as string) || null;
@@ -171,7 +175,7 @@ async function scheduleRemainingActions(
   const { data, error } = await supabase
     .from("automation_scheduled_steps")
     .insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: await resolveServiceOrgId(),
       automation_id: opts.automationId,
       automation_name: opts.automationName,
       lead_id: opts.ctx.leadId || null,
@@ -290,7 +294,7 @@ async function executeLeafAction(
         .from("leads")
         .update({ priority: action.priority, last_activity_at: new Date().toISOString() })
         .eq("id", ctx.leadId)
-        .eq("org_id", DEFAULT_ORG_ID);
+        .eq("org_id", await resolveServiceOrgId());
       return `set_lead_priority=${action.priority}`;
     }
     case "set_lead_status": {
@@ -299,7 +303,7 @@ async function executeLeafAction(
         .from("leads")
         .update({ status: action.status, last_activity_at: new Date().toISOString() })
         .eq("id", ctx.leadId)
-        .eq("org_id", DEFAULT_ORG_ID);
+        .eq("org_id", await resolveServiceOrgId());
       return `set_lead_status=${action.status}`;
     }
     case "set_follow_up_hours": {
@@ -309,7 +313,7 @@ async function executeLeafAction(
         .from("leads")
         .update({ next_follow_up_at: when, last_activity_at: new Date().toISOString() })
         .eq("id", ctx.leadId)
-        .eq("org_id", DEFAULT_ORG_ID);
+        .eq("org_id", await resolveServiceOrgId());
       return `set_follow_up_hours=${action.hours}`;
     }
     case "add_lead_note": {
@@ -335,7 +339,7 @@ async function executeLeafAction(
           last_activity_at: new Date().toISOString(),
         })
         .eq("id", ctx.leadId)
-        .eq("org_id", DEFAULT_ORG_ID);
+        .eq("org_id", await resolveServiceOrgId());
       return "add_lead_note";
     }
     case "set_sales_person": {
@@ -348,7 +352,7 @@ async function executeLeafAction(
           last_activity_at: new Date().toISOString(),
         })
         .eq("id", ctx.leadId)
-        .eq("org_id", DEFAULT_ORG_ID);
+        .eq("org_id", await resolveServiceOrgId());
       return `set_sales_person=${salesPerson}`;
     }
     case "tag_conversation": {
@@ -364,7 +368,7 @@ async function executeLeafAction(
         .from("conversations")
         .update({ tags })
         .eq("id", ctx.conversationId)
-        .eq("org_id", DEFAULT_ORG_ID);
+        .eq("org_id", await resolveServiceOrgId());
       return `tag_conversation=${action.tag}`;
     }
     case "set_assignee_label": {
@@ -373,13 +377,13 @@ async function executeLeafAction(
         .from("conversations")
         .update({ assignee_label: action.label })
         .eq("id", ctx.conversationId)
-        .eq("org_id", DEFAULT_ORG_ID);
+        .eq("org_id", await resolveServiceOrgId());
       return `set_assignee_label=${action.label}`;
     }
     case "add_system_message": {
       if (!ctx.conversationId) return "skipped:add_system_message (no conversation)";
       await supabase.from("messages").insert({
-        org_id: DEFAULT_ORG_ID,
+        org_id: await resolveServiceOrgId(),
         conversation_id: ctx.conversationId,
         sender: "system",
         body: fillVars(action.body, ctx),
@@ -392,7 +396,7 @@ async function executeLeafAction(
       const { data: directoryRows } = await supabase
         .from("sales_person_directory")
         .select("email, display_name, mobile, is_active")
-        .eq("org_id", DEFAULT_ORG_ID)
+        .eq("org_id", await resolveServiceOrgId())
         .eq("is_active", true);
       const fields = {
         name: ctx.leadName,
@@ -467,7 +471,7 @@ async function executeLeafAction(
       const title = fillVars(action.title, ctx);
       const body = fillVars(action.body, ctx);
       const { error } = await supabase.from("notifications").insert({
-        org_id: DEFAULT_ORG_ID,
+        org_id: await resolveServiceOrgId(),
         title,
         body,
         href: action.href || (ctx.leadId ? "/leads" : ctx.conversationId ? "/inbox" : null),
@@ -559,7 +563,7 @@ async function enqueueApproval(
   let dupQuery = supabase
     .from("automation_approvals")
     .select("id")
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("automation_id", auto.id)
     .eq("status", "pending")
     .eq("trigger_type", trigger)
@@ -575,7 +579,7 @@ async function enqueueApproval(
   const { data, error } = await supabase
     .from("automation_approvals")
     .insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: await resolveServiceOrgId(),
       automation_id: auto.id,
       automation_name: auto.name,
       trigger_type: trigger,
@@ -619,7 +623,7 @@ async function executeAutomationRow(
       })
       .eq("id", auto.id);
     await supabase.from("automation_runs").insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: await resolveServiceOrgId(),
       automation_id: auto.id,
       status: seq.paused ? "scheduled" : "success",
       trigger_type: trigger,
@@ -637,7 +641,7 @@ async function executeAutomationRow(
       })
       .eq("id", auto.id);
     await supabase.from("automation_runs").insert({
-      org_id: DEFAULT_ORG_ID,
+      org_id: await resolveServiceOrgId(),
       automation_id: auto.id,
       status: "failed",
       trigger_type: trigger,
@@ -665,7 +669,7 @@ export async function runAutomations(
     .select(
       "id, name, description, trigger_type, trigger_config, actions, run_count, success_count, requires_approval",
     )
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .eq("status", "Live")
     .eq("trigger_type", trigger);
 
@@ -703,7 +707,7 @@ export async function runAutomations(
         await enqueueApproval(supabase, auto, trigger, enriched);
         pending += 1;
         void supabase.from("notifications").insert({
-          org_id: DEFAULT_ORG_ID,
+          org_id: await resolveServiceOrgId(),
           title: "Approval needed",
           body: `${auto.name} · ${enriched.leadName || enriched.company || "campaign"}`,
           href: "/automation",
@@ -740,7 +744,7 @@ export async function runSingleAutomation(
       "id, name, description, trigger_type, trigger_config, actions, run_count, success_count, requires_approval",
     )
     .eq("id", automationId)
-    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("org_id", await resolveServiceOrgId())
     .maybeSingle();
 
   if (error) throw new Error(error.message);
@@ -786,7 +790,7 @@ export async function approveAutomationApproval(
       .from("automation_approvals")
       .select("*")
       .eq("id", approvalId)
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await resolveServiceOrgId())
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!row) throw new Error("Approval not found");
@@ -796,7 +800,10 @@ export async function approveAutomationApproval(
 
   const row = Array.isArray(claimedRows) ? claimedRows[0] : claimedRows;
   if (!row) throw new Error("Approval not found or already claimed");
-  if ((row as { org_id?: string }).org_id && (row as { org_id: string }).org_id !== DEFAULT_ORG_ID) {
+  if (
+    (row as { org_id?: string }).org_id &&
+    (row as { org_id: string }).org_id !== (await resolveServiceOrgId())
+  ) {
     throw new Error("Approval not found");
   }
 
@@ -864,7 +871,7 @@ export async function rejectAutomationApproval(
       .from("automation_approvals")
       .select("id, status")
       .eq("id", approvalId)
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await resolveServiceOrgId())
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!row) throw new Error("Approval not found");
@@ -905,7 +912,7 @@ export async function bulkApproveAutomationApprovals(
     const { data, error } = await supabase
       .from("automation_approvals")
       .select("id")
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await resolveServiceOrgId())
       .eq("status", "pending")
       .order("created_at", { ascending: true })
       .limit(100);
@@ -946,7 +953,7 @@ export async function bulkRejectAutomationApprovals(
     const { data, error } = await supabase
       .from("automation_approvals")
       .select("id")
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await resolveServiceOrgId())
       .eq("status", "pending")
       .order("created_at", { ascending: true })
       .limit(100);
@@ -974,7 +981,7 @@ export async function bulkRejectAutomationApprovals(
 /**
  * Find leads past next_follow_up_at, fire follow_up_due, clear the due timestamp.
  */
-export async function processDueFollowUps(limit = 40): Promise<{
+export async function processDueFollowUps(orgId: string, limit = 40): Promise<{
   processed: number;
   ran: number;
   ok: number;
@@ -984,7 +991,7 @@ export async function processDueFollowUps(limit = 40): Promise<{
   const now = new Date().toISOString();
 
   const { data: claimed, error: claimErr } = await supabase.rpc("claim_due_follow_up_leads", {
-    p_org_id: DEFAULT_ORG_ID,
+    p_org_id: orgId,
     p_limit: limit,
   });
 
@@ -1004,7 +1011,7 @@ export async function processDueFollowUps(limit = 40): Promise<{
     const { data: leads, error } = await supabase
       .from("leads")
       .select("id, name, company, phone, email, source, priority, status")
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", orgId)
       .not("status", "in", "(Won,Lost)")
       .lte("next_follow_up_at", now)
       .not("next_follow_up_at", "is", null)
@@ -1045,6 +1052,7 @@ export async function processDueFollowUps(limit = 40): Promise<{
 
   for (const lead of rows) {
     const result = await runAutomations("follow_up_due", {
+      orgId,
       leadId: lead.id as string,
       source: lead.source as string,
       priority: lead.priority as string,
@@ -1065,7 +1073,7 @@ export async function processDueFollowUps(limit = 40): Promise<{
 /**
  * Resume workflows paused on Wait nodes (cron every 1–5 min).
  */
-export async function processScheduledAutomationSteps(limit = 40): Promise<{
+export async function processScheduledAutomationSteps(orgId: string, limit = 40): Promise<{
   processed: number;
   ok: number;
   failed: number;
@@ -1077,7 +1085,7 @@ export async function processScheduledAutomationSteps(limit = 40): Promise<{
   const { data: claimed, error: claimErr } = await supabase.rpc(
     "claim_scheduled_automation_steps",
     {
-      p_org_id: DEFAULT_ORG_ID,
+      p_org_id: orgId,
       p_limit: limit,
     },
   );
@@ -1102,7 +1110,7 @@ export async function processScheduledAutomationSteps(limit = 40): Promise<{
       .select(
         "id, automation_id, automation_name, lead_id, conversation_id, context, remaining_actions",
       )
-      .eq("org_id", DEFAULT_ORG_ID)
+      .eq("org_id", await resolveServiceOrgId())
       .eq("status", "pending")
       .lte("run_at", now)
       .order("run_at", { ascending: true })
@@ -1135,6 +1143,7 @@ export async function processScheduledAutomationSteps(limit = 40): Promise<{
 
     const ctx = await enrichContext(supabase, {
       ...((row.context && typeof row.context === "object" ? row.context : {}) as AutomationContext),
+      orgId,
       leadId: (row.lead_id as string) || undefined,
       conversationId: (row.conversation_id as string) || undefined,
     });
@@ -1154,7 +1163,7 @@ export async function processScheduledAutomationSteps(limit = 40): Promise<{
       );
 
       await supabase.from("automation_runs").insert({
-        org_id: DEFAULT_ORG_ID,
+        org_id: await resolveServiceOrgId(),
         automation_id: row.automation_id,
         status: seq.paused ? "scheduled" : "success",
         trigger_type: "wait_resume",
@@ -1185,7 +1194,7 @@ export async function processScheduledAutomationSteps(limit = 40): Promise<{
         })
         .eq("id", row.id);
       await supabase.from("automation_runs").insert({
-        org_id: DEFAULT_ORG_ID,
+        org_id: await resolveServiceOrgId(),
         automation_id: row.automation_id,
         status: "failed",
         trigger_type: "wait_resume",

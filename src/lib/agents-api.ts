@@ -1,6 +1,5 @@
 import { getBrowserSupabase } from "@/lib/supabase";
 import type { AgentStatus, DbAgent } from "@/lib/db-types";
-import { ENERTECH_ORG_ID } from "@/lib/chat-api";
 import { mergeAgentConfig, parseAgentConfig } from "@/lib/agent-config";
 
 export type AgentUpdateInput = {
@@ -35,7 +34,7 @@ export {
   effectiveSystemPrompt,
 } from "@/lib/agent-prompts";
 
-export async function listAgents(orgId: string = ENERTECH_ORG_ID): Promise<DbAgent[]> {
+export async function listAgents(orgId: string): Promise<DbAgent[]> {
   const supabase = getBrowserSupabase();
   const { data, error } = await supabase
     .from("agents")
@@ -69,7 +68,7 @@ async function countAiOnConversations(
   return total;
 }
 
-export async function listAgentsWithStats(orgId: string = ENERTECH_ORG_ID): Promise<
+export async function listAgentsWithStats(orgId: string): Promise<
   Array<DbAgent & { conversationCount: number; aiMessageCount: number; lastRoutedCount: number }>
 > {
   const agents = await listAgents(orgId);

@@ -6,14 +6,33 @@ import {
 } from "@/server/org-billing";
 import { normalizePlanTier, type PlanTier } from "@/lib/plans";
 
+function isProductionRuntime(): boolean {
+  return process.env.NODE_ENV === "production" || Boolean(process.env.RENDER);
+}
+
+/**
+ * Razorpay billing events.
+ *
+ * The target workspace comes from `notes.org_id`, which the payload itself carries — so an
+ * unsigned request could hand any workspace a paid plan. Signatures are mandatory in
+ * production; without the secret the endpoint refuses to process events.
+ */
 export const Route = createFileRoute("/api/webhooks/razorpay")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+        const secret = process.env.RAZORPAY_WEBHOOK_SECRET?.trim();
         const rawBody = await request.text();
 
-        if (secret) {
+        if (!secret) {
+          if (isProductionRuntime()) {
+            console.error(
+              "[razorpay webhook] rejected: RAZORPAY_WEBHOOK_SECRET is not set, so billing events cannot be verified",
+            );
+            return Response.json({ error: "Webhook not configured" }, { status: 403 });
+          }
+          console.warn("[razorpay webhook] RAZORPAY_WEBHOOK_SECRET unset — accepting (non-production)");
+        } else {
           const signature = request.headers.get("x-razorpay-signature") || "";
           const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
           try {

@@ -49,7 +49,7 @@ function FallbackGlyph({ channel, fg }: { channel: string; fg: string }) {
 
 /** Round partner mark — official logo images where we have them; BM/website stay drawn. */
 export function ChannelBrandMark(props: {
-  channel: string;
+  channel: string | null | undefined;
   size?: keyof typeof SIZE;
   className?: string;
 }) {

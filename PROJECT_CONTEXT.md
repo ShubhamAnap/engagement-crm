@@ -5,6 +5,22 @@
 
 ---
 
+### Session 2026-08-20 — Multi-org isolation hardening (follow-up items)
+
+**Done:**
+
+1. **No client-side legacy org fallback.** `ENERTECH_ORG_ID` is deleted. Every page and API helper now takes the real workspace id: routes use `useOrgId()` (`src/lib/auth.tsx`, returns `""` until the profile resolves), and the `orgId` parameters in `chat-api`, `agents-api`, `tools-api`, `automations-api`, `broadcasting-api`, and `sales-person-directory-api` are required instead of defaulting to the legacy tenant. The app shell already blocks rendering before the profile loads, so this was a landmine rather than a live bug — but any new component mounted outside that shell would have silently read/written the EnerTech tenant.
+2. **Removed the deprecated `resolveOrgFromChannel`.** It returned `DEFAULT_ORG_ID` whenever a channel lookup missed. No callers remained; deleting it means a future one cannot reintroduce the fallback.
+3. **Razorpay webhooks are verified.** The handler skipped signature checks entirely when `RAZORPAY_WEBHOOK_SECRET` was unset, and the workspace comes from the payload's own `notes.org_id` — anyone could have posted `subscription.activated` and upgraded any workspace. Production now returns 403 without the secret, and `notes.org_id` must be a real UUID. `check:launch` fails when `RAZORPAY_KEY_ID` is set without the secret.
+4. **Provisioning no longer half-builds a workspace.** `seedOrgDefaults` ignored its insert errors and `provisionOrganization` swallowed the exception, so a failed seed produced a workspace with no channels (no widget key) and no agents. Both now surface the error and provisioning rolls back the org, profile, and auth user.
+5. **Typecheck gates the deploy.** Fixed the 11 pre-existing errors (`/leads` `validateSearch` now annotated optional so `<Link to="/leads">` needs no `search`; `leadsBySource` row type; `ChannelBrandMark` accepts a nullable channel; nitro `sourcemap` spelling). `scripts/render-build.sh` runs `npm run typecheck` before the build, with `SKIP_TYPECHECK=1` as an emergency escape hatch.
+
+**Ops:** Set `RAZORPAY_WEBHOOK_SECRET` on Render if billing is live, or unset `RAZORPAY_KEY_ID`. Render builds now fail on type errors.
+
+**Next:** Cosmetic/EnerTech copy leftovers (`x-enertech-*` header names, channel placeholders, automation templates, legal pages), per-org Meta verify tokens in the UI (currently shared across orgs), and a threat-model note for public storage objects reachable by guessed UUID path.
+
+---
+
 ### Session 2026-08-20 — Multi-org isolation hardening (critical fixes)
 
 **Done:**
@@ -17,7 +33,7 @@
 
 **Ops:** Run `044_channel_identity_uniqueness.sql`, then confirm `select * from public.channel_identity_conflicts` is empty. Set `META_APP_SECRET` on Render and leave `META_WEBHOOK_ALLOW_UNSIGNED` unset. `VITE_APP_URL` must be the real public origin or every `/c` and `/f` link breaks.
 
-**Next:** Remaining medium items — client `ENERTECH_ORG_ID` fallbacks, EnerTech copy leftovers (`x-enertech-*` headers, channel placeholders), removing the `resolveOrgFromChannel` DEFAULT fallback, and Razorpay `notes.org_id` hardening.
+**Next:** Handled in the follow-up session above.
 
 ---
 

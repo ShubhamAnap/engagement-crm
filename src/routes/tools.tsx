@@ -6,8 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { EmptyState, PageHeader, Panel, Pill, StatCard } from "@/components/shared/ui-kit";
-import { useAuth } from "@/lib/auth";
-import { ENERTECH_ORG_ID } from "@/lib/chat-api";
+import { useAuth, useOrgId } from "@/lib/auth";
 import { listAgents } from "@/lib/agents-api";
 import {
   allowedToolsFromAgentConfig,
@@ -43,7 +42,7 @@ function toolIcon(key: string) {
 function Page() {
   const queryClient = useQueryClient();
   const { profile } = useAuth();
-  const orgId = profile?.org.id ?? ENERTECH_ORG_ID;
+  const orgId = useOrgId();
   const isAdmin = profile?.role === "Admin";
   const [bootstrapped, setBootstrapped] = useState(false);
 

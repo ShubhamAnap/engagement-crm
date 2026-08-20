@@ -23,8 +23,8 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState, PageHeader, Panel, Pill, StatCard } from "@/components/shared/ui-kit";
-import { useAuth } from "@/lib/auth";
-import { ENERTECH_ORG_ID, formatRelativeTime } from "@/lib/chat-api";
+import { useAuth, useOrgId } from "@/lib/auth";
+import { formatRelativeTime } from "@/lib/chat-api";
 import {
   createAndSendBroadcast,
   createAndSendEmailBroadcast,
@@ -103,7 +103,7 @@ function formatDateTime(value: string | null | undefined): string {
 function Page() {
   const queryClient = useQueryClient();
   const { profile } = useAuth();
-  const orgId = profile?.org.id ?? ENERTECH_ORG_ID;
+  const orgId = useOrgId();
   const [tab, setTab] = useState<"campaigns" | "templates">("campaigns");
   const [channel, setChannel] = useState("whatsapp");
 

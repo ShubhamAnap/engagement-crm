@@ -25,8 +25,8 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useAuth } from "@/lib/auth";
-import { countWaitingHandoffs, ENERTECH_ORG_ID } from "@/lib/chat-api";
+import { useAuth, useOrgId } from "@/lib/auth";
+import { countWaitingHandoffs } from "@/lib/chat-api";
 import { canAccessPath, type AppSectionKey } from "@/lib/permissions";
 
 type Item = { to: string; label: string; icon: typeof Inbox; badge?: string; section?: AppSectionKey };
@@ -89,7 +89,7 @@ export function AppSidebar({
   const orgShort = profile?.org.short ?? "Engage";
   const orgPlan = profile?.org.plan ?? "Enterprise";
   const logoUrl = profile?.org.logoUrl;
-  const orgId = profile?.org.id ?? ENERTECH_ORG_ID;
+  const orgId = useOrgId();
 
   const waitingQuery = useQuery({
     queryKey: ["waiting-handoffs", orgId],

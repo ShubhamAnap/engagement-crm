@@ -1,5 +1,4 @@
 import { getBrowserSupabase } from "@/lib/supabase";
-import { ENERTECH_ORG_ID } from "@/lib/chat-api";
 import { listAgents } from "@/lib/agents-api";
 
 export type DbAiTool = {
@@ -25,7 +24,7 @@ export function allowedToolsFromAgentConfig(
 /** Ops note: which agents still list this tool in config (even if globally off). */
 export async function listAgentsUsingTool(
   toolKey: string,
-  orgId: string = ENERTECH_ORG_ID,
+  orgId: string,
 ): Promise<Array<{ id: string; name: string; key: string }>> {
   const agents = await listAgents(orgId);
   return agents
@@ -36,7 +35,7 @@ export async function listAgentsUsingTool(
 /** Remove a tool key from every agent's allowed_tools (after global disable). */
 export async function stripToolFromAllAgents(
   toolKey: string,
-  orgId: string = ENERTECH_ORG_ID,
+  orgId: string,
 ): Promise<number> {
   const agents = await listAgents(orgId);
   const supabase = getBrowserSupabase();
@@ -77,7 +76,7 @@ export function toolRuntimeHint(toolKey: string): {
   return { ready: true, detail: "Server-side runner" };
 }
 
-export async function listAiTools(orgId: string = ENERTECH_ORG_ID): Promise<DbAiTool[]> {
+export async function listAiTools(orgId: string): Promise<DbAiTool[]> {
   const supabase = getBrowserSupabase();
   const { data, error } = await supabase
     .from("ai_tools")
@@ -106,7 +105,7 @@ export async function setAiToolEnabled(options: {
 }
 
 /** Seed Calculator + Web search if table is empty (migration may not have run). */
-export async function ensureDefaultAiTools(orgId: string = ENERTECH_ORG_ID): Promise<DbAiTool[]> {
+export async function ensureDefaultAiTools(orgId: string): Promise<DbAiTool[]> {
   const existing = await listAiTools(orgId).catch(() => [] as DbAiTool[]);
   if (existing.length > 0) return existing;
 

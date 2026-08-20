@@ -25,8 +25,8 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState, PageHeader, Panel, Pill, StatCard } from "@/components/shared/ui-kit";
 import { WorkflowCanvas } from "@/components/automation/WorkflowCanvas";
-import { useAuth } from "@/lib/auth";
-import { ENERTECH_ORG_ID, formatRelativeTime } from "@/lib/chat-api";
+import { useAuth, useOrgId } from "@/lib/auth";
+import { formatRelativeTime } from "@/lib/chat-api";
 import type {
   AutomationAction,
   AutomationConditionField,
@@ -895,7 +895,7 @@ function runSteps(output: Record<string, unknown> | null | undefined): string[] 
 function Page() {
   const queryClient = useQueryClient();
   const { profile } = useAuth();
-  const orgId = profile?.org.id ?? ENERTECH_ORG_ID;
+  const orgId = useOrgId();
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editing, setEditing] = useState<DbAutomation | null>(null);

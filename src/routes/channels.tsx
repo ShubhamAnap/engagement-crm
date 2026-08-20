@@ -32,8 +32,7 @@ import {
 } from "@/components/shared/ui-kit";
 import { ChannelBrandMark } from "@/components/shared/ChannelBrandMark";
 import { getChannelBrand } from "@/lib/channel-brand";
-import { useAuth } from "@/lib/auth";
-import { ENERTECH_ORG_ID } from "@/lib/chat-api";
+import { useAuth, useOrgId } from "@/lib/auth";
 import {
   channelStatusTone,
   getChannelConfig,
@@ -127,7 +126,7 @@ function Page() {
   const navigate = Route.useNavigate();
   const search = Route.useSearch();
   const { profile } = useAuth();
-  const orgId = profile?.org.id ?? ENERTECH_ORG_ID;
+  const orgId = useOrgId();
   const appUrl =
     (typeof window !== "undefined"
       ? (import.meta.env.VITE_APP_URL as string) || window.location.origin

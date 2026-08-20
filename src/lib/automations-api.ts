@@ -1,6 +1,5 @@
 import type { AutomationAction, AutomationTrigger } from "@/lib/automation-types";
 import { getBrowserSupabase } from "@/lib/supabase";
-import { ENERTECH_ORG_ID } from "@/lib/chat-api";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
@@ -112,7 +111,7 @@ export function successRate(a: DbAutomation): number {
   return Math.round((a.success_count / a.run_count) * 1000) / 10;
 }
 
-export async function listAutomations(orgId: string = ENERTECH_ORG_ID): Promise<DbAutomation[]> {
+export async function listAutomations(orgId: string): Promise<DbAutomation[]> {
   const supabase = getBrowserSupabase();
   const { data, error } = await supabase
     .from("automations")
@@ -341,9 +340,7 @@ export const proposeDailyFollowUpCampaignFn = createServerFn({ method: "POST" })
     return runWithOrg(orgId, () => proposeDailyFollowUpCampaign({ force: data.force }));
   });
 
-export async function listPendingApprovals(
-  orgId: string = ENERTECH_ORG_ID,
-): Promise<DbAutomationApproval[]> {
+export async function listPendingApprovals(orgId: string): Promise<DbAutomationApproval[]> {
   const supabase = getBrowserSupabase();
   const { data, error } = await supabase
     .from("automation_approvals")

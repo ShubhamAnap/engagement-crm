@@ -294,6 +294,12 @@ export async function applyRazorpayBillingUpdate(options: {
   invalidateOrgUsageCache(options.orgId);
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Workspace that a Razorpay event belongs to, taken from `notes.org_id` set at checkout.
+ * Only trustworthy on a signature-verified payload — the webhook rejects unsigned events.
+ */
 export function resolveOrgIdFromRazorpayPayload(payload: Record<string, unknown>): string | null {
   const sub = payload.payload as Record<string, unknown> | undefined;
   const entity =
@@ -304,8 +310,8 @@ export function resolveOrgIdFromRazorpayPayload(payload: Record<string, unknown>
     (entity as { notes?: Record<string, string> } | undefined)?.notes ||
     (payload.payload as { subscription?: { entity?: { notes?: Record<string, string> } } })?.subscription
       ?.entity?.notes;
-  const orgId = notes?.org_id;
-  return typeof orgId === "string" && orgId.length > 10 ? orgId : null;
+  const orgId = typeof notes?.org_id === "string" ? notes.org_id.trim() : "";
+  return UUID_RE.test(orgId) ? orgId : null;
 }
 
 export { appBaseUrl };

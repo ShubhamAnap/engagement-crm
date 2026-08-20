@@ -2,8 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, CheckCheck, ShieldAlert, X, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/lib/auth";
-import { ENERTECH_ORG_ID } from "@/lib/chat-api";
+import { useAuth, useOrgId } from "@/lib/auth";
 import {
   approveAutomationApprovalFn,
   bulkApproveAutomationApprovalsFn,
@@ -20,7 +19,7 @@ import { Pill } from "@/components/shared/ui-kit";
  */
 export function AutomationApprovalBanner() {
   const { profile } = useAuth();
-  const orgId = profile?.org.id ?? ENERTECH_ORG_ID;
+  const orgId = useOrgId();
   const userId = profile?.id;
   const queryClient = useQueryClient();
 

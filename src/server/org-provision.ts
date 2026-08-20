@@ -37,7 +37,7 @@ export async function seedOrgDefaults(
   supabase: SupabaseClient,
   orgId: string,
 ): Promise<void> {
-  await supabase.from("channels").insert([
+  const { error: channelsError } = await supabase.from("channels").insert([
     {
       org_id: orgId,
       type: "website",
@@ -89,8 +89,9 @@ export async function seedOrgDefaults(
       is_enabled: false,
     },
   ]);
+  if (channelsError) throw new Error(`Could not create default channels: ${channelsError.message}`);
 
-  await supabase.from("agents").insert([
+  const { error: agentsError } = await supabase.from("agents").insert([
     {
       org_id: orgId,
       key: "support",
@@ -110,6 +111,7 @@ export async function seedOrgDefaults(
       memory_enabled: true,
     },
   ]);
+  if (agentsError) throw new Error(`Could not create default agents: ${agentsError.message}`);
 }
 
 export async function provisionOrganization(
@@ -174,10 +176,18 @@ export async function provisionOrganization(
     throw new Error(profileErr.message);
   }
 
+  // A workspace without its default channels has no widget key and an empty Channels page.
+  // Roll back so the customer can retry instead of landing in a half-built workspace.
   try {
     await seedOrgDefaults(supabase, org.id);
   } catch (err) {
-    console.warn("[provision] seed defaults", err);
+    console.error("[provision] seed defaults failed, rolling back workspace", err);
+    await supabase.from("profiles").delete().eq("id", userId);
+    if (!input.authUserId) {
+      await supabase.auth.admin.deleteUser(userId).catch(() => undefined);
+    }
+    await supabase.from("organizations").delete().eq("id", org.id);
+    throw new Error("Could not finish setting up the workspace. Please try again.");
   }
 
   return { orgId: org.id, userId };

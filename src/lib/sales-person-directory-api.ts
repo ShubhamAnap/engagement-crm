@@ -1,5 +1,4 @@
 import { getBrowserSupabase } from "@/lib/supabase";
-import { ENERTECH_ORG_ID } from "@/lib/chat-api";
 
 export type DbSalesPerson = {
   id: string;
@@ -16,9 +15,7 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-export async function listSalesPersonDirectory(
-  orgId: string = ENERTECH_ORG_ID,
-): Promise<DbSalesPerson[]> {
+export async function listSalesPersonDirectory(orgId: string): Promise<DbSalesPerson[]> {
   const supabase = getBrowserSupabase();
   const { data, error } = await supabase
     .from("sales_person_directory")
@@ -30,7 +27,7 @@ export async function listSalesPersonDirectory(
 }
 
 export async function upsertSalesPerson(options: {
-  orgId?: string;
+  orgId: string;
   id?: string;
   email: string;
   displayName: string;
@@ -38,7 +35,8 @@ export async function upsertSalesPerson(options: {
   isActive?: boolean;
 }): Promise<DbSalesPerson> {
   const supabase = getBrowserSupabase();
-  const orgId = options.orgId ?? ENERTECH_ORG_ID;
+  const orgId = options.orgId;
+  if (!orgId) throw new Error("orgId is required to save a sales person");
   const email = normalizeEmail(options.email);
   const displayName = options.displayName.trim();
   const mobile = options.mobile?.trim() || null;
@@ -80,7 +78,7 @@ export async function upsertSalesPerson(options: {
   return data as DbSalesPerson;
 }
 
-export async function deleteSalesPerson(id: string, orgId: string = ENERTECH_ORG_ID): Promise<void> {
+export async function deleteSalesPerson(id: string, orgId: string): Promise<void> {
   const supabase = getBrowserSupabase();
   const { error } = await supabase
     .from("sales_person_directory")

@@ -291,19 +291,3 @@ export async function assertUniqueChannelConfig(options: {
     throw new Error(`This ${label} is already connected to another workspace.`);
   }
 }
-
-/** @deprecated Prefer resolveChannelByConfig — silent DEFAULT fallback hid missing orgs. */
-export async function resolveOrgFromChannel(
-  supabase: ServiceSupabase,
-  filter: { type: string; configKey?: string; configValue?: string },
-): Promise<string> {
-  if (filter.configKey && filter.configValue) {
-    const hit = await resolveChannelByConfig(supabase, {
-      type: filter.type,
-      configKey: filter.configKey,
-      configValue: filter.configValue,
-    });
-    if (hit) return hit.orgId;
-  }
-  return DEFAULT_ORG_ID;
-}

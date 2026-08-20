@@ -262,5 +262,17 @@ export function useSessionUser(): SessionUser | null {
   return useAuth().profile;
 }
 
+/**
+ * Current workspace id for browser queries.
+ *
+ * Empty until the profile resolves — never fall back to another workspace's id, and
+ * gate queries on it (`enabled: Boolean(orgId)`) rather than querying with "".
+ * The app shell does not render routes before the profile loads, so in practice this
+ * is only empty inside components mounted outside that shell.
+ */
+export function useOrgId(): string {
+  return useAuth().profile?.org.id ?? "";
+}
+
 export type { Profile, AuthState };
 export type { User, Session };

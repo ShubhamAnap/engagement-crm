@@ -173,7 +173,8 @@ export const Route = createFileRoute("/leads")({
       { property: "og:title", content: "Leads" },
     ],
   }),
-  validateSearch: (search: Record<string, unknown>) => ({
+  // Annotated optional so `<Link to="/leads">` does not require a search object.
+  validateSearch: (search: Record<string, unknown>): { id?: string } => ({
     id: typeof search.id === "string" ? search.id : undefined,
   }),
   component: Page,

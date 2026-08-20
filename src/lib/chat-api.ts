@@ -12,7 +12,6 @@ import {
 } from "@/lib/inbox-snooze";
 
 export { buildPlaceholderAiReply };
-export const ENERTECH_ORG_ID = "a0000000-0000-4000-8000-000000000001";
 export const WIDGET_SESSION_KEY = "enertech-widget-session";
 
 export function getOrCreateWidgetSessionId(): string {
@@ -44,7 +43,7 @@ const CONVERSATION_SELECT =
   "*, customer:customers(id, name, company, email, phone), lead:leads(id, name, company, status, score, priority, product_label)";
 
 export async function listConversations(
-  orgId: string = ENERTECH_ORG_ID,
+  orgId: string,
   options: ListConversationsOptions = {},
 ): Promise<InboxConversation[]> {
   const supabase = getBrowserSupabase();
@@ -99,7 +98,7 @@ export async function listConversations(
 /** Single conversation for deep links when the row is outside the current list/filter. */
 export async function getConversationById(
   conversationId: string,
-  orgId: string = ENERTECH_ORG_ID,
+  orgId: string,
 ): Promise<InboxConversation | null> {
   const supabase = getBrowserSupabase();
   const { data, error } = await supabase
@@ -126,8 +125,9 @@ async function getWebsiteChannelId(orgId: string): Promise<string | null> {
   return data?.id ?? null;
 }
 
-export async function getOrCreateWidgetConversation(options?: { orgId?: string; visitorName?: string }): Promise<DbConversation> {
-  const orgId = options?.orgId ?? ENERTECH_ORG_ID;
+export async function getOrCreateWidgetConversation(options: { orgId: string; visitorName?: string }): Promise<DbConversation> {
+  const orgId = options.orgId;
+  if (!orgId) throw new Error("orgId is required to open a widget conversation");
   const sessionId = getOrCreateWidgetSessionId();
   const supabase = getBrowserSupabase();
 
@@ -148,14 +148,14 @@ export async function getOrCreateWidgetConversation(options?: { orgId?: string; 
   return created as DbConversation;
 }
 
-export async function sendCustomerMessage(conversationId: string, body: string, orgId = ENERTECH_ORG_ID) {
+export async function sendCustomerMessage(conversationId: string, body: string, orgId: string) {
   const supabase = getBrowserSupabase();
   const { data, error } = await supabase.from("messages").insert({ org_id: orgId, conversation_id: conversationId, sender: "customer", body }).select("*").single();
   if (error) throw error;
   return data as DbMessage;
 }
 
-export async function sendAiMessage(conversationId: string, body: string, orgId = ENERTECH_ORG_ID) {
+export async function sendAiMessage(conversationId: string, body: string, orgId: string) {
   const supabase = getBrowserSupabase();
   const { data, error } = await supabase.from("messages").insert({ org_id: orgId, conversation_id: conversationId, sender: "ai", body, confidence: 0.7, sources: [] }).select("*").single();
   if (error) throw error;
@@ -166,7 +166,7 @@ export async function sendAgentMessage(
   conversationId: string,
   body: string,
   profileId: string,
-  orgId = ENERTECH_ORG_ID,
+  orgId: string,
   assigneeLabel?: string,
   metadata?: Record<string, unknown>,
 ) {
@@ -393,7 +393,7 @@ function deriveSla(waitingMinutes: number, state: HandoffState): HandoffSla {
 }
 
 /** Escalated / true human handoffs + conversations resolved today. */
-export async function listHandoffQueue(orgId: string = ENERTECH_ORG_ID): Promise<HandoffItem[]> {
+export async function listHandoffQueue(orgId: string): Promise<HandoffItem[]> {
   const { isTrueHandoffConversation } = await import("@/lib/conversation-guards");
   const supabase = getBrowserSupabase();
   const todayStart = new Date();
@@ -437,7 +437,7 @@ export async function listHandoffQueue(orgId: string = ENERTECH_ORG_ID): Promise
 }
 
 /** Live sidebar badge: unassigned waiting escalations / handoffs. */
-export async function countWaitingHandoffs(orgId: string = ENERTECH_ORG_ID): Promise<number> {
+export async function countWaitingHandoffs(orgId: string): Promise<number> {
   const items = await listHandoffQueue(orgId);
   return items.filter((i) => i.handoffState === "Waiting").length;
 }

@@ -14,6 +14,14 @@ fi
 echo "==> Linux Lightningcss native (Tailwind)"
 npm install --force lightningcss-linux-x64-gnu@1.33.0 --no-audit --no-fund || true
 
+echo "==> typecheck"
+# Gate the deploy on types. Set SKIP_TYPECHECK=1 in Render only to ship an emergency fix.
+if [ "${SKIP_TYPECHECK:-0}" = "1" ]; then
+  echo "==> typecheck skipped (SKIP_TYPECHECK=1)"
+else
+  npm run typecheck
+fi
+
 echo "==> vite build (Render — raised Node heap for Nitro bundle)"
 # Default Node heap (~2GB) OOMs on Vite+Nitro "rendering chunks"; bump higher on Render.
 export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=6144}"

@@ -1,5 +1,4 @@
 import { getBrowserSupabase } from "@/lib/supabase";
-import { ENERTECH_ORG_ID } from "@/lib/chat-api";
 import {
   runWhatsAppBroadcast,
   submitWhatsAppTemplateToMeta,
@@ -144,7 +143,7 @@ export function sortWaTemplates(rows: DbWaTemplate[]): DbWaTemplate[] {
 }
 
 export async function createAndSendEmailBroadcast(options: {
-  orgId?: string;
+  orgId: string;
   name: string;
   subject: string;
   body: string;
@@ -158,7 +157,8 @@ export async function createAndSendEmailBroadcast(options: {
   delayMinSec?: number;
   delayMaxSec?: number;
 }) {
-  const orgId = options.orgId ?? ENERTECH_ORG_ID;
+  const orgId = options.orgId;
+  if (!orgId) throw new Error("orgId is required to send a broadcast");
   type ResolvedEmail = {
     email: string;
     name: string | null;
@@ -323,7 +323,7 @@ async function resolveAudienceEmails(
   return out;
 }
 
-export async function listWaTemplates(orgId: string = ENERTECH_ORG_ID): Promise<DbWaTemplate[]> {
+export async function listWaTemplates(orgId: string): Promise<DbWaTemplate[]> {
   const supabase = getBrowserSupabase();
   const { data, error } = await supabase
     .from("wa_message_templates")
@@ -335,7 +335,7 @@ export async function listWaTemplates(orgId: string = ENERTECH_ORG_ID): Promise<
   return sortWaTemplates((data ?? []) as DbWaTemplate[]);
 }
 
-export async function listBroadcasts(orgId: string = ENERTECH_ORG_ID): Promise<DbBroadcast[]> {
+export async function listBroadcasts(orgId: string): Promise<DbBroadcast[]> {
   const supabase = getBrowserSupabase();
   const { data, error } = await supabase
     .from("broadcasts")
@@ -445,7 +445,7 @@ async function resolveAudiencePhones(
 }
 
 export async function createAndSendBroadcast(options: {
-  orgId?: string;
+  orgId: string;
   name: string;
   template: DbWaTemplate;
   /** @deprecated Prefer bodyParamBindings — static values same for all */
@@ -461,7 +461,8 @@ export async function createAndSendBroadcast(options: {
   headerTextParams?: string[];
   createdBy?: string | null;
 }) {
-  const orgId = options.orgId ?? ENERTECH_ORG_ID;
+  const orgId = options.orgId;
+  if (!orgId) throw new Error("orgId is required to send a broadcast");
   if (options.template.status !== "APPROVED") {
     throw new Error("Only APPROVED templates can be used for broadcasting");
   }

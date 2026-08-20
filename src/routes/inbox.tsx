@@ -30,9 +30,8 @@ import {
   Timer,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useAuth } from "@/lib/auth";
+import { useAuth, useOrgId } from "@/lib/auth";
 import {
-  ENERTECH_ORG_ID,
   claimConversation,
   clearInboxSnooze,
   formatClock,
@@ -317,7 +316,7 @@ function Page() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { c: deepLinkId } = Route.useSearch();
-  const orgId = profile?.org.id ?? ENERTECH_ORG_ID;
+  const orgId = useOrgId();
   const [selectedId, setSelectedId] = useState<string | null>(deepLinkId ?? null);
   const [channelFilter, setChannelFilter] = useState<string>("All");
   const [listSearch, setListSearch] = useState("");

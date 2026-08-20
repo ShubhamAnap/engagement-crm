@@ -12,8 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EmptyState, PageHeader, Panel, Pill, StatCard } from "@/components/shared/ui-kit";
-import { useAuth } from "@/lib/auth";
-import { ENERTECH_ORG_ID } from "@/lib/chat-api";
+import { useAuth, useOrgId } from "@/lib/auth";
 import {
   REPORT_CATALOG,
   downloadCsv,
@@ -39,7 +38,7 @@ export const Route = createFileRoute("/reports")({
 
 function Page() {
   const { profile } = useAuth();
-  const orgId = profile?.org.id ?? ENERTECH_ORG_ID;
+  const orgId = useOrgId();
   const [rangeDays, setRangeDays] = useState<ReportRange>(30);
   const [selectedId, setSelectedId] = useState<ReportId>("conversations");
   const [lastResult, setLastResult] = useState<ReportResult | null>(null);

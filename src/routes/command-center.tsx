@@ -23,8 +23,8 @@ import {
   Pill,
   StatCard,
 } from "@/components/shared/ui-kit";
-import { useAuth } from "@/lib/auth";
-import { claimConversation, ENERTECH_ORG_ID } from "@/lib/chat-api";
+import { useAuth, useOrgId } from "@/lib/auth";
+import { claimConversation } from "@/lib/chat-api";
 import {
   getCommandCenterSnapshot,
   getSessionTimeline,
@@ -55,7 +55,7 @@ function CommandCenter() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { profile } = useAuth();
-  const orgId = profile?.org.id ?? ENERTECH_ORG_ID;
+  const orgId = useOrgId();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [globalPaused, setGlobalPaused] = useState(false);

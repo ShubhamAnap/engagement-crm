@@ -22,10 +22,9 @@ import {
   StatCard,
   Toolbar,
 } from "@/components/shared/ui-kit";
-import { useAuth } from "@/lib/auth";
+import { useAuth, useOrgId } from "@/lib/auth";
 import {
   claimConversation,
-  ENERTECH_ORG_ID,
   listHandoffQueue,
   resolveConversation,
   returnConversationToAi,
@@ -98,7 +97,7 @@ function Page() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { profile } = useAuth();
-  const orgId = profile?.org.id ?? ENERTECH_ORG_ID;
+  const orgId = useOrgId();
   const [search, setSearch] = useState("");
   const [stateFilter, setStateFilter] = useState<"All" | HandoffState>("All");
   const [priorityFilter, setPriorityFilter] = useState<"All" | "High" | "Medium" | "Low">("All");

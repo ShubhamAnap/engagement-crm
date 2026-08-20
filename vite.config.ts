@@ -34,7 +34,7 @@ export default defineConfig(({ command }) => ({
     }),
     // Nitro only for production builds (Render / node-server). Skip in `vite dev`.
     ...(command === "build"
-      ? [nitro({ preset: "node-server", sourceMap: false, minify: true })]
+      ? [nitro({ preset: "node-server", sourcemap: false, minify: true })]
       : []),
     viteReact(),
   ],

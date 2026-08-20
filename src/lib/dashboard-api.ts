@@ -289,11 +289,15 @@ export async function getDashboardSnapshot(orgId: string): Promise<DashboardSnap
     value: leadCounts[stage] ?? 0,
   }));
 
-  const leadsBySource = LEAD_SOURCES.map((key, i) => ({
-    key,
-    source: CHANNEL_LABELS[key] || key,
-    value: Number(sourceCountList[i] ?? 0),
-  }))
+  // Annotated so the "unknown" bucket can be concatenated onto the channel rows.
+  type LeadSourceRow = { source: string; value: number; key: string };
+  const leadsBySource = LEAD_SOURCES.map(
+    (key, i): LeadSourceRow => ({
+      key,
+      source: CHANNEL_LABELS[key] || key,
+      value: Number(sourceCountList[i] ?? 0),
+    }),
+  )
     .concat(
       (unknownSourceRes.count ?? 0) > 0
         ? [{ key: "unknown", source: "Unknown", value: unknownSourceRes.count ?? 0 }]

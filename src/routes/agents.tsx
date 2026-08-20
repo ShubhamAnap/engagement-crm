@@ -25,8 +25,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState, PageHeader, Panel, Pill, StatCard } from "@/components/shared/ui-kit";
-import { useAuth } from "@/lib/auth";
-import { ENERTECH_ORG_ID } from "@/lib/chat-api";
+import { useAuth, useOrgId } from "@/lib/auth";
 import {
   AGENT_MODEL_OPTIONS,
   AGENT_ORG_DEFAULT_MODEL,
@@ -77,7 +76,7 @@ function statusTone(status: AgentStatus): "success" | "warning" | "neutral" {
 function Page() {
   const queryClient = useQueryClient();
   const { profile } = useAuth();
-  const orgId = profile?.org.id ?? ENERTECH_ORG_ID;
+  const orgId = useOrgId();
   const isAdmin = profile?.role === "Admin";
 
   const [editing, setEditing] = useState<DbAgent | null>(null);

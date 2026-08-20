@@ -12,8 +12,7 @@ import {
   Pill,
   StatCard,
 } from "@/components/shared/ui-kit";
-import { useAuth } from "@/lib/auth";
-import { ENERTECH_ORG_ID } from "@/lib/chat-api";
+import { useAuth, useOrgId } from "@/lib/auth";
 import {
   getAiAnswerStats,
   listRecentAiAnswers,
@@ -51,7 +50,7 @@ function Page() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { profile } = useAuth();
-  const orgId = profile?.org.id ?? ENERTECH_ORG_ID;
+  const orgId = useOrgId();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [channelFilter, setChannelFilter] = useState<"all" | ChannelType>("all");
   const [highRiskOnly, setHighRiskOnly] = useState(false);

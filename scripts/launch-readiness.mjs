@@ -111,6 +111,13 @@ if (/^(1|true|yes)$/i.test(value("META_WEBHOOK_ALLOW_UNSIGNED"))) {
   warn("META_APP_SECRET unset — Meta webhooks will be rejected in production");
 }
 
+// Razorpay events carry the target workspace in notes.org_id, so an unverified event could
+// hand any workspace a paid plan. Selling plans without the secret is not launchable.
+if (value("RAZORPAY_KEY_ID") && !value("RAZORPAY_WEBHOOK_SECRET")) {
+  fail("RAZORPAY_KEY_ID is set without RAZORPAY_WEBHOOK_SECRET — billing webhooks will be rejected");
+  failed = true;
+}
+
 console.log("");
 console.log("Manual launch signoff still required:");
 console.log("- Run migrations 039-044 in production Supabase");

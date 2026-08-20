@@ -30,10 +30,13 @@ indexes are created.
   - `{APP_URL}/accept-invite`
 - Platform admin access:
   - `PLATFORM_ADMIN_EMAILS=you@company.com` or row in `platform_admins`
-- Optional billing:
+- Billing (optional, but all-or-nothing — if you set `RAZORPAY_KEY_ID` you must set the
+  webhook secret):
   - `RAZORPAY_KEY_ID`
   - `RAZORPAY_KEY_SECRET`
-  - `RAZORPAY_WEBHOOK_SECRET`
+  - `RAZORPAY_WEBHOOK_SECRET` — required. Razorpay events name their target workspace in
+    `notes.org_id`, so without signature verification anyone could POST
+    `subscription.activated` and upgrade any workspace. Production returns 403 when unset.
   - `RAZORPAY_PLAN_STARTER`
   - `RAZORPAY_PLAN_PRO`
 - Meta webhooks (WhatsApp / Facebook / Instagram):
@@ -71,6 +74,14 @@ Create two workspaces, `Org A` and `Org B`, with separate admins.
 - Saving `Org A`'s WhatsApp number, Meta page, inbound email secret, or IndiaMART push
   secret in `Org B` is rejected with a "already connected to another workspace" message.
 - A Meta webhook POST without a valid `X-Hub-Signature-256` returns 403 in production.
+- A Razorpay POST without a valid `x-razorpay-signature` returns 401, and one sent while
+  `RAZORPAY_WEBHOOK_SECRET` is unset returns 403 — neither changes any workspace's plan.
+
+### Signup
+
+- A new signup lands on a workspace whose Channels page already lists Website Chat
+  (Connected, with a widget key) plus the disconnected channels, and two default agents.
+  Provisioning now rolls back rather than leaving a workspace without them.
 
 ### Public short links
 

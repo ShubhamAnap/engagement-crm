@@ -5,6 +5,64 @@
 
 ---
 
+### Session 2026-08-20 — Billing ops: modules, grace, contracts, invoices, risk
+
+**Problem:** caps were cliffs. Crossing the monthly AI or WhatsApp cap blocked the next send
+outright, and `past_due` instantly dropped the workspace to Free limits — a customer
+mid-campaign was cut off with no warning. There was also no way to sell anything other than
+the four catalogue plans (no trial, no negotiated caps), no payment history for either the
+customer or support, no way to switch a module off for one workspace, and nothing that
+surfaced a spend spike before it became a bill.
+
+**Migration `045_billing_ops.sql`** adds to `organizations`: `feature_flags`, `custom_limits`,
+`trial_ends_at`, `contract_reference`, `contract_ends_at`, `usage_grace_until`,
+`usage_grace_month`, `past_due_since`; adds `amount` / `currency` / `invoice_id` / `status` to
+`billing_events`; adds the ops view `organization_billing_state`.
+
+**Done:**
+
+1. **Soft limits and grace.** First cap breach in a billing month opens a 3-day window
+   (`USAGE_GRACE_DAYS`) instead of blocking; only after it closes do sends fail.
+   `usage_grace_month` scopes the window to one month so grace returns when counters reset on
+   the 1st (IST) — without it, one breach would block the workspace forever. `past_due` starts a
+   separate 7-day clock from the first failed payment (`past_due_since`), cleared when payment
+   recovers. Seats are deliberately *not* graced: admitting a member you must later remove is
+   worse than refusing the invite.
+2. **Per-workspace modules** (`src/lib/features.ts`): `ai`, `whatsapp`, `marketplace_sync`.
+   Absent key or `true` = on, so existing workspaces are unaffected. Enforced server-side in
+   `assertAiUsageAllowed`, `assertWhatsAppSendAllowed`, and at the four marketplace sync
+   entry points (`syncIndiaMartWindow`, `syncTradeIndiaWindow`, `syncBrainmineWindow`,
+   `syncWordpressCatalog`). Only flags that actually block something are in the catalogue — a
+   decorative switch is worse than none.
+3. **Trials and negotiated contracts.** An active trial holds the paid tier without a
+   subscription; `custom_limits` overrides individual plan caps (absent = plan default, JSON
+   `null` = unlimited, which is why `parseCustomLimits` reads with `in` rather than `??`).
+4. **Payment history.** The Razorpay webhook now extracts amount (paise → rupees), currency,
+   invoice id, and status into `billing_events`, surfaced in Settings → Billing for the customer
+   and in the platform Billing tab for support.
+5. **Risk signals** (`src/server/platform-risk.ts`): AI spend spike (today vs trailing daily
+   average), cap breaches, past due with/without grace left, open grace window, trial and
+   contract expiry, disabled modules, and workspaces with no members. Derived entirely from
+   tables the app already writes — no new pipeline. Advisory only; nothing auto-suspends.
+6. **Platform console:** new **Risk** shell tab (worst first, CSV export), new **Modules**
+   detail tab (module switches, trial/contract editor, grace reset), payment history in the
+   Billing tab, trial/grace pills on Overview, and CSV export of the filtered workspace list.
+7. **Customer billing panel:** payment history, an 80% "approaching your limit" note, and
+   explicit grace banners for over-cap and failed-payment states. Also removed the last
+   operator copy from this screen — it previously told workspace admins to set
+   `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET`.
+
+**Compatibility:** every new read and write falls back when 045 has not been applied
+(`42703` / `PGRST204`), so the app degrades to pre-045 behaviour rather than breaking. Platform
+admins *do* get the migration filename in errors, since they are the ones who can act on it.
+
+**Not done:** maintenance banner. `x-enertech-*` header names and per-org Meta verify tokens
+still open. Channel credentials in `channels.config` remain plaintext at rest — note that
+migration `030` already restricts `select` on that column to admins via column grants plus the
+`get_channel_config` RPC, so this is an at-rest/backup concern, not in-workspace exposure.
+
+---
+
 ### Session 2026-08-20 — Operator copy removed from tenant UI
 
 **Problem:** ~25 tenant-facing screens told the customer to run SQL — “Run `supabase/migrations/041_billing.sql` in the Supabase SQL Editor, then refresh” — or to set env vars (`WIDGET_PUBLIC_KEY`, `VITE_APP_URL`, `CRON_URL`/`CRON_SECRET`, `BRAINMINE_*`, `WOO_*`). A workspace admin has no database or Render access, so this copy was unactionable and made the product read like an internal dev tool. Several screens also dumped raw Postgres errors (`relation … does not exist`) straight into an empty state.
@@ -18,7 +76,7 @@
 
 **Convention going forward:** never put a migration filename, env var, SQL hint, or raw database error in tenant-facing UI. Pass it as the `hint` argument to `feature-setup.ts` instead.
 
-**Not done:** `/platform` P1/P2 leftovers from the earlier console audit — export org report, per-org feature flags, soft limits with grace period before hard suspend, invoices/payment history, trial extend, abuse signals, maintenance banner. Also still open: `x-enertech-*` header names and per-org Meta verify tokens.
+**Not done:** `/platform` P1/P2 leftovers from the earlier console audit — export org report, per-org feature flags, soft limits with grace period before hard suspend, invoices/payment history, trial extend, abuse signals, maintenance banner. Also still open: `x-enertech-*` header names and per-org Meta verify tokens. *(All except the maintenance banner were built in the billing-ops session above.)*
 
 ---
 

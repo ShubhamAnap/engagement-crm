@@ -20,6 +20,7 @@ import {
   assertUniqueChannelConfig,
   resolveServiceOrgId,
 } from "@/server/org-context";
+import { assertFeatureEnabled } from "@/server/org-usage";
 const PULL_URL = "https://mapi.indiamart.com/wservce/crm/crmListing/v2/";
 
 export type IndiaMartBackfillState = {
@@ -427,6 +428,7 @@ export async function syncIndiaMartWindow(options?: { days?: number }): Promise<
   skipped: number;
   errors: string[];
 }> {
+  await assertFeatureEnabled(await resolveServiceOrgId(), "marketplace_sync");
   const cfg = await loadIndiaMartConfig();
   if (!indiaMartConfigReady(cfg) || !cfg.crm_key) {
     throw new Error("IndiaMART CRM key is not configured");

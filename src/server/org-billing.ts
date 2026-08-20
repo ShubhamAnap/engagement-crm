@@ -82,12 +82,24 @@ export type BillingSummary = {
     current: boolean;
   }>;
   razorpayConfigured: boolean;
+  trialActive: boolean;
+  trialEndsAt: string | null;
+  /** Caps exceeded but still served until this time. */
+  usageGraceUntil: string | null;
+  /** Past due but still served until this time. */
+  pastDueGraceUntil: string | null;
+  /** Limits come from a contract, so the plan cards do not describe them. */
+  hasCustomLimits: boolean;
+  invoices: BillingInvoice[];
 };
 
 export const getOrgBillingSummary = createServerFn({ method: "GET" }).handler(async () => {
   const auth = await requireAdmin();
   const snap = await getOrgUsageSnapshot(auth.profile.org_id, { fresh: true });
-  const key = await loadOrgOpenAiKey(auth.profile.org_id);
+  const [key, invoices] = await Promise.all([
+    loadOrgOpenAiKey(auth.profile.org_id),
+    loadBillingInvoices(auth.profile.org_id),
+  ]);
 
   const tiers: PlanTier[] = ["free", "starter", "pro", "enterprise"];
   return {
@@ -114,6 +126,12 @@ export const getOrgBillingSummary = createServerFn({ method: "GET" }).handler(as
       current: tier === snap.planTier,
     })),
     razorpayConfigured: razorpayConfigured(),
+    trialActive: snap.trialActive,
+    trialEndsAt: snap.trialEndsAt,
+    usageGraceUntil: snap.usageGraceUntil,
+    pastDueGraceUntil: snap.pastDueGraceUntil,
+    hasCustomLimits: snap.hasCustomLimits,
+    invoices,
   } satisfies BillingSummary;
 });
 
@@ -277,21 +295,126 @@ export async function applyRazorpayBillingUpdate(options: {
   if (options.subscriptionId !== undefined) patch.razorpay_subscription_id = options.subscriptionId;
   if (options.customerId) patch.razorpay_customer_id = options.customerId;
   if (options.periodEnd) patch.billing_period_end = options.periodEnd;
+  // Payment recovered: drop the past-due clock so a later lapse gets a fresh grace window.
+  if (options.billingStatus === "active") patch.past_due_since = null;
 
   if (Object.keys(patch).length > 0) {
     const { error } = await supabase.from("organizations").update(patch).eq("id", options.orgId);
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (error.code === "PGRST204" || error.code === "42703") {
+        delete patch.past_due_since;
+        const retry = await supabase.from("organizations").update(patch).eq("id", options.orgId);
+        if (retry.error) throw new Error(retry.error.message);
+      } else {
+        throw new Error(error.message);
+      }
+    }
   }
 
-  await supabase.from("billing_events").insert({
+  if (options.billingStatus === "past_due") {
+    // Only the first failure starts the clock, so retries do not extend the grace window.
+    const started = await supabase
+      .from("organizations")
+      .update({ past_due_since: new Date().toISOString() })
+      .eq("id", options.orgId)
+      .is("past_due_since", null);
+    if (started.error && !["PGRST204", "42703"].includes(started.error.code || "")) {
+      console.error("[billing] could not stamp past_due_since", started.error.message);
+    }
+  }
+
+  const row = {
     org_id: options.orgId,
     provider: "razorpay",
     event_type: options.eventType,
     external_id: options.externalId || null,
     payload: options.payload,
-  });
+  };
+  const invoice = extractInvoiceDetail(options.payload);
+  const withInvoice = await supabase.from("billing_events").insert({ ...row, ...invoice });
+  // Pre-045 databases lack the invoice columns; the event itself still matters.
+  if (withInvoice.error?.code === "PGRST204" || withInvoice.error?.code === "42703") {
+    await supabase.from("billing_events").insert(row);
+  } else if (withInvoice.error) {
+    console.error("[billing] event insert failed", withInvoice.error.message);
+  }
 
   invalidateOrgUsageCache(options.orgId);
+}
+
+/**
+ * Payment detail for the invoice list. Razorpay sends amounts in paise, and puts the
+ * charge under `payment`, `invoice`, or `subscription` depending on the event.
+ */
+function extractInvoiceDetail(payload: Record<string, unknown>): {
+  amount: number | null;
+  currency: string | null;
+  invoice_id: string | null;
+  status: string | null;
+} {
+  const sub = (payload.payload || {}) as Record<string, unknown>;
+  const entity = (
+    (sub.payment as { entity?: Record<string, unknown> } | undefined)?.entity ||
+    (sub.invoice as { entity?: Record<string, unknown> } | undefined)?.entity ||
+    (sub.subscription as { entity?: Record<string, unknown> } | undefined)?.entity ||
+    {}
+  ) as Record<string, unknown>;
+
+  const paise = Number(entity.amount_paid ?? entity.amount ?? NaN);
+  const invoiceId =
+    (sub.invoice as { entity?: { id?: string } } | undefined)?.entity?.id ||
+    (typeof entity.invoice_id === "string" ? entity.invoice_id : null);
+
+  return {
+    amount: Number.isFinite(paise) ? Math.round(paise) / 100 : null,
+    currency: typeof entity.currency === "string" ? entity.currency : null,
+    invoice_id: invoiceId || null,
+    status: typeof entity.status === "string" ? entity.status : null,
+  };
+}
+
+export type BillingInvoice = {
+  id: string;
+  eventType: string;
+  amount: number | null;
+  currency: string;
+  invoiceId: string | null;
+  status: string | null;
+  createdAt: string;
+};
+
+const INVOICE_EVENT_TYPES = [
+  "subscription.charged",
+  "invoice.paid",
+  "payment.captured",
+  "payment.failed",
+  "invoice.payment_failed",
+];
+
+/** Payment history for one workspace. Service role — callers must authorize first. */
+export async function loadBillingInvoices(orgId: string, limit = 24): Promise<BillingInvoice[]> {
+  const supabase = createServiceSupabase();
+  const { data, error } = await supabase
+    .from("billing_events")
+    .select("id, event_type, amount, currency, invoice_id, status, created_at")
+    .eq("org_id", orgId)
+    .in("event_type", INVOICE_EVENT_TYPES)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) {
+    // Missing table or pre-045 columns: an empty history is the honest answer.
+    if (["42P01", "PGRST205", "42703", "PGRST204"].includes(error.code || "")) return [];
+    throw new Error(error.message);
+  }
+  return (data || []).map((r) => ({
+    id: String(r.id),
+    eventType: String(r.event_type),
+    amount: r.amount == null ? null : Number(r.amount),
+    currency: String(r.currency || "INR"),
+    invoiceId: r.invoice_id ? String(r.invoice_id) : null,
+    status: r.status ? String(r.status) : null,
+    createdAt: String(r.created_at),
+  }));
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

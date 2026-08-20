@@ -4,10 +4,25 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createServiceSupabase } from "@/lib/supabase";
-import { normalizePlanTier, planLabelForTier, type PlanTier } from "@/lib/plans";
+import {
+  normalizePlanTier,
+  parseCustomLimits,
+  planLabelForTier,
+  type PlanTier,
+} from "@/lib/plans";
+import { FEATURE_KEYS } from "@/lib/features";
 import { recordAuditEvent } from "@/server/audit-log";
+import { loadBillingInvoices } from "@/server/org-billing";
 import { invalidateOrgUsageCache, getOrgUsageSnapshot } from "@/server/org-usage";
 import { requirePlatformAdmin } from "@/server/platform-auth";
+
+/** Platform admins can read migration state, so tell them plainly which one is missing. */
+function migrationHint(error: { code?: string; message: string }, feature: string): string {
+  if (error.code === "42703" || error.code === "PGRST204") {
+    return `${feature} needs migration 045_billing_ops.sql applied to this database.`;
+  }
+  return error.message;
+}
 
 export type PlatformOrgRow = {
   id: string;
@@ -124,7 +139,7 @@ export const getPlatformOrganization = createServerFn({ method: "GET" })
     if (error) throw new Error(error.message);
     if (!org) throw new Error("Organization not found");
 
-    const [usage, profiles, channels, audit, billingEvents] = await Promise.all([
+    const [usage, profiles, channels, audit, billingEvents, invoices] = await Promise.all([
       getOrgUsageSnapshot(data.orgId, { fresh: true }),
       supabase
         .from("profiles")
@@ -147,6 +162,7 @@ export const getPlatformOrganization = createServerFn({ method: "GET" })
         .eq("org_id", data.orgId)
         .order("created_at", { ascending: false })
         .limit(10),
+      loadBillingInvoices(data.orgId, 12),
     ]);
 
     return {
@@ -156,6 +172,7 @@ export const getPlatformOrganization = createServerFn({ method: "GET" })
       channels: channels.data ?? [],
       auditLog: audit.data ?? [],
       billingEvents: billingEvents.data ?? [],
+      invoices,
       viewerEmail: auth.profile.email,
     };
   });
@@ -269,6 +286,130 @@ export const platformSetOrganizationPlan = createServerFn({ method: "POST" })
 
     invalidateOrgUsageCache(data.orgId);
     return { ok: true as const, planTier: tier };
+  });
+
+/**
+ * Turn modules on or off for one workspace.
+ *
+ * Only disabled keys are stored, so the column stays readable and a workspace with an
+ * empty object behaves exactly like one that was never touched.
+ */
+export const platformSetFeatureFlags = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      orgId: z.string().uuid(),
+      flags: z.record(z.enum(["ai", "whatsapp", "marketplace_sync"]), z.boolean()),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const auth = await requirePlatformAdmin();
+    const supabase = createServiceSupabase();
+
+    const stored: Record<string, boolean> = {};
+    for (const key of FEATURE_KEYS) {
+      if (data.flags[key] === false) stored[key] = false;
+    }
+
+    const { error } = await supabase
+      .from("organizations")
+      .update({ feature_flags: stored })
+      .eq("id", data.orgId);
+    if (error) throw new Error(migrationHint(error, "Feature flags"));
+
+    void recordAuditEvent({
+      orgId: data.orgId,
+      actorId: auth.profile.id,
+      actorEmail: auth.profile.email,
+      action: "platform.feature_flags",
+      resourceType: "organization",
+      resourceId: data.orgId,
+      metadata: { disabled: Object.keys(stored) },
+    });
+
+    invalidateOrgUsageCache(data.orgId);
+    return { ok: true as const, disabled: Object.keys(stored) };
+  });
+
+/**
+ * Trial window and negotiated contract terms.
+ *
+ * An empty string clears a field — the dialog cannot send `undefined` for "leave alone"
+ * and "erase" separately, so blank means clear.
+ */
+export const platformSetContract = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      orgId: z.string().uuid(),
+      trialEndsAt: z.string().max(40).nullable().optional(),
+      contractReference: z.string().max(200).nullable().optional(),
+      contractEndsAt: z.string().max(40).nullable().optional(),
+      customLimits: z
+        .object({
+          monthlyAiSpendCapInr: z.number().min(0).nullable().optional(),
+          monthlyWhatsAppCap: z.number().min(0).nullable().optional(),
+          maxSeats: z.number().min(0).nullable().optional(),
+        })
+        .nullable()
+        .optional(),
+      note: z.string().max(500).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const auth = await requirePlatformAdmin();
+    const supabase = createServiceSupabase();
+
+    const patch: Record<string, unknown> = {};
+    if (data.trialEndsAt !== undefined) patch.trial_ends_at = data.trialEndsAt || null;
+    if (data.contractReference !== undefined) {
+      patch.contract_reference = data.contractReference || null;
+    }
+    if (data.contractEndsAt !== undefined) patch.contract_ends_at = data.contractEndsAt || null;
+    if (data.customLimits !== undefined) {
+      const limits = data.customLimits ? parseCustomLimits(data.customLimits) : {};
+      patch.custom_limits = Object.keys(limits).length > 0 ? limits : null;
+    }
+    if (Object.keys(patch).length === 0) return { ok: true as const };
+
+    const { error } = await supabase.from("organizations").update(patch).eq("id", data.orgId);
+    if (error) throw new Error(migrationHint(error, "Trials and contracts"));
+
+    void recordAuditEvent({
+      orgId: data.orgId,
+      actorId: auth.profile.id,
+      actorEmail: auth.profile.email,
+      action: "platform.contract_update",
+      resourceType: "organization",
+      resourceId: data.orgId,
+      metadata: { ...patch, note: data.note },
+    });
+
+    invalidateOrgUsageCache(data.orgId);
+    return { ok: true as const };
+  });
+
+/** Clear an open cap-overage grace window, e.g. after the customer upgrades. */
+export const platformResetUsageGrace = createServerFn({ method: "POST" })
+  .validator(z.object({ orgId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    const auth = await requirePlatformAdmin();
+    const supabase = createServiceSupabase();
+    const { error } = await supabase
+      .from("organizations")
+      .update({ usage_grace_until: null, usage_grace_month: null, past_due_since: null })
+      .eq("id", data.orgId);
+    if (error) throw new Error(migrationHint(error, "Usage grace"));
+
+    void recordAuditEvent({
+      orgId: data.orgId,
+      actorId: auth.profile.id,
+      actorEmail: auth.profile.email,
+      action: "platform.grace_reset",
+      resourceType: "organization",
+      resourceId: data.orgId,
+    });
+
+    invalidateOrgUsageCache(data.orgId);
+    return { ok: true as const };
   });
 
 /** Manual billing credit — downgrade to free and cancel subscription ref (refund handled offline). */

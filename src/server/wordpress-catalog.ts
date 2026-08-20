@@ -12,6 +12,7 @@ import { createServiceSupabase } from "@/lib/supabase";
 import type { DbProduct, StockStatus } from "@/lib/db-types";
 
 import { allowEnvChannelFallback, resolveServiceOrgId } from "@/server/org-context";
+import { assertFeatureEnabled } from "@/server/org-usage";
 export const WORDPRESS_DEFAULT_SITE = "https://enertechups.com";
 const MAX_PRODUCTS = 500;
 const FETCH_TIMEOUT_MS = 25_000;
@@ -1022,6 +1023,7 @@ export const inspectWordpressCatalog = createServerFn({ method: "POST" }).handle
 });
 
 export const syncWordpressCatalog = createServerFn({ method: "POST" }).handler(async () => {
+  await assertFeatureEnabled(await resolveServiceOrgId(), "marketplace_sync");
   const ensured = await ensureWordpressChannelRow();
   if (!ensured.ok) throw new Error(ensured.error || "WordPress channel is missing.");
   const cfg = await loadWordpressConfig();

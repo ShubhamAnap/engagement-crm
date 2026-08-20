@@ -12,6 +12,7 @@ Run these in Supabase SQL Editor, in order:
 4. `042_platform_admin.sql`
 5. `043_platform_impersonation.sql`
 6. `044_channel_identity_uniqueness.sql`
+7. `045_billing_ops.sql`
 
 After `044`, confirm no workspace shares an inbound identifier:
 
@@ -171,6 +172,33 @@ At least once before launch:
 3. Check `/status`.
 4. If channel-specific, inspect channel health and last update time.
 
+### Usage limits, grace, and modules
+
+Caps are not cliffs. The first time a workspace crosses its monthly AI or WhatsApp cap it
+gets a **3-day grace window** and keeps working; only after that window closes do sends
+fail. Grace is scoped to the billing month, so it becomes available again when the counters
+reset on the 1st (IST).
+
+A failed payment behaves the same way: `past_due` starts a **7-day** clock from the first
+failure, and the workspace keeps its paid limits until the clock runs out. Recovering the
+payment clears it, so a later lapse gets a fresh window.
+
+Seats are the exception — an invite over the seat cap is refused immediately, because
+admitting a member you would later have to remove is worse than refusing the invite.
+
+Operator actions in `/platform` → select workspace:
+
+- **Modules** tab: switch AI, WhatsApp sending, or marketplace sync off for one workspace.
+  Enforcement is server-side, so the customer sees a clear refusal rather than a broken page.
+- **Modules** → Trial and contract: set a trial expiry (holds the paid tier without a
+  subscription), record a contract/PO reference, and set negotiated caps that override the
+  plan. A blank cap means "use the plan default"; `0` means unlimited.
+- **Modules** → Grace window: clear an open grace window and the past-due clock, e.g. right
+  after a customer upgrades.
+- **Risk** tab: workspaces with spend spikes, cap breaches, lapsed payments, expiring trials,
+  or disabled modules, worst first. Advisory only — nothing is suspended automatically.
+  Exportable as CSV, as is the workspace list.
+
 ### Escalation triggers
 
 - Cross-tenant data visibility
@@ -181,8 +209,10 @@ At least once before launch:
 
 ## 7. Pre-launch signoff
 
-- [ ] Migrations 039–044 run in production Supabase
+- [ ] Migrations 039–045 run in production Supabase
 - [ ] `channel_identity_conflicts` returns no rows
+- [ ] `/platform` → Risk tab loads and shows no unexplained signals
+- [ ] Module switches verified: turn AI off for a test workspace, confirm replies are refused
 - [ ] `META_APP_SECRET` set and `META_WEBHOOK_ALLOW_UNSIGNED` empty (signed webhooks enforced)
 - [ ] Suspended workspace verified blocked: UI, server functions, webhooks, cron
 - [ ] Two-org manual isolation pass completed

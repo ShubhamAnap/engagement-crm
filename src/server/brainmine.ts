@@ -16,6 +16,7 @@ import type { LeadStatus } from "@/lib/db-types";
 import { normalizeWhatsAppDigits } from "@/lib/whatsapp-window";
 
 import { allowEnvChannelFallback, resolveServiceOrgId } from "@/server/org-context";
+import { assertFeatureEnabled } from "@/server/org-usage";
 
 export type BrainmineAuthStyle = "bearer" | "token" | "x-api-key" | "query";
 
@@ -932,6 +933,7 @@ export async function syncBrainmineWindow(options?: {
   to: string | null;
   pages: number;
 }> {
+  await assertFeatureEnabled(await resolveServiceOrgId(), "marketplace_sync");
   const cfg = await loadBrainmineConfig();
   if (!brainmineConfigReady(cfg)) {
     throw new Error("Configure Brainmine API base URL and API key under Channels first.");

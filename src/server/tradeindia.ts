@@ -18,6 +18,7 @@ import {
 } from "@/lib/marketplace-auto-sync";
 
 import { allowEnvChannelFallback, resolveServiceOrgId } from "@/server/org-context";
+import { assertFeatureEnabled } from "@/server/org-usage";
 const PULL_URL = "https://www.tradeindia.com/utils/my_inquiry.html";
 
 export type TradeIndiaBackfillState = {
@@ -487,6 +488,7 @@ export async function syncTradeIndiaWindow(options?: { hours?: number }): Promis
   skipped: number;
   errors: string[];
 }> {
+  await assertFeatureEnabled(await resolveServiceOrgId(), "marketplace_sync");
   const cfg = await loadTradeIndiaConfig();
   if (!tradeIndiaConfigReady(cfg) || !cfg.userid || !cfg.profile_id || !cfg.key) {
     throw new Error("TradeIndia userid, profile_id, and key are required");

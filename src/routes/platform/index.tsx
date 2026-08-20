@@ -2,16 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   ArrowLeft,
   Building2,
   Check,
   Copy,
   CreditCard,
+  Download,
   Loader2,
   RefreshCw,
   Search,
   Shield,
   ShieldOff,
+  SlidersHorizontal,
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -56,6 +59,9 @@ import {
   platformIssueBillingCredit,
   platformLogSupportAccess,
   platformReactivateOrganization,
+  platformResetUsageGrace,
+  platformSetContract,
+  platformSetFeatureFlags,
   platformSetMemberActive,
   platformSetOrganizationPlan,
   platformSuspendOrganization,
@@ -63,7 +69,11 @@ import {
   removePlatformAdmin,
   type PlatformOrgRow,
 } from "@/server/platform-console";
+import { getPlatformRiskSignals, type RiskSeverity } from "@/server/platform-risk";
 import { startPlatformImpersonation } from "@/server/platform-impersonation";
+import { downloadCsv } from "@/lib/csv";
+import { FEATURE_CATALOG, FEATURE_KEYS, parseFeatureFlags, type FeatureKey } from "@/lib/features";
+import { parseCustomLimits } from "@/lib/plans";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/platform/")({
@@ -75,7 +85,14 @@ export const Route = createFileRoute("/platform/")({
 
 type StatusFilter = "all" | "live" | "suspended" | "past_due";
 type PlanFilter = "all" | "free" | "starter" | "pro" | "enterprise";
-type DetailTab = "overview" | "team" | "channels" | "billing" | "audit" | "notes";
+type DetailTab =
+  | "overview"
+  | "team"
+  | "channels"
+  | "billing"
+  | "features"
+  | "audit"
+  | "notes";
 
 function PlatformConsolePage() {
   const navigate = useNavigate();
@@ -117,7 +134,7 @@ function PlatformConsolePage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [planFilter, setPlanFilter] = useState<PlanFilter>("all");
   const [detailTab, setDetailTab] = useState<DetailTab>("overview");
-  const [shellTab, setShellTab] = useState<"tenants" | "admins" | "activity">("tenants");
+  const [shellTab, setShellTab] = useState<"tenants" | "risk" | "admins" | "activity">("tenants");
 
   const [suspendOpen, setSuspendOpen] = useState(false);
   const [suspendReason, setSuspendReason] = useState("");
@@ -131,6 +148,23 @@ function PlatformConsolePage() {
   const [supportNotes, setSupportNotes] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [copiedId, setCopiedId] = useState(false);
+
+  const [features, setFeatures] = useState<Record<FeatureKey, boolean>>(() =>
+    parseFeatureFlags({}),
+  );
+  const [contractOpen, setContractOpen] = useState(false);
+  const [trialEnds, setTrialEnds] = useState("");
+  const [contractRef, setContractRef] = useState("");
+  const [contractEnds, setContractEnds] = useState("");
+  const [capAi, setCapAi] = useState("");
+  const [capWa, setCapWa] = useState("");
+  const [capSeats, setCapSeats] = useState("");
+
+  const riskQuery = useQuery({
+    queryKey: ["platform-risk"],
+    queryFn: () => getPlatformRiskSignals(),
+    enabled: accessQuery.isSuccess && shellTab === "risk",
+  });
 
   const detailQuery = useQuery({
     queryKey: ["platform-org", selectedId],
@@ -151,6 +185,25 @@ function PlatformConsolePage() {
     const notes = detailQuery.data?.organization?.platform_notes;
     setSupportNotes(typeof notes === "string" ? notes : "");
   }, [detailQuery.data?.organization?.plan_tier, detailQuery.data?.organization?.platform_notes]);
+
+  const org = detailQuery.data?.organization as Record<string, unknown> | undefined;
+
+  useEffect(() => {
+    setFeatures(parseFeatureFlags(org?.feature_flags));
+    setTrialEnds(toDateInput(org?.trial_ends_at));
+    setContractRef(typeof org?.contract_reference === "string" ? org.contract_reference : "");
+    setContractEnds(toDateInput(org?.contract_ends_at));
+    const caps = parseCustomLimits(org?.custom_limits);
+    setCapAi(capInput(caps.monthlyAiSpendCapInr));
+    setCapWa(capInput(caps.monthlyWhatsAppCap));
+    setCapSeats(capInput(caps.maxSeats));
+  }, [
+    org?.feature_flags,
+    org?.trial_ends_at,
+    org?.contract_reference,
+    org?.contract_ends_at,
+    org?.custom_limits,
+  ]);
 
   const orgs = orgsQuery.data ?? [];
 
@@ -297,6 +350,47 @@ function PlatformConsolePage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Could not log access"),
   });
 
+  const featuresMutation = useMutation({
+    mutationFn: () => platformSetFeatureFlags({ data: { orgId: selectedId!, flags: features } }),
+    onSuccess: async () => {
+      toast.success("Modules updated");
+      await invalidate();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not update modules"),
+  });
+
+  const contractMutation = useMutation({
+    mutationFn: () =>
+      platformSetContract({
+        data: {
+          orgId: selectedId!,
+          trialEndsAt: trialEnds ? `${trialEnds}T23:59:59.999Z` : null,
+          contractReference: contractRef.trim() || null,
+          contractEndsAt: contractEnds ? `${contractEnds}T23:59:59.999Z` : null,
+          customLimits: {
+            monthlyAiSpendCapInr: parseCapInput(capAi),
+            monthlyWhatsAppCap: parseCapInput(capWa),
+            maxSeats: parseCapInput(capSeats),
+          },
+        },
+      }),
+    onSuccess: async () => {
+      toast.success("Trial and contract saved");
+      setContractOpen(false);
+      await invalidate();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not save contract"),
+  });
+
+  const graceMutation = useMutation({
+    mutationFn: () => platformResetUsageGrace({ data: { orgId: selectedId! } }),
+    onSuccess: async () => {
+      toast.success("Grace window cleared");
+      await invalidate();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not clear grace"),
+  });
+
   const impersonateMutation = useMutation({
     mutationFn: () => startPlatformImpersonation({ data: { orgId: selectedId! } }),
     onSuccess: async (res) => {
@@ -322,6 +416,68 @@ function PlatformConsolePage() {
   const stats = overviewQuery.data;
   const orgSuspended =
     detail?.organization?.platform_suspended === true || detail?.organization?.is_active === false;
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  const exportOrgs = () => {
+    if (filteredOrgs.length === 0) {
+      toast.error("Nothing to export");
+      return;
+    }
+    downloadCsv(`engage-workspaces-${today}.csv`, [
+      ["Workspace", "Short name", "Org ID", "Plan", "Billing status", "State", "Members", "Created"],
+      ...filteredOrgs.map((o) => [
+        o.name,
+        o.short_name || "",
+        o.id,
+        labelPlanTier(o.plan_tier),
+        labelBillingStatus(o.billing_status),
+        o.platform_suspended || !o.is_active ? "Suspended" : "Live",
+        String(o.member_count),
+        new Date(o.created_at).toLocaleDateString(),
+      ]),
+    ]);
+    toast.success(`Exported ${filteredOrgs.length} workspaces`);
+  };
+
+  const exportRisk = () => {
+    const rows = riskQuery.data?.rows ?? [];
+    if (rows.length === 0) {
+      toast.error("No risk signals to export");
+      return;
+    }
+    downloadCsv(`engage-risk-${today}.csv`, [
+      [
+        "Workspace",
+        "Org ID",
+        "Plan",
+        "Billing status",
+        "Members",
+        "AI spend (INR)",
+        "AI cap",
+        "WhatsApp sent",
+        "WhatsApp cap",
+        "Today spend",
+        "Avg daily spend",
+        "Signals",
+      ],
+      ...rows.map((r) => [
+        r.name,
+        r.orgId,
+        labelPlanTier(r.planTier),
+        labelBillingStatus(r.billingStatus),
+        String(r.memberCount),
+        String(r.aiSpendInr),
+        r.aiCapInr == null ? "Unlimited" : String(r.aiCapInr),
+        String(r.whatsappMessages),
+        r.whatsappCap == null ? "Unlimited" : String(r.whatsappCap),
+        String(r.todaySpendInr),
+        String(r.avgDailySpendInr),
+        r.signals.map((s) => `${s.label} (${s.detail})`).join("; "),
+      ]),
+    ]);
+    toast.success(`Exported ${rows.length} workspaces`);
+  };
 
   const copyOrgId = async () => {
     if (!selectedId) return;
@@ -351,6 +507,9 @@ function PlatformConsolePage() {
                 <ArrowLeft className="mr-1 size-3.5" /> Workspace
               </Link>
             </Button>
+            <Button size="sm" variant="outline" onClick={exportOrgs}>
+              <Download className="mr-1 size-3.5" /> Export
+            </Button>
             <Button
               size="sm"
               variant="outline"
@@ -359,6 +518,7 @@ function PlatformConsolePage() {
                 void orgsQuery.refetch();
                 void overviewQuery.refetch();
                 void globalAuditQuery.refetch();
+                void riskQuery.refetch();
               }}
             >
               <RefreshCw className="mr-1 size-3.5" /> Refresh
@@ -380,6 +540,7 @@ function PlatformConsolePage() {
         <Tabs value={shellTab} onValueChange={(v) => setShellTab(v as typeof shellTab)}>
           <TabsList>
             <TabsTrigger value="tenants">Workspaces</TabsTrigger>
+            <TabsTrigger value="risk">Risk</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
             <TabsTrigger value="admins">Admins</TabsTrigger>
           </TabsList>
@@ -565,6 +726,7 @@ function PlatformConsolePage() {
                         <TabsTrigger value="team">Team</TabsTrigger>
                         <TabsTrigger value="channels">Channels</TabsTrigger>
                         <TabsTrigger value="billing">Billing</TabsTrigger>
+                        <TabsTrigger value="features">Modules</TabsTrigger>
                         <TabsTrigger value="audit">Audit</TabsTrigger>
                         <TabsTrigger value="notes">Notes</TabsTrigger>
                       </TabsList>
@@ -596,7 +758,32 @@ function PlatformConsolePage() {
                           </div>
                           <p className="mt-3 text-xs text-muted-foreground">
                             Own OpenAI key: {detail.usage.hasOwnOpenAiKey ? "Yes" : "No"}
+                            {detail.usage.hasCustomLimits ? " · caps set by contract" : ""}
                           </p>
+                          {detail.usage.trialActive ||
+                          detail.usage.usageGraceUntil ||
+                          detail.usage.pastDueGraceUntil ? (
+                            <div className="mt-3 flex flex-wrap gap-1.5">
+                              {detail.usage.trialActive && detail.usage.trialEndsAt ? (
+                                <Pill tone="info">
+                                  Trial until{" "}
+                                  {new Date(detail.usage.trialEndsAt).toLocaleDateString()}
+                                </Pill>
+                              ) : null}
+                              {detail.usage.usageGraceUntil ? (
+                                <Pill tone="warning">
+                                  Over cap, served until{" "}
+                                  {new Date(detail.usage.usageGraceUntil).toLocaleDateString()}
+                                </Pill>
+                              ) : null}
+                              {detail.usage.pastDueGraceUntil ? (
+                                <Pill tone="danger">
+                                  Past due, cut off{" "}
+                                  {new Date(detail.usage.pastDueGraceUntil).toLocaleDateString()}
+                                </Pill>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </Panel>
                       </TabsContent>
 
@@ -686,6 +873,37 @@ function PlatformConsolePage() {
                             </div>
                           </dl>
                         </Panel>
+                        <Panel title="Payment history">
+                          {detail.invoices.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">
+                              No payments recorded yet.
+                            </p>
+                          ) : (
+                            <ul className="space-y-2 text-sm">
+                              {detail.invoices.map((inv) => (
+                                <li
+                                  key={inv.id}
+                                  className="flex flex-wrap items-center justify-between gap-2 rounded border border-border px-2.5 py-2"
+                                >
+                                  <div className="min-w-0">
+                                    <p className="font-medium">
+                                      {inv.amount == null
+                                        ? labelAuditAction(inv.eventType)
+                                        : formatInr(inv.amount)}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {new Date(inv.createdAt).toLocaleString()}
+                                      {inv.invoiceId ? ` · ${inv.invoiceId}` : ""}
+                                    </p>
+                                  </div>
+                                  <Pill tone={invoiceTone(inv.status, inv.eventType)}>
+                                    {inv.status || inv.eventType}
+                                  </Pill>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </Panel>
                         <Panel title="Recent billing events">
                           {detail.billingEvents.length === 0 ? (
                             <p className="text-sm text-muted-foreground">No billing events yet.</p>
@@ -704,6 +922,109 @@ function PlatformConsolePage() {
                               ))}
                             </ul>
                           )}
+                        </Panel>
+                      </TabsContent>
+
+                      <TabsContent value="features" className="mt-3 space-y-3">
+                        <Panel
+                          title="Modules"
+                          description="Turn a module off to block it server-side for this workspace only."
+                        >
+                          <ul className="divide-y divide-border">
+                            {FEATURE_KEYS.map((key) => (
+                              <li
+                                key={key}
+                                className="flex flex-wrap items-center justify-between gap-3 py-2.5"
+                              >
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium">{FEATURE_CATALOG[key].label}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {FEATURE_CATALOG[key].description}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Pill tone={features[key] ? "success" : "danger"}>
+                                    {features[key] ? "On" : "Off"}
+                                  </Pill>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() =>
+                                      setFeatures((prev) => ({ ...prev, [key]: !prev[key] }))
+                                    }
+                                  >
+                                    {features[key] ? "Turn off" : "Turn on"}
+                                  </Button>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                          <Button
+                            className="mt-3"
+                            size="sm"
+                            disabled={featuresMutation.isPending}
+                            onClick={() => featuresMutation.mutate()}
+                          >
+                            Save modules
+                          </Button>
+                        </Panel>
+
+                        <Panel
+                          title="Trial and contract"
+                          description="Trials hold the paid plan without a subscription. Contract caps override the plan's limits."
+                          action={
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setContractOpen(true)}
+                            >
+                              <SlidersHorizontal className="mr-1 size-3.5" /> Edit
+                            </Button>
+                          }
+                        >
+                          <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                            <div>
+                              <dt className="text-muted-foreground">Trial ends</dt>
+                              <dd>{formatDateCell(org?.trial_ends_at)}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-muted-foreground">Contract reference</dt>
+                              <dd>
+                                {typeof org?.contract_reference === "string" &&
+                                org.contract_reference
+                                  ? org.contract_reference
+                                  : "—"}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="text-muted-foreground">Contract ends</dt>
+                              <dd>{formatDateCell(org?.contract_ends_at)}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-muted-foreground">Contract caps</dt>
+                              <dd>{describeCustomLimits(org?.custom_limits)}</dd>
+                            </div>
+                          </dl>
+                        </Panel>
+
+                        <Panel
+                          title="Grace window"
+                          description="Workspaces over a cap keep working for a few days before being blocked. Clear it after an upgrade so the next breach starts fresh."
+                        >
+                          <p className="text-sm">
+                            {detail.usage.usageGraceUntil
+                              ? `Serving over the cap until ${new Date(detail.usage.usageGraceUntil).toLocaleString()}.`
+                              : "No grace window is open."}
+                          </p>
+                          <Button
+                            className="mt-3"
+                            size="sm"
+                            variant="outline"
+                            disabled={graceMutation.isPending}
+                            onClick={() => graceMutation.mutate()}
+                          >
+                            Clear grace and past-due clock
+                          </Button>
                         </Panel>
                       </TabsContent>
 
@@ -752,6 +1073,73 @@ function PlatformConsolePage() {
                 ) : null}
               </div>
             </div>
+          </TabsContent>
+
+          <TabsContent value="risk" className="mt-4">
+            <Panel
+              title="Attention needed"
+              description={
+                riskQuery.data
+                  ? `${riskQuery.data.rows.length} of ${riskQuery.data.scannedOrgs} workspaces have signals · checked ${new Date(riskQuery.data.generatedAt).toLocaleTimeString()}`
+                  : "Spend spikes, cap breaches, lapsed payments, and expiring trials."
+              }
+              action={
+                <Button size="sm" variant="outline" onClick={exportRisk}>
+                  <Download className="mr-1 size-3.5" /> Export
+                </Button>
+              }
+            >
+              {riskQuery.isLoading ? (
+                <Loader2 className="size-5 animate-spin text-muted-foreground" />
+              ) : riskQuery.isError ? (
+                <EmptyState
+                  icon={AlertTriangle}
+                  title="Could not load risk signals"
+                  description="Refresh to try again."
+                />
+              ) : (riskQuery.data?.rows ?? []).length === 0 ? (
+                <EmptyState
+                  icon={Shield}
+                  title="Nothing needs attention"
+                  description="No workspace is over a cap, spiking spend, or behind on payment."
+                />
+              ) : (
+                <ul className="space-y-2">
+                  {(riskQuery.data?.rows ?? []).map((row) => (
+                    <li key={row.orgId} className="rounded-lg border border-border px-3 py-2.5">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">{row.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {labelPlanTier(row.planTier)} · {labelBillingStatus(row.billingStatus)} ·{" "}
+                            {row.memberCount} member{row.memberCount === 1 ? "" : "s"} ·{" "}
+                            {formatInr(row.aiSpendInr)} AI this month
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setSelectedId(row.orgId);
+                            setShellTab("tenants");
+                            setDetailTab("overview");
+                          }}
+                        >
+                          Open
+                        </Button>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {row.signals.map((s) => (
+                          <Pill key={s.code} tone={severityTone(s.severity)}>
+                            {s.label} — {s.detail}
+                          </Pill>
+                        ))}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Panel>
           </TabsContent>
 
           <TabsContent value="activity" className="mt-4">
@@ -950,8 +1338,158 @@ function PlatformConsolePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Trial and contract dialog */}
+      <Dialog open={contractOpen} onOpenChange={setContractOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Trial and contract</DialogTitle>
+            <DialogDescription>
+              Leave a cap blank to use the plan default. Enter 0 for unlimited.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="trial-ends">Trial ends</Label>
+                <Input
+                  id="trial-ends"
+                  type="date"
+                  value={trialEnds}
+                  onChange={(e) => setTrialEnds(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="contract-ends">Contract ends</Label>
+                <Input
+                  id="contract-ends"
+                  type="date"
+                  value={contractEnds}
+                  onChange={(e) => setContractEnds(e.target.value)}
+                />
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="contract-ref">Contract or PO reference</Label>
+              <Input
+                id="contract-ref"
+                value={contractRef}
+                onChange={(e) => setContractRef(e.target.value)}
+                placeholder="ENT-2026-014"
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div>
+                <Label htmlFor="cap-ai">AI cap (₹/mo)</Label>
+                <Input
+                  id="cap-ai"
+                  inputMode="numeric"
+                  value={capAi}
+                  onChange={(e) => setCapAi(e.target.value)}
+                  placeholder="Plan default"
+                />
+              </div>
+              <div>
+                <Label htmlFor="cap-wa">WhatsApp cap</Label>
+                <Input
+                  id="cap-wa"
+                  inputMode="numeric"
+                  value={capWa}
+                  onChange={(e) => setCapWa(e.target.value)}
+                  placeholder="Plan default"
+                />
+              </div>
+              <div>
+                <Label htmlFor="cap-seats">Seats</Label>
+                <Input
+                  id="cap-seats"
+                  inputMode="numeric"
+                  value={capSeats}
+                  onChange={(e) => setCapSeats(e.target.value)}
+                  placeholder="Plan default"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setContractOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={contractMutation.isPending}
+              onClick={() => contractMutation.mutate()}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
+}
+
+/** `<Input type="date">` needs YYYY-MM-DD; the column holds a timestamptz. */
+function toDateInput(value: unknown): string {
+  if (typeof value !== "string" || !value) return "";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+}
+
+function formatDateCell(value: unknown): string {
+  if (typeof value !== "string" || !value) return "—";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString();
+}
+
+/** An unlimited cap is stored as null, which the text box shows as 0. */
+function capInput(value: number | null | undefined): string {
+  if (value === undefined) return "";
+  return value === null ? "0" : String(value);
+}
+
+function parseCapInput(raw: string): number | null | undefined {
+  const text = raw.trim();
+  if (!text) return undefined;
+  const n = Number(text);
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  return n === 0 ? null : n;
+}
+
+function describeCustomLimits(raw: unknown): string {
+  const caps = parseCustomLimits(raw);
+  const parts: string[] = [];
+  if ("monthlyAiSpendCapInr" in caps) {
+    parts.push(
+      `AI ${caps.monthlyAiSpendCapInr == null ? "unlimited" : formatInr(caps.monthlyAiSpendCapInr)}`,
+    );
+  }
+  if ("monthlyWhatsAppCap" in caps) {
+    parts.push(
+      `WhatsApp ${caps.monthlyWhatsAppCap == null ? "unlimited" : caps.monthlyWhatsAppCap.toLocaleString("en-IN")}`,
+    );
+  }
+  if ("maxSeats" in caps) {
+    parts.push(`Seats ${caps.maxSeats == null ? "unlimited" : caps.maxSeats}`);
+  }
+  return parts.length ? parts.join(" · ") : "Plan defaults";
+}
+
+function severityTone(severity: RiskSeverity): "danger" | "warning" | "neutral" {
+  if (severity === "high") return "danger";
+  if (severity === "medium") return "warning";
+  return "neutral";
+}
+
+function invoiceTone(
+  status: string | null,
+  eventType: string,
+): "success" | "danger" | "neutral" {
+  const value = `${status || ""} ${eventType}`.toLowerCase();
+  if (value.includes("fail")) return "danger";
+  if (value.includes("captured") || value.includes("paid") || value.includes("charged")) {
+    return "success";
+  }
+  return "neutral";
 }
 
 function KpiCard({

@@ -15,9 +15,24 @@ import {
   saveOrgOpenAiKey,
   type BillingSummary,
 } from "@/server/org-billing";
-import { isUnlimited } from "@/lib/plans";
+import { isNearLimit, isUnlimited, SOFT_LIMIT_RATIO } from "@/lib/plans";
 
 const QUERY_KEY = ["org-billing"] as const;
+
+/** One line naming whichever meters are close to their cap, so upgrades are not a surprise. */
+function nearLimitNote(data: BillingSummary): string | null {
+  const near: string[] = [];
+  if (isNearLimit(data.usage.aiSpendInr, data.limits.monthlyAiSpendCapInr)) near.push("AI spend");
+  if (isNearLimit(data.usage.whatsappMessages, data.limits.monthlyWhatsAppCap)) {
+    near.push("WhatsApp messages");
+  }
+  if (isNearLimit(data.usage.seatsUsed + data.usage.pendingInvites, data.limits.maxSeats)) {
+    near.push("team seats");
+  }
+  if (near.length === 0) return null;
+  const pct = Math.round(SOFT_LIMIT_RATIO * 100);
+  return `You are past ${pct}% of your monthly limit for ${near.join(" and ")}. Upgrade before you hit the cap to avoid interruption.`;
+}
 
 function usagePercent(used: number, cap: number | null): number {
   if (cap == null || cap <= 0) return 0;
@@ -126,7 +141,7 @@ export function BillingSettingsPanel() {
     <>
       <Panel
         title="Plan & usage"
-        description="Hard caps apply to platform-billed AI and WhatsApp. Add your own OpenAI key to bypass the AI cap."
+        description="Monthly caps apply to platform-billed AI and WhatsApp. Add your own OpenAI key to bypass the AI cap."
       >
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <Pill tone="info">{data.planLabel}</Pill>
@@ -134,7 +149,39 @@ export function BillingSettingsPanel() {
             {data.billingStatus.replace("_", " ")}
           </Pill>
           {data.hasOwnOpenAiKey ? <Pill tone="success">BYOK OpenAI</Pill> : null}
+          {data.trialActive && data.trialEndsAt ? (
+            <Pill tone="info">Trial until {new Date(data.trialEndsAt).toLocaleDateString()}</Pill>
+          ) : null}
+          {data.hasCustomLimits ? <Pill tone="primary">Contract limits</Pill> : null}
         </div>
+
+        {data.pastDueGraceUntil ? (
+          <div className="mb-4 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2.5 text-sm">
+            <p className="font-medium text-destructive">Payment failed</p>
+            <p className="mt-0.5 text-muted-foreground">
+              Everything keeps working until{" "}
+              {new Date(data.pastDueGraceUntil).toLocaleDateString()}. Update your payment method
+              before then to avoid interruption.
+            </p>
+          </div>
+        ) : null}
+
+        {data.usageGraceUntil && new Date(data.usageGraceUntil) > new Date() ? (
+          <div className="mb-4 rounded-lg border border-warning/25 bg-warning/5 px-3 py-2.5 text-sm">
+            <p className="font-medium text-warning">Over your monthly limit</p>
+            <p className="mt-0.5 text-muted-foreground">
+              We are still sending until{" "}
+              {new Date(data.usageGraceUntil).toLocaleDateString()}. Upgrade to keep going after
+              that.
+            </p>
+          </div>
+        ) : null}
+
+        {nearLimitNote(data) ? (
+          <div className="mb-4 rounded-lg border border-border bg-secondary/40 px-3 py-2.5 text-sm text-muted-foreground">
+            {nearLimitNote(data)}
+          </div>
+        ) : null}
 
         <div className="space-y-4">
           <UsageMeter
@@ -223,12 +270,49 @@ export function BillingSettingsPanel() {
         </div>
         {!data.razorpayConfigured ? (
           <p className="mt-3 text-xs text-muted-foreground">
-            Razorpay checkout is not configured on the server. Set{" "}
-            <code className="rounded bg-muted px-1">RAZORPAY_KEY_ID</code>,{" "}
-            <code className="rounded bg-muted px-1">RAZORPAY_KEY_SECRET</code>, and plan IDs to
-            enable self-serve upgrades.
+            Self-serve upgrades are not switched on yet. Contact support and we will move your
+            workspace to the plan you need.
           </p>
         ) : null}
+        {data.hasCustomLimits ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            Your limits come from your agreement with us, so they may differ from the plans above.
+          </p>
+        ) : null}
+      </Panel>
+
+      <Panel
+        title="Payment history"
+        description="Payments and invoices recorded against this workspace."
+      >
+        {data.invoices.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No payments yet. Invoices appear here after your first charge.
+          </p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {data.invoices.map((inv) => {
+              const failed = `${inv.status || ""} ${inv.eventType}`.toLowerCase().includes("fail");
+              return (
+                <li
+                  key={inv.id}
+                  className="flex flex-wrap items-center justify-between gap-2 py-2.5"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">
+                      {inv.amount == null ? "Payment" : formatInr(inv.amount)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(inv.createdAt).toLocaleDateString()}
+                      {inv.invoiceId ? ` · ${inv.invoiceId}` : ""}
+                    </p>
+                  </div>
+                  <Pill tone={failed ? "danger" : "success"}>{failed ? "Failed" : "Paid"}</Pill>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </Panel>
 
       <Panel

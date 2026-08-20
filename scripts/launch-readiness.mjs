@@ -40,6 +40,7 @@ const requiredFiles = [
   "supabase/migrations/042_platform_admin.sql",
   "supabase/migrations/043_platform_impersonation.sql",
   "supabase/migrations/044_channel_identity_uniqueness.sql",
+  "supabase/migrations/045_billing_ops.sql",
   "docs/launch-runbook.md",
   "src/routes/terms.tsx",
   "src/routes/privacy.tsx",
@@ -120,8 +121,9 @@ if (value("RAZORPAY_KEY_ID") && !value("RAZORPAY_WEBHOOK_SECRET")) {
 
 console.log("");
 console.log("Manual launch signoff still required:");
-console.log("- Run migrations 039-044 in production Supabase");
+console.log("- Run migrations 039-045 in production Supabase");
 console.log("- Confirm public.channel_identity_conflicts returns no rows");
+console.log("- Check the Risk tab in /platform loads and reports no unexpected signals");
 console.log("- Complete two-org isolation pass from docs/launch-runbook.md");
 console.log("- Complete backup/restore drill");
 console.log("- Test delete-account and delete-workspace in staging");

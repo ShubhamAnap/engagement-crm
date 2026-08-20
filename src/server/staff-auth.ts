@@ -3,9 +3,7 @@
  * Browser sessions live in localStorage — middleware forwards Bearer + optional cookie.
  */
 import { createClient, type User } from "@supabase/supabase-js";
-import { getCookie, getRequestHeader } from "@tanstack/react-start/server";
 import { createServiceSupabase } from "@/lib/supabase";
-import { STAFF_ACCESS_COOKIE } from "@/server/staff-auth-public";
 
 export type StaffProfile = {
   id: string;
@@ -27,26 +25,26 @@ function unauthorized(message = "Unauthorized"): never {
   throw err;
 }
 
-function extractAccessToken(): string | null {
-  const authHeader = getRequestHeader("authorization") || getRequestHeader("Authorization");
-  if (authHeader?.startsWith("Bearer ")) {
-    const bearer = authHeader.slice(7).trim();
-    if (bearer) return bearer;
-  }
-  const raw = getCookie(STAFF_ACCESS_COOKIE)?.trim();
-  if (!raw) return null;
-  try {
-    return decodeURIComponent(raw);
-  } catch {
-    return raw;
-  }
+type StaffTokenStore = import("node:async_hooks").AsyncLocalStorage<string | null>;
+let staffTokenStore: StaffTokenStore | undefined;
+
+async function getStaffTokenStore(): Promise<StaffTokenStore> {
+  if (staffTokenStore) return staffTokenStore;
+  const mod = await import("node:async_hooks");
+  staffTokenStore = new mod.AsyncLocalStorage<string | null>();
+  return staffTokenStore;
 }
 
-/** Validate JWT and org membership. Call from handlers or via global middleware. */
-export async function requireStaffUser(): Promise<StaffAuth> {
-  const token = extractAccessToken();
-  if (!token) unauthorized();
+function tryStaffToken(): string | null | undefined {
+  return staffTokenStore?.getStore();
+}
 
+export async function runWithStaffToken<T>(token: string | null, fn: () => T): Promise<T> {
+  const store = await getStaffTokenStore();
+  return store.run(token, fn);
+}
+
+async function validateStaffToken(token: string): Promise<StaffAuth> {
   let user: User | null = null;
 
   const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
@@ -86,11 +84,7 @@ export async function requireStaffUser(): Promise<StaffAuth> {
   };
 }
 
-/** Signed-in user without requiring a profiles row (OAuth onboarding / invite accept). */
-export async function requireAuthUser(): Promise<{ user: User; profile: StaffProfile | null }> {
-  const token = extractAccessToken();
-  if (!token) unauthorized();
-
+async function validateAuthToken(token: string): Promise<{ user: User; profile: StaffProfile | null }> {
   let user: User | null = null;
   const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
   const anon = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
@@ -126,4 +120,18 @@ export async function requireAuthUser(): Promise<{ user: User; profile: StaffPro
     user,
     profile: profile?.org_id ? (profile as StaffProfile) : null,
   };
+}
+
+/** Validate JWT and org membership. Call from handlers or via global middleware. */
+export async function requireStaffUser(): Promise<StaffAuth> {
+  const token = tryStaffToken();
+  if (!token) unauthorized();
+  return validateStaffToken(token);
+}
+
+/** Signed-in user without requiring a profiles row (OAuth onboarding / invite accept). */
+export async function requireAuthUser(): Promise<{ user: User; profile: StaffProfile | null }> {
+  const token = tryStaffToken();
+  if (!token) unauthorized();
+  return validateAuthToken(token);
 }

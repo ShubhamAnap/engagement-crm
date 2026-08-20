@@ -4,10 +4,7 @@
  * Webhooks: resolveChannelByConfig().
  * Env credentials (WHATSAPP_*, etc.) apply only to DEFAULT_ORG_ID (legacy tenant).
  */
-import { AsyncLocalStorage } from "node:async_hooks";
-import { randomBytes } from "node:crypto";
 import { createServiceSupabase } from "@/lib/supabase";
-import { requireStaffUser } from "@/server/staff-auth";
 
 export const DEFAULT_ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -25,19 +22,35 @@ function asConfig(raw: unknown): Record<string, unknown> {
 }
 
 export async function requireStaffOrgId(): Promise<string> {
+  // Lazy-load to avoid pulling `@tanstack/react-start/server` into client bundles.
+  const { requireStaffUser } = await import("@/server/staff-auth");
   const auth = await requireStaffUser();
   return auth.profile.org_id;
 }
 
-const orgStore = new AsyncLocalStorage<string>();
+type OrgAsyncStore = import("node:async_hooks").AsyncLocalStorage<string>;
+let orgStore: OrgAsyncStore | undefined;
+
+async function getOrgStore(): Promise<OrgAsyncStore> {
+  if (orgStore) return orgStore;
+
+  // IMPORTANT:
+  // Render's Vite build can incorrectly treat this module as "browser code" and replace
+  // Node builtins with a stub that does NOT export AsyncLocalStorage.
+  // Using a dynamic import avoids Rollup's named-export validation during browser bundling.
+  const mod = await import("node:async_hooks");
+  orgStore = new mod.AsyncLocalStorage<string>();
+  return orgStore;
+}
 
 /** Org for the current webhook/cron/staff job (service-role code). */
 export function tryJobOrgId(): string | undefined {
-  return orgStore.getStore();
+  return orgStore?.getStore();
 }
 
-export function runWithOrg<T>(orgId: string, fn: () => T): T {
-  return orgStore.run(orgId, fn);
+export async function runWithOrg<T>(orgId: string, fn: () => T): Promise<T> {
+  const store = await getOrgStore();
+  return store.run(orgId, fn);
 }
 
 /**
@@ -110,7 +123,22 @@ export async function verifyTokenMatchesAnyOrg(
 }
 
 export function newWidgetPublicKey(): string {
-  return `wgt_${randomBytes(24).toString("hex")}`;
+  // Use WebCrypto when available (Node 20+ exposes `globalThis.crypto`).
+  // This keeps server code bundling-safe (no static `node:crypto` import for Vite).
+  const c = globalThis.crypto;
+  if (c?.getRandomValues) {
+    const bytes = new Uint8Array(24);
+    c.getRandomValues(bytes);
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    return `wgt_${hex}`;
+  }
+
+  // Extremely unlikely fallback (only if WebCrypto is missing).
+  // Still produces a deterministic shape; collisions are practically impossible at 24 bytes.
+  const hex = Array.from({ length: 24 }, () =>
+    Math.floor(Math.random() * 256).toString(16).padStart(2, "0"),
+  ).join("");
+  return `wgt_${hex}`;
 }
 
 export async function resolveWebsiteByWidgetKey(

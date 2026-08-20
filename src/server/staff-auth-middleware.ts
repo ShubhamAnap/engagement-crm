@@ -1,5 +1,5 @@
 import { createMiddleware } from "@tanstack/react-start";
-import { PUBLIC_SERVER_FN_NAMES } from "@/server/staff-auth-public";
+import { PUBLIC_SERVER_FN_NAMES, STAFF_ACCESS_COOKIE } from "@/server/staff-auth-public";
 
 /**
  * Global function middleware: attach Bearer on client; require staff on server
@@ -22,10 +22,34 @@ export const staffAuthMiddleware = createMiddleware({ type: "function" })
     }
     return next({ headers });
   })
-  .server(async ({ next, serverFnMeta }) => {
+  .server(async ({ next, request, serverFnMeta }) => {
+    function extractStaffToken(): string | null {
+      const authHeader = request.headers.get("authorization");
+      if (authHeader?.startsWith("Bearer ")) {
+        const bearer = authHeader.slice(7).trim();
+        if (bearer) return bearer;
+      }
+
+      const cookieHeader = request.headers.get("cookie") || "";
+      const re = new RegExp(`(?:^|;\\s*)${STAFF_ACCESS_COOKIE}=([^;]*)`);
+      const match = cookieHeader.match(re);
+      const raw = match?.[1]?.trim();
+      if (!raw) return null;
+
+      try {
+        return decodeURIComponent(raw);
+      } catch {
+        return raw;
+      }
+    }
+
     if (!PUBLIC_SERVER_FN_NAMES.has(serverFnMeta.name)) {
-      const { requireStaffUser } = await import("@/server/staff-auth");
-      await requireStaffUser();
+      const { requireStaffUser, runWithStaffToken } = await import("@/server/staff-auth");
+      const token = extractStaffToken();
+      return runWithStaffToken(token, async () => {
+        await requireStaffUser();
+        return next();
+      });
     }
     return next();
   });

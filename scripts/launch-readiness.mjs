@@ -39,6 +39,7 @@ const requiredFiles = [
   "supabase/migrations/041_billing.sql",
   "supabase/migrations/042_platform_admin.sql",
   "supabase/migrations/043_platform_impersonation.sql",
+  "supabase/migrations/044_channel_identity_uniqueness.sql",
   "docs/launch-runbook.md",
   "src/routes/terms.tsx",
   "src/routes/privacy.tsx",
@@ -76,6 +77,7 @@ for (const key of requiredEnv) {
 const optionalEnv = [
   "OPENAI_API_KEY",
   "PLATFORM_ADMIN_EMAILS",
+  "META_APP_SECRET",
   "RAZORPAY_KEY_ID",
   "RAZORPAY_KEY_SECRET",
   "RAZORPAY_WEBHOOK_SECRET",
@@ -102,9 +104,17 @@ if (value("WIDGET_PUBLIC_KEY") && value("VITE_WIDGET_PUBLIC_KEY") && value("WIDG
   failed = true;
 }
 
+if (/^(1|true|yes)$/i.test(value("META_WEBHOOK_ALLOW_UNSIGNED"))) {
+  fail("META_WEBHOOK_ALLOW_UNSIGNED is on — unsigned Meta webhooks can post into any workspace");
+  failed = true;
+} else if (!value("META_APP_SECRET")) {
+  warn("META_APP_SECRET unset — Meta webhooks will be rejected in production");
+}
+
 console.log("");
 console.log("Manual launch signoff still required:");
-console.log("- Run migrations 039-042 in production Supabase");
+console.log("- Run migrations 039-044 in production Supabase");
+console.log("- Confirm public.channel_identity_conflicts returns no rows");
 console.log("- Complete two-org isolation pass from docs/launch-runbook.md");
 console.log("- Complete backup/restore drill");
 console.log("- Test delete-account and delete-workspace in staging");

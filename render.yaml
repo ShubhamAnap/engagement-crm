@@ -77,6 +77,11 @@ services:
       - key: WHATSAPP_DISPLAY_PHONE
         sync: false
 
+      # Meta App Secret — required so WA/FB/IG webhook signatures can be verified.
+      # Without it, production rejects Meta webhooks.
+      - key: META_APP_SECRET
+        sync: false
+
       # Optional observability (Phase 3) — leave empty to keep console-only logs
       - key: SENTRY_DSN
         sync: false

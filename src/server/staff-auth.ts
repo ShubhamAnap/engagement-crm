@@ -31,6 +31,64 @@ function unauthorized(message = "Unauthorized"): never {
   throw err;
 }
 
+function forbidden(message: string): never {
+  const err = new Error(message);
+  (err as Error & { statusCode: number }).statusCode = 403;
+  throw err;
+}
+
+const PROFILE_COLUMNS = "id, org_id, role, email, is_active, permissions";
+const PROFILE_COLUMNS_WITH_ORG = `${PROFILE_COLUMNS}, organizations(is_active, platform_suspended)`;
+
+type ProfileRow = Record<string, unknown> & {
+  organizations?: { is_active?: boolean; platform_suspended?: boolean } | Array<{
+    is_active?: boolean;
+    platform_suspended?: boolean;
+  }> | null;
+};
+
+/**
+ * Load the profile plus its workspace status in one round trip.
+ * Falls back to the plain columns when migration 042 has not been applied yet.
+ */
+async function loadProfileWithOrg(
+  service: ReturnType<typeof createServiceSupabase>,
+  userId: string,
+): Promise<{ profile: ProfileRow | null; orgChecked: boolean }> {
+  const full = await service
+    .from("profiles")
+    .select(PROFILE_COLUMNS_WITH_ORG)
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (!full.error) {
+    return { profile: full.data as ProfileRow | null, orgChecked: true };
+  }
+
+  const basic = await service
+    .from("profiles")
+    .select(PROFILE_COLUMNS)
+    .eq("id", userId)
+    .maybeSingle();
+  if (basic.error) unauthorized();
+  return { profile: basic.data as ProfileRow | null, orgChecked: false };
+}
+
+/** Suspended workspaces keep their data but lose API access until reactivated. */
+function assertWorkspaceLive(profile: ProfileRow): void {
+  const rel = profile.organizations;
+  const org = Array.isArray(rel) ? rel[0] : rel;
+  if (!org) return;
+  if (org.is_active === false || org.platform_suspended === true) {
+    forbidden("This workspace is suspended. Contact support to reactivate it.");
+  }
+}
+
+function toStaffProfile(profile: ProfileRow): StaffProfile {
+  const { organizations: _org, ...rest } = profile;
+  return rest as unknown as StaffProfile;
+}
+
 type StaffTokenStore = import("node:async_hooks").AsyncLocalStorage<string | null>;
 let staffTokenStore: StaffTokenStore | undefined;
 
@@ -75,18 +133,15 @@ async function validateStaffToken(token: string): Promise<StaffAuth> {
     user = data.user;
   }
 
-  const { data: profile, error: profileError } = await service
-    .from("profiles")
-    .select("id, org_id, role, email, is_active, permissions")
-    .eq("id", user.id)
-    .maybeSingle();
+  const { profile } = await loadProfileWithOrg(service, user.id);
 
-  if (profileError || !profile?.org_id) unauthorized("No organization profile");
+  if (!profile?.org_id) unauthorized("No organization profile");
   if (profile.is_active === false) unauthorized("Account disabled");
+  assertWorkspaceLive(profile);
 
   return {
     user,
-    profile: profile as StaffProfile,
+    profile: toStaffProfile(profile),
   };
 }
 
@@ -114,17 +169,14 @@ async function validateAuthToken(token: string): Promise<{ user: User; profile: 
     user = data.user;
   }
 
-  const { data: profile } = await service
-    .from("profiles")
-    .select("id, org_id, role, email, is_active, permissions")
-    .eq("id", user.id)
-    .maybeSingle();
+  const { profile } = await loadProfileWithOrg(service, user.id);
 
   if (profile?.is_active === false) unauthorized("Account disabled");
+  if (profile?.org_id) assertWorkspaceLive(profile);
 
   return {
     user,
-    profile: profile?.org_id ? (profile as StaffProfile) : null,
+    profile: profile?.org_id ? toStaffProfile(profile) : null,
   };
 }
 

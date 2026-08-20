@@ -10,6 +10,18 @@ Run these in Supabase SQL Editor, in order:
 2. `040_auth_completeness.sql`
 3. `041_billing.sql`
 4. `042_platform_admin.sql`
+5. `043_platform_impersonation.sql`
+6. `044_channel_identity_uniqueness.sql`
+
+After `044`, confirm no workspace shares an inbound identifier:
+
+```sql
+select * from public.channel_identity_conflicts;
+```
+
+The result must be empty. Any row means two workspaces share a WhatsApp number, Meta
+page, widget key, or inbound secret — fix the duplicate, then re-run `044` so the unique
+indexes are created.
 
 ## 2. Required environment and external setup
 
@@ -24,6 +36,15 @@ Run these in Supabase SQL Editor, in order:
   - `RAZORPAY_WEBHOOK_SECRET`
   - `RAZORPAY_PLAN_STARTER`
   - `RAZORPAY_PLAN_PRO`
+- Meta webhooks (WhatsApp / Facebook / Instagram):
+  - `META_APP_SECRET` — the Meta **App Secret**, not an access token. Production rejects
+    unsigned or mismatched webhooks without it, because every workspace is subscribed to
+    one Meta App and an unverified event can name any workspace's page.
+  - `META_WEBHOOK_ALLOW_UNSIGNED` — leave empty. Only set during first-time setup, and
+    unset it immediately afterwards.
+- `VITE_APP_URL` — must be the public HTTPS origin. Customer-facing `/c` and `/f` short
+  links are built from it and carry a `?w=` workspace token; a wrong origin produces dead
+  links for every tenant.
 
 ## 3. Two-org isolation checklist
 
@@ -47,6 +68,15 @@ Create two workspaces, `Org A` and `Org B`, with separate admins.
 - WhatsApp inbound for `Org A` lands in `Org A` inbox only.
 - Email or Meta webhook for `Org B` lands in `Org B` only.
 - Website widget public key from `Org A` cannot post into `Org B`.
+- Saving `Org A`'s WhatsApp number, Meta page, inbound email secret, or IndiaMART push
+  secret in `Org B` is rejected with a "already connected to another workspace" message.
+- A Meta webhook POST without a valid `X-Hub-Signature-256` returns 403 in production.
+
+### Public short links
+
+- Share the same SKU in both workspaces; `/c/{sku}?w=…` returns each workspace's own
+  catalogue, and a `/c/{sku}` link with no token 404s while the SKU is ambiguous.
+- Suspending a workspace makes its `/c` and `/f` links stop resolving.
 
 ### Billing / limits
 
@@ -140,7 +170,10 @@ At least once before launch:
 
 ## 7. Pre-launch signoff
 
-- [ ] Migrations 039–042 run in production Supabase
+- [ ] Migrations 039–044 run in production Supabase
+- [ ] `channel_identity_conflicts` returns no rows
+- [ ] `META_APP_SECRET` set and `META_WEBHOOK_ALLOW_UNSIGNED` empty (signed webhooks enforced)
+- [ ] Suspended workspace verified blocked: UI, server functions, webhooks, cron
 - [ ] Two-org manual isolation pass completed
 - [ ] Backup/restore drill completed
 - [ ] Delete-account and delete-workspace flows tested in staging

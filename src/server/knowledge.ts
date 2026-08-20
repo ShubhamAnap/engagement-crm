@@ -916,7 +916,9 @@ export async function retrieveKnowledgeContext(
       const docId = row.document_id ? String(row.document_id) : "";
       const docTitle = String(row.document_title ?? "Document");
       const meta = chunkMeta(row);
-      const shortFromDoc = docId ? shortDatasheetUrl(docId, docTitle, meta.fileName || null) : null;
+      const shortFromDoc = docId
+        ? shortDatasheetUrl(docId, docTitle, meta.fileName || null, orgId)
+        : null;
       const content = String(row.content ?? "");
       const baseSim = Number(row.similarity ?? 0);
       let boosted = Math.min(0.99, baseSim + keywordBoost(content, docTitle, keywords));
@@ -1155,7 +1157,12 @@ async function loadDatasheetRows(orgId: string): Promise<DatasheetRow[]> {
     if (!isPdf || !doc.id) continue;
 
     const label = ensurePdfFileLabel(String(doc.title || "datasheet"), fileName || null);
-    const url = shortDatasheetUrl(String(doc.id), String(doc.title || label), fileName || label);
+    const url = shortDatasheetUrl(
+      String(doc.id),
+      String(doc.title || label),
+      fileName || label,
+      orgId,
+    );
     if (!url || !/^https?:\/\//i.test(url)) continue;
 
     rows.push({

@@ -6,6 +6,7 @@ import {
 } from "@/server/indiamart";
 import {
   DEFAULT_ORG_ID,
+  isOrgActive,
   resolveChannelByConfig,
   runWithOrg,
 } from "@/server/org-context";
@@ -42,6 +43,9 @@ export const Route = createFileRoute("/api/webhooks/indiamart")({
             hit?.orgId ||
             (envSecret && secretHeader === envSecret ? DEFAULT_ORG_ID : null);
           if (!orgId) return new Response("Forbidden", { status: 403 });
+          if (!(await isOrgActive(supabase, orgId))) {
+            return new Response("Workspace suspended", { status: 403 });
+          }
 
           const payload = (await request.json()) as Record<string, unknown>;
           let enquiry: IndiaMartEnquiry | null = null;

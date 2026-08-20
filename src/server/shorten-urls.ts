@@ -54,12 +54,14 @@ export async function shortenStorageUrl(url: string): Promise<string> {
   if (productId) {
     const { data: product } = await supabase
       .from("products")
-      .select("sku")
+      .select("sku, org_id")
       .eq("id", productId)
       .maybeSingle();
     const sku = String(product?.sku || "").trim();
     if (sku) {
-      const short = ensureAbsoluteAppUrl(shortProductCatalogueUrl(sku));
+      const short = ensureAbsoluteAppUrl(
+        shortProductCatalogueUrl(sku, product?.org_id ? String(product.org_id) : null),
+      );
       cache.set(trimmed, short);
       return short;
     }
@@ -68,14 +70,18 @@ export async function shortenStorageUrl(url: string): Promise<string> {
   // Exact storage_path match → friendly /f/Name-id.pdf
   const { data: doc } = await supabase
     .from("knowledge_documents")
-    .select("id, title, metadata")
+    .select("id, title, metadata, org_id")
     .eq("storage_path", storagePath)
     .maybeSingle();
   if (doc?.id) {
     const fileName = String((doc.metadata as { fileName?: string } | null)?.fileName || "");
     const short = ensureAbsoluteAppUrl(
-      shortDatasheetUrl(String(doc.id), String(doc.title || "datasheet"), fileName || null) ||
-        shortKnowledgeDocumentUrl(String(doc.id)),
+      shortDatasheetUrl(
+        String(doc.id),
+        String(doc.title || "datasheet"),
+        fileName || null,
+        doc.org_id ? String(doc.org_id) : null,
+      ) || shortKnowledgeDocumentUrl(String(doc.id)),
     );
     cache.set(trimmed, short);
     return short;
@@ -87,7 +93,7 @@ export async function shortenStorageUrl(url: string): Promise<string> {
     const orgFromPath = storagePath.split("/")[0] || "";
     let q = supabase
       .from("knowledge_documents")
-      .select("id, title, metadata, storage_path")
+      .select("id, title, metadata, storage_path, org_id")
       .eq("status", "ready")
       .limit(40);
     if (/^[0-9a-f-]{36}$/i.test(orgFromPath)) {
@@ -104,7 +110,12 @@ export async function shortenStorageUrl(url: string): Promise<string> {
     if (hit?.id) {
       const fileName = String((hit.metadata as { fileName?: string } | null)?.fileName || "");
       const short = ensureAbsoluteAppUrl(
-        shortDatasheetUrl(String(hit.id), String(hit.title || "datasheet"), fileName || null),
+        shortDatasheetUrl(
+          String(hit.id),
+          String(hit.title || "datasheet"),
+          fileName || null,
+          hit.org_id ? String(hit.org_id) : null,
+        ),
       );
       cache.set(trimmed, short);
       return short;

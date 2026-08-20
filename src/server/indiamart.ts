@@ -15,7 +15,11 @@ import {
   type MarketplaceAutoSyncFields,
 } from "@/lib/marketplace-auto-sync";
 
-import { allowEnvChannelFallback, resolveServiceOrgId } from "@/server/org-context";
+import {
+  allowEnvChannelFallback,
+  assertUniqueChannelConfig,
+  resolveServiceOrgId,
+} from "@/server/org-context";
 const PULL_URL = "https://mapi.indiamart.com/wservce/crm/crmListing/v2/";
 
 export type IndiaMartBackfillState = {
@@ -915,6 +919,19 @@ export const saveIndiaMartChannelConfig = createServerFn({ method: "POST" })
       last_auto_sync_at: existing.last_auto_sync_at,
     };
     const enable = data.enable ?? true;
+    const orgId = await resolveServiceOrgId();
+
+    // Pushed IndiaMART leads are routed by this secret alone.
+    await assertUniqueChannelConfig({
+      supabase,
+      type: "indiamart",
+      configKey: "push_secret",
+      configValue: config.push_secret || "",
+      exceptOrgId: orgId,
+      label: "IndiaMART push secret",
+      reservedEnvValue: process.env.INDIAMART_PUSH_SECRET,
+    });
+
     const { data: updated, error } = await supabase
       .from("channels")
       .update({
@@ -925,7 +942,7 @@ export const saveIndiaMartChannelConfig = createServerFn({ method: "POST" })
         health: enable ? 100 : 0,
         name: "IndiaMART",
       })
-      .eq("org_id", await resolveServiceOrgId())
+      .eq("org_id", orgId)
       .eq("type", "indiamart")
       .select("*")
       .single();

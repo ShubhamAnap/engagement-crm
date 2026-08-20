@@ -3,6 +3,7 @@ import { createServiceSupabase } from "@/lib/supabase";
 import { handleInboundEmail } from "@/server/email-core";
 import {
   DEFAULT_ORG_ID,
+  isOrgActive,
   resolveChannelByConfig,
   runWithOrg,
 } from "@/server/org-context";
@@ -41,6 +42,9 @@ export const Route = createFileRoute("/api/webhooks/email")({
           const orgId =
             hit?.orgId || (envSecret && secretHeader === envSecret ? DEFAULT_ORG_ID : null);
           if (!orgId) return new Response("Forbidden", { status: 403 });
+          if (!(await isOrgActive(supabase, orgId))) {
+            return new Response("Workspace suspended", { status: 403 });
+          }
 
           const contentType = request.headers.get("content-type") || "";
           let payload: {

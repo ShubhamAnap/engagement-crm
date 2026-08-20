@@ -41,9 +41,21 @@ export function verifyMetaSignature256(
 }
 
 /**
- * Read Meta webhook body. Signature check is advisory only for now:
- * never block inbound WA/FB/IG — a wrong META_APP_SECRET was bricking production.
- * Still logs mismatch so ops can fix the secret later.
+ * Escape hatch for first-time Meta setup only: accept unsigned/mismatched webhooks in
+ * production. Every tenant shares one Meta App, so an unverified webhook can name any
+ * page_id and post into any workspace — never leave this on.
+ */
+function allowUnsignedMetaWebhooks(): boolean {
+  const raw = (process.env.META_WEBHOOK_ALLOW_UNSIGNED || "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+
+/**
+ * Read and authenticate a Meta webhook body.
+ *
+ * Inbound events carry the target page / phone number in the payload, so an unsigned
+ * request is enough to write into another workspace. Signatures are therefore enforced
+ * in production; local dev logs and continues so setup is not blocked.
  */
 export async function readAndVerifyMetaWebhookBody(
   request: Request,
@@ -51,12 +63,25 @@ export async function readAndVerifyMetaWebhookBody(
   const rawBody = await request.text();
   const signature = request.headers.get("x-hub-signature-256");
   const appSecret = loadMetaAppSecret();
+  const strict = isProductionRuntime() && !allowUnsignedMetaWebhooks();
 
   if (!appSecret) {
-    console.warn("Meta webhook: META_APP_SECRET unset — accepting inbound");
+    if (strict) {
+      console.error(
+        "Meta webhook rejected: META_APP_SECRET is not set. Add the Meta App Secret (not an access token) to the service environment.",
+      );
+      return { ok: false, response: new Response("Forbidden", { status: 403 }) };
+    }
+    console.warn("Meta webhook: META_APP_SECRET unset — accepting inbound (non-production)");
   } else if (!verifyMetaSignature256(rawBody, signature, appSecret)) {
+    if (strict) {
+      console.error(
+        "Meta webhook rejected: X-Hub-Signature-256 mismatch. Confirm META_APP_SECRET is the Meta App Secret for the app these pages are subscribed to.",
+      );
+      return { ok: false, response: new Response("Forbidden", { status: 403 }) };
+    }
     console.warn(
-      "Meta webhook: signature mismatch (check META_APP_SECRET is Meta App Secret, not access token) — accepting inbound anyway",
+      "Meta webhook: signature mismatch (check META_APP_SECRET is Meta App Secret, not access token) — accepting inbound (non-production)",
     );
   }
 

@@ -305,7 +305,7 @@ export function productCatalogueHref(
 ): string | null {
   const resolved = inheritCategoryCatalogue(product, categoryByKey);
   if (!resolved.catalog_pdf_url && !resolved.catalog_pdf_path) return null;
-  if (resolved.sku?.trim()) return shortProductCatalogueUrl(resolved.sku);
+  if (resolved.sku?.trim()) return shortProductCatalogueUrl(resolved.sku, resolved.org_id);
   return (
     resolved.catalog_pdf_url ||
     (resolved.catalog_pdf_path ? publicCatalogueUrl(resolved.catalog_pdf_path) : null)

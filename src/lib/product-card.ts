@@ -34,7 +34,7 @@ export function resolveProductCatalogueUrl(
   const ownRaw = product.catalog_pdf_url || null;
   if (isExternalHttpsPdf(ownRaw)) return ownRaw;
   if (ownRaw || product.catalog_pdf_path) {
-    if (product.sku?.trim()) return shortProductCatalogueUrl(product.sku);
+    if (product.sku?.trim()) return shortProductCatalogueUrl(product.sku, product.org_id);
     return ownRaw;
   }
 
@@ -42,7 +42,7 @@ export function resolveProductCatalogueUrl(
   const catRaw = inherited?.catalog_pdf_url || null;
   if (isExternalHttpsPdf(catRaw)) return catRaw;
   if (!catRaw && !inherited?.catalog_pdf_path) return null;
-  if (product.sku?.trim()) return shortProductCatalogueUrl(product.sku);
+  if (product.sku?.trim()) return shortProductCatalogueUrl(product.sku, product.org_id);
   return catRaw;
 }
 

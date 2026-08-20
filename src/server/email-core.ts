@@ -17,7 +17,11 @@ import { isOffTopicMessage } from "@/lib/enertech-scope";
 import { isProductIntent } from "@/server/product-pack";
 import { isEducateOnlyAsk } from "@/lib/conversation-intent";
 
-import { allowEnvChannelFallback, resolveServiceOrgId } from "@/server/org-context";
+import {
+  allowEnvChannelFallback,
+  assertUniqueChannelConfig,
+  resolveServiceOrgId,
+} from "@/server/org-context";
 
 export type EmailChannelConfig = {
   from_email?: string;
@@ -597,6 +601,19 @@ export async function persistEmailChannelConfig(data: {
   };
 
   const enable = data.enable ?? true;
+  const orgId = await resolveServiceOrgId();
+
+  // Inbound email is routed purely by this secret — sharing it would cross workspaces.
+  await assertUniqueChannelConfig({
+    supabase,
+    type: "email",
+    configKey: "inbound_secret",
+    configValue: config.inbound_secret || "",
+    exceptOrgId: orgId,
+    label: "inbound email secret",
+    reservedEnvValue: process.env.EMAIL_INBOUND_SECRET,
+  });
+
   const { data: updated, error } = await supabase
     .from("channels")
     .update({
@@ -606,7 +623,7 @@ export async function persistEmailChannelConfig(data: {
       status: enable ? "Connected" : "Disconnected",
       health: enable ? 100 : 0,
     })
-    .eq("org_id", await resolveServiceOrgId())
+    .eq("org_id", orgId)
     .eq("type", "email")
     .select("id, type, name, status, is_enabled, detail, health, updated_at")
     .single();

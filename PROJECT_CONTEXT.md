@@ -5,6 +5,22 @@
 
 ---
 
+### Session 2026-08-20 — Multi-org isolation hardening (critical fixes)
+
+**Done:**
+
+1. **Public short links are workspace-scoped.** `/c/{sku}` no longer hardcodes the legacy org. `/c` and `/f` now carry `?w={12 hex of org id}` (`src/lib/org-link-token.ts`); the route resolves the workspace from the token, and a token-less link only resolves when exactly one workspace owns the SKU / document-id prefix — otherwise 404 instead of serving another tenant's PDF. `/f` also filters `knowledge_documents` by org and keeps the token on its download link.
+2. **Inbound channel identity is unique per workspace.** `saveMetaChannelConfig` (page id, IG account), `persistEmailChannelConfig` (inbound secret), and `saveIndiaMartChannelConfig` (push secret) now reject values already used by another workspace or reserved by a platform env var. Migration `044_channel_identity_uniqueness.sql` adds the same guarantee as DB unique indexes (covers the browser-writable Website widget key) plus a `channel_identity_conflicts` ops view.
+3. **Meta webhook signatures are enforced.** `readAndVerifyMetaWebhookBody` returns 403 in production on a missing `META_APP_SECRET` or a bad `X-Hub-Signature-256`. `META_WEBHOOK_ALLOW_UNSIGNED=1` is a first-time-setup-only escape hatch and now fails `check:launch`.
+4. **Suspended workspaces are fully cut off.** `requireStaffUser` / `requireAuthUser` return 403 for a suspended workspace (checked before impersonation, so support mode still works), `listOrgIds` excludes them from cron, `resolveChannelByConfig` refuses to route inbound traffic to them, and the email/IndiaMART env-secret fallbacks check `isOrgActive`.
+5. **Fixed a production auth break.** `staff-auth-middleware.ts` read `request` from the TanStack middleware options, which does not exist there — every authenticated server function would have thrown. It now reads the Bearer/cookie token via a dynamically imported `getRequestHeader`.
+
+**Ops:** Run `044_channel_identity_uniqueness.sql`, then confirm `select * from public.channel_identity_conflicts` is empty. Set `META_APP_SECRET` on Render and leave `META_WEBHOOK_ALLOW_UNSIGNED` unset. `VITE_APP_URL` must be the real public origin or every `/c` and `/f` link breaks.
+
+**Next:** Remaining medium items — client `ENERTECH_ORG_ID` fallbacks, EnerTech copy leftovers (`x-enertech-*` headers, channel placeholders), removing the `resolveOrgFromChannel` DEFAULT fallback, and Razorpay `notes.org_id` hardening.
+
+---
+
 ### Session 2026-08-20 — Platform console enterprise UX
 
 **Done:** Rebuilt `/platform` as an enterprise control plane:

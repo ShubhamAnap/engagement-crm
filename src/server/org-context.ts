@@ -5,6 +5,7 @@
  * Env credentials (WHATSAPP_*, etc.) apply only to DEFAULT_ORG_ID (legacy tenant).
  */
 import { createServiceSupabase } from "@/lib/supabase";
+import { orgIdMatchesLinkToken, readOrgLinkToken } from "@/lib/org-link-token";
 
 export const DEFAULT_ORG_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -68,15 +69,80 @@ export function allowEnvChannelFallback(orgId: string): boolean {
   return orgId === DEFAULT_ORG_ID;
 }
 
+/**
+ * Workspaces that background work should touch. Suspended workspaces keep their data
+ * but must not get cron ticks, outbound sends, or public link resolution.
+ */
 export async function listOrgIds(
   supabase: ServiceSupabase = createServiceSupabase(),
+  options?: { includeSuspended?: boolean },
 ): Promise<string[]> {
-  const { data, error } = await supabase.from("organizations").select("id").order("created_at", { ascending: true });
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((row) => String(row.id)).filter(Boolean);
+  const withStatus = await supabase
+    .from("organizations")
+    .select("id, is_active, platform_suspended")
+    .order("created_at", { ascending: true });
+
+  if (withStatus.error) {
+    // Pre-042 database — no suspension columns to filter on.
+    const { data, error } = await supabase
+      .from("organizations")
+      .select("id")
+      .order("created_at", { ascending: true });
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((row) => String(row.id)).filter(Boolean);
+  }
+
+  return (withStatus.data ?? [])
+    .filter(
+      (row) =>
+        options?.includeSuspended ||
+        (row.is_active !== false && row.platform_suspended !== true),
+    )
+    .map((row) => String(row.id))
+    .filter(Boolean);
 }
 
-export async function resolveChannelByConfig(
+const ORG_STATUS_TTL_MS = 30_000;
+const orgStatusCache = new Map<string, { live: boolean; at: number }>();
+
+/**
+ * True when the workspace is live (not self-disabled, not platform suspended).
+ * Cached briefly because inbound webhooks call this on every event.
+ */
+export async function isOrgActive(
+  supabase: ServiceSupabase,
+  orgId: string,
+): Promise<boolean> {
+  const cached = orgStatusCache.get(orgId);
+  if (cached && Date.now() - cached.at < ORG_STATUS_TTL_MS) return cached.live;
+
+  const { data, error } = await supabase
+    .from("organizations")
+    .select("is_active, platform_suspended")
+    .eq("id", orgId)
+    .maybeSingle();
+
+  // Pre-042 database — fail open rather than drop inbound messages.
+  if (error) return true;
+
+  const live = Boolean(data) && data!.is_active !== false && data!.platform_suspended !== true;
+  orgStatusCache.set(orgId, { live, at: Date.now() });
+  return live;
+}
+
+/** Public /c and /f links carry ?w={12 hex} — map it back to the sharing workspace. */
+export async function resolveOrgIdFromLinkToken(
+  supabase: ServiceSupabase,
+  rawToken: string | null | undefined,
+): Promise<string | null> {
+  const token = readOrgLinkToken(rawToken);
+  if (!token) return null;
+  const ids = await listOrgIds(supabase);
+  return ids.find((id) => orgIdMatchesLinkToken(id, token)) || null;
+}
+
+/** Match on a config value regardless of workspace status (uniqueness checks). */
+async function findChannelByConfig(
   supabase: ServiceSupabase,
   filter: { type: string; configKey: string; configValue: string },
 ): Promise<ResolvedChannel | null> {
@@ -87,21 +153,34 @@ export async function resolveChannelByConfig(
     .select("id, org_id, config, is_enabled")
     .eq("type", filter.type);
   if (error) {
-    console.error("resolveChannelByConfig", error.message);
+    console.error("findChannelByConfig", error.message);
     return null;
   }
   for (const row of rows ?? []) {
     const cfg = asConfig(row.config);
-    if (String(cfg[filter.configKey] || "").trim() === want) {
-      return {
-        orgId: String(row.org_id),
-        channelId: String(row.id),
-        config: cfg,
-        isEnabled: row.is_enabled !== false,
-      };
-    }
+    if (String(cfg[filter.configKey] || "").trim() !== want) continue;
+    return {
+      orgId: String(row.org_id),
+      channelId: String(row.id),
+      config: cfg,
+      isEnabled: row.is_enabled !== false,
+    };
   }
   return null;
+}
+
+/** Route inbound traffic to its workspace. Suspended workspaces never match. */
+export async function resolveChannelByConfig(
+  supabase: ServiceSupabase,
+  filter: { type: string; configKey: string; configValue: string },
+): Promise<ResolvedChannel | null> {
+  const hit = await findChannelByConfig(supabase, filter);
+  if (!hit) return null;
+  if (!(await isOrgActive(supabase, hit.orgId))) {
+    console.warn(`inbound ${filter.type} ignored — workspace ${hit.orgId} is suspended`);
+    return null;
+  }
+  return hit;
 }
 
 /** True if any channel of this type stores this verify_token (or env for the legacy org). */
@@ -162,7 +241,7 @@ export async function resolveWebsiteByWidgetKey(
       .eq("org_id", DEFAULT_ORG_ID)
       .eq("type", "website")
       .maybeSingle();
-    if (data) {
+    if (data && (await isOrgActive(supabase, DEFAULT_ORG_ID))) {
       return {
         orgId: DEFAULT_ORG_ID,
         channelId: String(data.id),
@@ -174,23 +253,42 @@ export async function resolveWebsiteByWidgetKey(
   return null;
 }
 
-/** Block two orgs from sharing the same WhatsApp phone / Meta page / widget key. */
+/**
+ * Block two orgs from sharing an inbound identifier (WhatsApp phone, Meta page,
+ * widget key, inbound email/IndiaMART secret). Webhooks route on these values, so a
+ * duplicate would silently deliver one workspace's messages to the other.
+ */
 export async function assertUniqueChannelConfig(options: {
   supabase: ServiceSupabase;
   type: string;
   configKey: string;
   configValue: string;
   exceptOrgId: string;
+  /** Customer-facing name for the field — never show the raw config key in the UI. */
+  label?: string;
+  /** Platform env value that already routes to the legacy tenant. */
+  reservedEnvValue?: string;
 }): Promise<void> {
   const want = options.configValue.trim();
   if (!want) return;
-  const hit = await resolveChannelByConfig(options.supabase, {
+
+  const reserved = options.reservedEnvValue?.trim();
+  if (reserved && want === reserved && options.exceptOrgId !== DEFAULT_ORG_ID) {
+    throw new Error(
+      `This ${options.label || options.configKey.replace(/_/g, " ")} is reserved. Choose a different value.`,
+    );
+  }
+
+  // Deliberately not resolveChannelByConfig: a suspended workspace still owns its
+  // identifiers, so a live workspace must not be allowed to claim them.
+  const hit = await findChannelByConfig(options.supabase, {
     type: options.type,
     configKey: options.configKey,
     configValue: want,
   });
   if (hit && hit.orgId !== options.exceptOrgId) {
-    throw new Error(`This ${options.configKey} is already used by another workspace.`);
+    const label = options.label || options.configKey.replace(/_/g, " ");
+    throw new Error(`This ${label} is already connected to another workspace.`);
   }
 }
 

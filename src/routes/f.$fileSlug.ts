@@ -1,62 +1,72 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createServiceSupabase } from "@/lib/supabase";
+import { resolveOrgIdFromLinkToken } from "@/server/org-context";
 import { proxyStorageObject } from "@/server/storage-proxy";
 
 /**
- * Friendly datasheet link: /f/BESS-Product-catalouge-645405bf.pdf
+ * Friendly datasheet link: /f/BESS-Product-catalouge-645405bf.pdf?w={workspace}
  * Streams the PDF through this app (no redirect to supabase.co).
  *
  * Postgres uuid columns do NOT support LIKE — match first UUID segment via range + JS.
+ * Only 8 hex chars of the document id are in the slug, so `?w=` scopes the lookup to the
+ * sharing workspace; without it an 8-hex collision could surface another tenant's file.
  *
  * Mobile browsers (esp. WhatsApp WebView) often fail on raw application/pdf responses
  * ("This site can't be loaded"). For normal browser Accept: text/html we serve a small
  * download page; Meta/WhatsApp fetchers and ?download=1 still get the raw PDF.
  */
 
+const DOC_COLUMNS = "id, org_id, storage_path, mime_type, title, metadata, status";
+
+function matchesShortId(rowId: unknown, shortId: string): boolean {
+  const id = String(rowId).toLowerCase();
+  return id.startsWith(`${shortId}-`) || id.replace(/-/g, "").startsWith(shortId);
+}
+
 async function findDocByShortId(
   supabase: ReturnType<typeof createServiceSupabase>,
   shortId: string,
+  orgId: string | null,
 ) {
   const id = shortId.toLowerCase();
 
-  const { data: ranged, error: rangeErr } = await supabase
+  let rangeQuery = supabase
     .from("knowledge_documents")
-    .select("id, storage_path, mime_type, title, metadata, status")
+    .select(DOC_COLUMNS)
     .gte("id", `${id}-0000-0000-0000-000000000000`)
     .lte("id", `${id}-ffff-ffff-ffff-ffffffffffff`)
     .limit(20);
+  if (orgId) rangeQuery = rangeQuery.eq("org_id", orgId);
+
+  const { data: ranged, error: rangeErr } = await rangeQuery;
 
   if (rangeErr) {
     console.error("datasheet id range lookup failed", rangeErr.message);
   }
 
-  let doc =
-    (ranged || []).find(
-      (r) =>
-        String(r.id).toLowerCase().startsWith(`${id}-`) ||
-        String(r.id).replace(/-/g, "").toLowerCase().startsWith(id),
-    ) || null;
-
+  const doc = (ranged || []).find((r) => matchesShortId(r.id, id)) || null;
   if (doc) return doc;
 
-  const { data: all, error: allErr } = await supabase
+  let fallbackQuery = supabase
     .from("knowledge_documents")
-    .select("id, storage_path, mime_type, title, metadata, status")
+    .select(DOC_COLUMNS)
     .eq("status", "ready")
     .limit(300);
+  if (orgId) fallbackQuery = fallbackQuery.eq("org_id", orgId);
+
+  const { data: all, error: allErr } = await fallbackQuery;
 
   if (allErr) {
     console.error("datasheet fallback lookup failed", allErr.message);
     return null;
   }
 
-  return (
-    (all || []).find(
-      (r) =>
-        String(r.id).toLowerCase().startsWith(`${id}-`) ||
-        String(r.id).replace(/-/g, "").toLowerCase().startsWith(id),
-    ) || null
-  );
+  const hits = (all || []).filter((r) => matchesShortId(r.id, id));
+  if (hits.length === 0) return null;
+
+  // Same id prefix in two workspaces and no ?w= to disambiguate — refuse rather than guess.
+  if (!orgId && new Set(hits.map((r) => String(r.org_id))).size > 1) return null;
+  return hits[0];
 }
 
 /** Meta / WhatsApp / API clients need the raw PDF bytes, not an HTML wrapper. */
@@ -156,7 +166,13 @@ export const Route = createFileRoute("/f/$fileSlug")({
             return new Response("File not found", { status: 404 });
           }
 
-          const doc = await findDocByShortId(supabase, shortId);
+          const token = new URL(request.url).searchParams.get("w");
+          const orgId = await resolveOrgIdFromLinkToken(supabase, token);
+          if (token && !orgId) {
+            return new Response("File not found", { status: 404 });
+          }
+
+          const doc = await findDocByShortId(supabase, shortId, orgId);
 
           if (!doc?.storage_path || String(doc.status) === "failed") {
             return new Response("File not found", { status: 404 });
@@ -172,7 +188,7 @@ export const Route = createFileRoute("/f/$fileSlug")({
           if (!wantsRawPdf(request)) {
             const url = new URL(request.url);
             url.searchParams.set("download", "1");
-            return mobileDownloadPage(downloadName, `${url.pathname}?download=1`);
+            return mobileDownloadPage(downloadName, `${url.pathname}${url.search}`);
           }
 
           const forceDownload = new URL(request.url).searchParams.get("download") === "1";

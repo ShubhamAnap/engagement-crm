@@ -1,7 +1,11 @@
 /**
  * Public short URLs for customer-facing file shares (WhatsApp, chat, email).
  * Full Storage URLs stay in DB; sharing uses /c/{sku}, /d/{documentId}, or /f/{Name.pdf}.
+ *
+ * `/c` and `/f` carry a `?w=` workspace token so a SKU or document-id prefix that
+ * exists in two workspaces still resolves to the workspace that shared the link.
  */
+import { orgLinkTokenParam } from "@/lib/org-link-token";
 
 export function getAppBaseUrl(): string {
   const fromProcess =
@@ -44,16 +48,26 @@ export function datasheetFileSlug(documentId: string, title: string, fileName?: 
   return `${stem || "datasheet"}-${idPart}.pdf`;
 }
 
-/** Path only: /f/E-Series-Solar-aaf86f2d.pdf */
-export function shortDatasheetPath(documentId: string, title: string, fileName?: string | null): string {
+/** Path only: /f/E-Series-Solar-aaf86f2d.pdf?w={workspace} */
+export function shortDatasheetPath(
+  documentId: string,
+  title: string,
+  fileName?: string | null,
+  orgId?: string | null,
+): string {
   const id = documentId.trim();
   if (!id) return "";
-  return `/f/${encodeURIComponent(datasheetFileSlug(id, title, fileName))}`;
+  return `/f/${encodeURIComponent(datasheetFileSlug(id, title, fileName))}${orgLinkTokenParam(orgId)}`;
 }
 
 /** Full short URL that still looks like a PDF filename. */
-export function shortDatasheetUrl(documentId: string, title: string, fileName?: string | null): string {
-  const path = shortDatasheetPath(documentId, title, fileName);
+export function shortDatasheetUrl(
+  documentId: string,
+  title: string,
+  fileName?: string | null,
+  orgId?: string | null,
+): string {
+  const path = shortDatasheetPath(documentId, title, fileName, orgId);
   if (!path) return "";
   const base = getAppBaseUrl();
   // Absolute URL required for WhatsApp / external clients
@@ -61,16 +75,16 @@ export function shortDatasheetUrl(documentId: string, title: string, fileName?: 
   return path;
 }
 
-/** Path only: /c/EN-3000X */
-export function shortProductCataloguePath(sku: string): string {
+/** Path only: /c/EN-3000X?w={workspace} */
+export function shortProductCataloguePath(sku: string, orgId?: string | null): string {
   const trimmed = sku.trim();
   if (!trimmed) return "";
-  return `/c/${encodeURIComponent(trimmed)}`;
+  return `/c/${encodeURIComponent(trimmed)}${orgLinkTokenParam(orgId)}`;
 }
 
 /** Full short URL for product catalogue PDF. */
-export function shortProductCatalogueUrl(sku: string): string {
-  const path = shortProductCataloguePath(sku);
+export function shortProductCatalogueUrl(sku: string, orgId?: string | null): string {
+  const path = shortProductCataloguePath(sku, orgId);
   if (!path) return "";
   const base = getAppBaseUrl();
   // Prefer absolute URL for WhatsApp / external clients

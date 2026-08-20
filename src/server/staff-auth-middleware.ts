@@ -22,34 +22,37 @@ export const staffAuthMiddleware = createMiddleware({ type: "function" })
     }
     return next({ headers });
   })
-  .server(async ({ next, request, serverFnMeta }) => {
-    function extractStaffToken(): string | null {
-      const authHeader = request.headers.get("authorization");
-      if (authHeader?.startsWith("Bearer ")) {
-        const bearer = authHeader.slice(7).trim();
-        if (bearer) return bearer;
-      }
+  .server(async ({ next, serverFnMeta }) => {
+    if (PUBLIC_SERVER_FN_NAMES.has(serverFnMeta.name)) {
+      return next();
+    }
 
-      const cookieHeader = request.headers.get("cookie") || "";
-      const re = new RegExp(`(?:^|;\\s*)${STAFF_ACCESS_COOKIE}=([^;]*)`);
-      const match = cookieHeader.match(re);
+    // Dynamic import: this module also runs on the client, where TanStack Start's
+    // import protection denies `@tanstack/react-start/server`.
+    const { getRequestHeader } = await import("@tanstack/react-start/server");
+
+    const authHeader = getRequestHeader("authorization");
+    const bearer = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+
+    let token = bearer || null;
+    if (!token) {
+      const cookieHeader = getRequestHeader("cookie") || "";
+      const match = cookieHeader.match(
+        new RegExp(`(?:^|;\\s*)${STAFF_ACCESS_COOKIE}=([^;]*)`),
+      );
       const raw = match?.[1]?.trim();
-      if (!raw) return null;
-
-      try {
-        return decodeURIComponent(raw);
-      } catch {
-        return raw;
+      if (raw) {
+        try {
+          token = decodeURIComponent(raw);
+        } catch {
+          token = raw;
+        }
       }
     }
 
-    if (!PUBLIC_SERVER_FN_NAMES.has(serverFnMeta.name)) {
-      const { requireStaffUser, runWithStaffToken } = await import("@/server/staff-auth");
-      const token = extractStaffToken();
-      return runWithStaffToken(token, async () => {
-        await requireStaffUser();
-        return next();
-      });
-    }
-    return next();
+    const { requireStaffUser, runWithStaffToken } = await import("@/server/staff-auth");
+    return runWithStaffToken(token, async () => {
+      await requireStaffUser();
+      return next();
+    });
   });

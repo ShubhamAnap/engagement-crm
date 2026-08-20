@@ -26,6 +26,7 @@ import { isEducateOnlyAsk } from "@/lib/conversation-intent";
 import {
   DEFAULT_ORG_ID,
   allowEnvChannelFallback,
+  assertUniqueChannelConfig,
   resolveChannelByConfig,
   resolveServiceOrgId,
   runWithOrg,
@@ -734,6 +735,26 @@ export const saveMetaChannelConfig = createServerFn({ method: "POST" })
     };
     const enable = data.enable ?? true;
     const label = data.type === "instagram" ? "Instagram Messaging" : "Facebook Messenger";
+    const orgId = await resolveServiceOrgId();
+
+    // Inbound Meta events route on page / IG account id, so they must not be shared.
+    await assertUniqueChannelConfig({
+      supabase,
+      type: data.type,
+      configKey: "page_id",
+      configValue: config.page_id || "",
+      exceptOrgId: orgId,
+      label: "Facebook Page",
+    });
+    await assertUniqueChannelConfig({
+      supabase,
+      type: data.type,
+      configKey: "ig_account_id",
+      configValue: config.ig_account_id || "",
+      exceptOrgId: orgId,
+      label: "Instagram account",
+    });
+
     const { data: updated, error } = await supabase
       .from("channels")
       .update({
@@ -743,7 +764,7 @@ export const saveMetaChannelConfig = createServerFn({ method: "POST" })
         status: enable ? "Connected" : "Disconnected",
         health: enable ? 100 : 0,
       })
-      .eq("org_id", await resolveServiceOrgId())
+      .eq("org_id", orgId)
       .eq("type", data.type)
       .select("*")
       .single();

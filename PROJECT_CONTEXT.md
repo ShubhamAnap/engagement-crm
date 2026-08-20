@@ -1,7 +1,59 @@
 # Engage CRM — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
-> **Last updated:** 2026-08-20
+> **Last updated:** 2026-08-20 (evening — pause ~2h; resume with sales checklist below)
+
+---
+
+## RESUME HERE — Sales readiness handoff (2026-08-20 ~18:15 IST)
+
+**Paused for ~2 hours.** Code is deployed; next session is ops + verification, not greenfield features.
+
+### Git / deploy
+- Branch: `main` clean and synced with `origin/main`
+- HEAD: `26eec6d` — *Give usage caps a grace period and add billing ops controls*
+- Live: https://engagement-crm.onrender.com/ (new platform Modules/Risk chunk confirmed served)
+- Platform admin email previously set for this product: `admin@engagecrm.com` (confirm still in `PLATFORM_ADMIN_EMAILS` on Render)
+
+### Product state (done in code)
+- Multi-org isolation hardening (short links `?w=`, channel identity uniqueness, Meta/Razorpay webhook signatures, suspended org gates, provision rollback)
+- Tenant UI no longer shows migration/env operator copy (`src/lib/feature-setup.ts`)
+- Billing ops: soft caps + grace, per-org modules, trials/contracts, invoices, Risk tab, CSV export (`045` + commit above)
+
+### Blocking sales — do next (in order)
+1. **Apply migrations 039–045** in production Supabase SQL Editor if not already. **Especially `045_billing_ops.sql`** (file open in IDE when paused). Until 045 runs, grace/modules/trials/invoice columns stay inactive (app falls back safely).
+2. After 044: `select * from public.channel_identity_conflicts;` must be empty.
+3. After 045 verify:
+   ```sql
+   select column_name from information_schema.columns
+   where table_name = 'organizations'
+     and column_name in ('feature_flags','custom_limits','trial_ends_at','usage_grace_until','past_due_since');
+   select * from public.organization_billing_state limit 5;
+   ```
+4. **Render env checklist:** `VITE_APP_URL` = public HTTPS; `PLATFORM_ADMIN_EMAILS`; `META_APP_SECRET` set + `META_WEBHOOK_ALLOW_UNSIGNED` empty; Razorpay all-or-nothing (`KEY` + `WEBHOOK_SECRET` + plan IDs, or none); Supabase Auth redirects `{APP_URL}/auth/callback` and `/accept-invite`.
+5. **Two-org isolation pass** — `docs/launch-runbook.md` §3 (Org A vs Org B data, storage, webhooks, widget key, `/c?w=`).
+6. **Platform smoke:** `/platform` → Risk loads; Modules → turn AI off on test org → replies refused; suspend/reactivate + support impersonation.
+7. **Business:** Terms/Privacy owner review; support owner reads runbook; one backup/restore drill.
+
+Full signoff checklist: `docs/launch-runbook.md` §7.
+
+### Not required to start selling
+- Maintenance banner
+- Rename `x-enertech-*` headers / per-org Meta verify tokens
+- Encrypt `channels.config` at rest (030 already hides config from non-admins via column grants)
+- `npm run check:db` (recommended later as ops hardening)
+
+### Nice follow-ups after first friendly customers
+- `npm run check:db` asserting 030/039/044/045 security state
+- Remove silent `select("*")` fallbacks in `src/lib/channels-api.ts`
+- Delete-account / delete-workspace staging test
+
+### Key paths for resume
+- Migration: `supabase/migrations/045_billing_ops.sql`
+- Runbook: `docs/launch-runbook.md`
+- Platform UI: `src/routes/platform/index.tsx`
+- Usage/grace: `src/server/org-usage.ts`
+- Risk: `src/server/platform-risk.ts`
 
 ---
 

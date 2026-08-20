@@ -18,7 +18,12 @@ export type AuditAction =
   | "platform.suspend"
   | "platform.reactivate"
   | "platform.plan_override"
-  | "platform.refund";
+  | "platform.refund"
+  | "platform.notes"
+  | "platform.member_update"
+  | "platform.admin_add"
+  | "platform.admin_remove"
+  | "platform.support_access";
 
 export type AuditInput = {
   orgId?: string | null;

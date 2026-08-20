@@ -5,6 +5,23 @@
 
 ---
 
+### Session 2026-08-20 — Platform console enterprise UX
+
+**Done:** Rebuilt `/platform` as an enterprise control plane:
+- KPI strip (workspaces, live, suspended, past due, members)
+- Shell tabs: Workspaces · Activity · Admins
+- Org search + status/plan filters
+- Detail tabs: Overview (usage meters), Team (enable/disable), Channels, Billing, Audit, Notes
+- State-aware Suspend/Reactivate; plan/credit/suspend via dialogs (no system/Razorpay ops copy in UI)
+- Org UUID hidden behind “Copy ID”; human audit labels (`src/lib/platform-labels.ts`)
+- APIs: overview stats, global audit, support notes, member toggle, platform admin add/remove, support-access audit
+
+**Ops:** Ensure `PLATFORM_ADMIN_EMAILS` on Render; migration `042` applied; login as platform admin → `/platform`.
+
+**Next:** Optional true org-impersonation session if support needs in-app tenant switch.
+
+---
+
 ### Session 2026-08-20 — Phase 6 (hardening / launch)
 
 **Done (repo):** Added self-delete account flow (Settings → Security), permanent workspace delete flow (Settings → Team → Danger zone), storage prefix cleanup for deleted orgs (`knowledge`, `branding`), launch/support documentation in `docs/launch-runbook.md`, and `npm run check:launch` for prelaunch readiness (migration/docs/env presence checks).

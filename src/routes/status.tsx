@@ -42,7 +42,7 @@ function StatusPage() {
   return (
     <div className="min-h-screen bg-background px-4 py-12">
       <div className="mx-auto max-w-lg text-center">
-        <Link to="/login" className="text-sm font-medium text-primary hover:underline">
+        <Link to="/features" className="text-sm font-medium text-primary hover:underline">
           Engage CRM
         </Link>
         <h1 className="mt-6 text-2xl font-bold tracking-tight text-foreground">Service status</h1>
@@ -102,7 +102,15 @@ function StatusPage() {
         </div>
 
         <p className="mt-6 text-xs text-muted-foreground">
-          For incidents, contact your workspace admin or platform support.
+          For incidents, contact{" "}
+          <a href="mailto:support@engagecrm.com" className="text-primary hover:underline">
+            support@engagecrm.com
+          </a>{" "}
+          or see{" "}
+          <Link to="/support" className="text-primary hover:underline">
+            Support
+          </Link>
+          .
         </p>
       </div>
     </div>

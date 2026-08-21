@@ -11,6 +11,8 @@ export type PlanLimits = {
   maxSeats: number | null;
   /** Display price per month (INR) — checkout only; not stored in DB. */
   priceInr: number | null;
+  /** Display price per month (USD) for Stripe Phase 2 — checkout only. */
+  priceUsd: number | null;
   label: string;
 };
 
@@ -18,6 +20,7 @@ export const PLAN_CATALOG: Record<PlanTier, PlanLimits> = {
   free: {
     label: "Free",
     priceInr: 0,
+    priceUsd: 0,
     monthlyAiSpendCapInr: 500,
     monthlyWhatsAppCap: 100,
     maxSeats: 3,
@@ -25,6 +28,7 @@ export const PLAN_CATALOG: Record<PlanTier, PlanLimits> = {
   starter: {
     label: "Starter",
     priceInr: 2999,
+    priceUsd: 39,
     monthlyAiSpendCapInr: 5000,
     monthlyWhatsAppCap: 2000,
     maxSeats: 10,
@@ -32,6 +36,7 @@ export const PLAN_CATALOG: Record<PlanTier, PlanLimits> = {
   pro: {
     label: "Pro",
     priceInr: 9999,
+    priceUsd: 129,
     monthlyAiSpendCapInr: 25000,
     monthlyWhatsAppCap: 10000,
     maxSeats: 50,
@@ -39,6 +44,7 @@ export const PLAN_CATALOG: Record<PlanTier, PlanLimits> = {
   enterprise: {
     label: "Enterprise",
     priceInr: null,
+    priceUsd: null,
     monthlyAiSpendCapInr: null,
     monthlyWhatsAppCap: null,
     maxSeats: null,

@@ -24,6 +24,7 @@ import { describeLoadError, featureNotSetUp } from "@/lib/feature-setup";
 import { downloadCsv } from "@/lib/csv";
 import { getDashboardSnapshot } from "@/lib/dashboard-api";
 import { getSpendSnapshot } from "@/lib/spend-api";
+import { GettingStartedChecklist } from "@/components/dashboard/GettingStartedChecklist";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -168,6 +169,7 @@ function Dashboard() {
       />
 
       <div className="space-y-6 p-6">
+        {orgId ? <GettingStartedChecklist orgId={orgId} /> : null}
         {dashboardQuery.isError ? (
           <EmptyState
             title="Could not load dashboard"

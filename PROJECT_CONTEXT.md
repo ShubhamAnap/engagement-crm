@@ -1,7 +1,21 @@
 # Engage CRM — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
-> **Last updated:** 2026-08-21 (UI polish pass — auth brand, dashboard hierarchy, chrome)
+> **Last updated:** 2026-08-21 (public SaaS packaging — India → worldwide)
+
+---
+
+### Session 2026-08-21 — Public SaaS business packaging (India → worldwide)
+
+**Product model locked:** subscription SaaS (not codebase sale). See `docs/business-model.md`.
+
+**Shipped in code:**
+- Public pages: `/features`, `/pricing`, `/support`, `/dpa` (+ refreshed Terms/Privacy)
+- Marketing shell, support SLAs, dashboard getting-started checklist
+- Stripe USD foundations: `047_stripe_billing.sql`, checkout + `/api/webhooks/stripe`
+- GTM docs: `docs/india-gtm-playbook.md`, `docs/worldwide-expansion.md`
+
+**Still manual:** apply `046`/`047` in Supabase as needed; Razorpay/OpenAI on Render; founder sales per India playbook.
 
 ---
 

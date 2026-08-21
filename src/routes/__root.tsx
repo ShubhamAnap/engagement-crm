@@ -192,6 +192,10 @@ function AuthenticatedShell() {
   const isTerms = pathname === "/terms";
   const isPrivacy = pathname === "/privacy";
   const isStatus = pathname === "/status";
+  const isPricing = pathname === "/pricing";
+  const isFeatures = pathname === "/features";
+  const isSupport = pathname === "/support";
+  const isDpa = pathname === "/dpa";
   const isPlatform = pathname === "/platform" || pathname.startsWith("/platform/");
   const isPublic =
     isLogin ||
@@ -203,6 +207,10 @@ function AuthenticatedShell() {
     isTerms ||
     isPrivacy ||
     isStatus ||
+    isPricing ||
+    isFeatures ||
+    isSupport ||
+    isDpa ||
     isEmbed ||
     isCatalogueShortLink ||
     isDocShortLink ||

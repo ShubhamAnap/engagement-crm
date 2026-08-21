@@ -5,7 +5,7 @@
  * Needs: SUPABASE_URL (or VITE_SUPABASE_URL) + SUPABASE_SERVICE_ROLE_KEY in .env
  *
  * Checks migrations 030 (channel config ACL), 039 (storage org paths), 044 (channel
- * identity uniqueness), 045 (billing ops), 046 (platform settings).
+ * identity uniqueness), 045 (billing ops), 046 (platform settings), 047 (Stripe columns).
  */
 import { createClient } from "@supabase/supabase-js";
 
@@ -138,6 +138,25 @@ async function main() {
     fail("046 platform_settings row id=1 missing", "re-run 046 insert");
   } else {
     ok("046 platform_settings singleton present");
+  }
+
+  // --- 047: Stripe billing columns (warn unless Stripe is configured) ---
+  const { error: stripeErr } = await supabase
+    .from("organizations")
+    .select("id, stripe_customer_id, stripe_subscription_id")
+    .limit(1);
+  if (stripeErr) {
+    if (/column|42703|PGRST204/i.test(stripeErr.message || "")) {
+      if (process.env.STRIPE_SECRET_KEY?.trim()) {
+        fail("047 stripe billing columns missing", "run 047_stripe_billing.sql before Stripe");
+      } else {
+        warn("047 stripe columns not applied", "optional until USD billing — run 047_stripe_billing.sql");
+      }
+    } else {
+      fail("047 organizations stripe select", stripeErr.message);
+    }
+  } else {
+    ok("047 stripe billing columns present");
   }
 
   console.log("");

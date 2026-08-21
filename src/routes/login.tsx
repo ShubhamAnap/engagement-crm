@@ -158,11 +158,29 @@ function LoginPage() {
           </Link>
         </p>
         <p className="mt-3 text-center text-xs text-muted-foreground">
-          <Link to="/terms" className="hover:underline">Terms</Link>
+          <Link to="/features" className="hover:underline">
+            Product
+          </Link>
           {" · "}
-          <Link to="/privacy" className="hover:underline">Privacy</Link>
+          <Link to="/pricing" className="hover:underline">
+            Pricing
+          </Link>
           {" · "}
-          <Link to="/status" className="hover:underline">Status</Link>
+          <Link to="/support" className="hover:underline">
+            Support
+          </Link>
+          {" · "}
+          <Link to="/terms" className="hover:underline">
+            Terms
+          </Link>
+          {" · "}
+          <Link to="/privacy" className="hover:underline">
+            Privacy
+          </Link>
+          {" · "}
+          <Link to="/status" className="hover:underline">
+            Status
+          </Link>
         </p>
       </div>
     </div>

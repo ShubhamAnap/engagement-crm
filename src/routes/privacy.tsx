@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { LegalShell } from "@/components/legal/LegalShell";
+import { PRIVACY_EMAIL, PRODUCT_NAME, SUPPORT_EMAIL } from "@/lib/public-site";
 
 export const Route = createFileRoute("/privacy")({
   head: () => ({
@@ -10,11 +11,11 @@ export const Route = createFileRoute("/privacy")({
 
 function PrivacyPage() {
   return (
-    <LegalShell title="Privacy Policy" updated="20 August 2026">
+    <LegalShell title="Privacy Policy" updated="21 August 2026">
       <section className="space-y-4 text-sm leading-relaxed text-muted-foreground">
         <p>
-          EnerTech UPS Pvt. Ltd. (&quot;we&quot;) operates Engage CRM. This Privacy Policy explains
-          how we collect, use, and protect information when you use our Service.
+          This Privacy Policy explains how {PRODUCT_NAME} (&quot;we&quot;) collects, uses, and
+          protects information when you use our Service.
         </p>
 
         <h2 className="text-base font-semibold text-foreground">1. Information we collect</h2>
@@ -32,8 +33,8 @@ function PrivacyPage() {
             audit events, and technical logs (IP, browser, errors).
           </li>
           <li>
-            <strong className="text-foreground">Payment data:</strong> processed by Razorpay; we store
-            subscription IDs and plan status, not full card numbers.
+            <strong className="text-foreground">Payment data:</strong> processed by Razorpay and/or
+            Stripe; we store subscription IDs and plan status, not full card numbers.
           </li>
         </ul>
 
@@ -48,9 +49,13 @@ function PrivacyPage() {
         <h2 className="text-base font-semibold text-foreground">3. Sharing</h2>
         <p>
           We share data with subprocessors needed to operate the Service: Supabase (database/auth),
-          Render (hosting), OpenAI (AI), Meta/Google (messaging channels), Razorpay (payments), and
-          email delivery providers. We do not sell personal data. We may disclose data if required by
-          law or to protect rights and safety.
+          Render (hosting), OpenAI (AI), Meta/Google (messaging channels), Razorpay/Stripe (payments),
+          and email delivery providers. We do not sell personal data. We may disclose data if required
+          by law or to protect rights and safety. See also the{" "}
+          <Link to="/dpa" className="text-primary hover:underline">
+            DPA
+          </Link>
+          .
         </p>
 
         <h2 className="text-base font-semibold text-foreground">4. Retention</h2>
@@ -63,20 +68,33 @@ function PrivacyPage() {
         <h2 className="text-base font-semibold text-foreground">5. Security</h2>
         <p>
           We use encryption in transit, row-level security per organization, isolated storage paths,
-          and access controls. No method is 100% secure; report concerns to support.
+          and access controls. No method is 100% secure; report concerns to{" "}
+          <a href={`mailto:${PRIVACY_EMAIL}`} className="text-primary hover:underline">
+            {PRIVACY_EMAIL}
+          </a>
+          .
         </p>
 
-        <h2 className="text-base font-semibold text-foreground">6. Your rights</h2>
+        <h2 className="text-base font-semibold text-foreground">6. Your rights (including GDPR)</h2>
         <p>
           Depending on jurisdiction, you may request access, correction, deletion, or portability of
-          personal data. Workspace admins manage team and customer data within the product. Contact us
-          for account-level requests.
+          personal data, and object to or restrict certain processing. Workspace admins manage team
+          and customer data within the product. For account-level requests contact{" "}
+          <a href={`mailto:${PRIVACY_EMAIL}`} className="text-primary hover:underline">
+            {PRIVACY_EMAIL}
+          </a>
+          . EU/UK customers should review the{" "}
+          <Link to="/dpa" className="text-primary hover:underline">
+            DPA
+          </Link>{" "}
+          and confirm the database region meets their residency needs before processing regulated
+          personal data at scale.
         </p>
 
         <h2 className="text-base font-semibold text-foreground">7. International transfers</h2>
         <p>
-          Data may be processed in India and where our subprocessors operate. We take steps to ensure
-          appropriate safeguards.
+          Data may be processed in India and where our subprocessors operate. For cross-border use we
+          take steps to ensure appropriate safeguards consistent with the DPA and applicable law.
         </p>
 
         <h2 className="text-base font-semibold text-foreground">8. Changes</h2>
@@ -89,7 +107,17 @@ function PrivacyPage() {
         </p>
 
         <h2 className="text-base font-semibold text-foreground">9. Contact</h2>
-        <p>Privacy inquiries: support@enertechups.com</p>
+        <p>
+          Privacy:{" "}
+          <a href={`mailto:${PRIVACY_EMAIL}`} className="text-primary hover:underline">
+            {PRIVACY_EMAIL}
+          </a>
+          . Support:{" "}
+          <a href={`mailto:${SUPPORT_EMAIL}`} className="text-primary hover:underline">
+            {SUPPORT_EMAIL}
+          </a>
+          .
+        </p>
       </section>
     </LegalShell>
   );

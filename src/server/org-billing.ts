@@ -17,6 +17,7 @@ import {
 } from "@/server/org-usage";
 import { recordAuditEvent } from "@/server/audit-log";
 import { requireStaffUser } from "@/server/staff-auth";
+import { stripeConfigured } from "@/server/org-billing-stripe";
 
 function forbidden(message = "Only Admin can manage billing"): never {
   const err = new Error(message);
@@ -76,12 +77,14 @@ export type BillingSummary = {
     tier: PlanTier;
     label: string;
     priceInr: number | null;
+    priceUsd: number | null;
     monthlyAiSpendCapInr: number | null;
     monthlyWhatsAppCap: number | null;
     maxSeats: number | null;
     current: boolean;
   }>;
   razorpayConfigured: boolean;
+  stripeConfigured: boolean;
   trialActive: boolean;
   trialEndsAt: string | null;
   /** Caps exceeded but still served until this time. */
@@ -120,12 +123,14 @@ export const getOrgBillingSummary = createServerFn({ method: "GET" }).handler(as
       tier,
       label: PLAN_CATALOG[tier].label,
       priceInr: PLAN_CATALOG[tier].priceInr,
+      priceUsd: PLAN_CATALOG[tier].priceUsd,
       monthlyAiSpendCapInr: PLAN_CATALOG[tier].monthlyAiSpendCapInr,
       monthlyWhatsAppCap: PLAN_CATALOG[tier].monthlyWhatsAppCap,
       maxSeats: PLAN_CATALOG[tier].maxSeats,
       current: tier === snap.planTier,
     })),
     razorpayConfigured: razorpayConfigured(),
+    stripeConfigured: stripeConfigured(),
     trialActive: snap.trialActive,
     trialEndsAt: snap.trialEndsAt,
     usageGraceUntil: snap.usageGraceUntil,
@@ -389,6 +394,7 @@ const INVOICE_EVENT_TYPES = [
   "payment.captured",
   "payment.failed",
   "invoice.payment_failed",
+  "checkout.session.completed",
 ];
 
 /** Payment history for one workspace. Service role — callers must authorize first. */

@@ -278,6 +278,19 @@ function SignupPage() {
             Sign in
           </Link>
         </p>
+        <p className="mt-3 text-center text-xs text-muted-foreground">
+          <Link to="/features" className="hover:underline">
+            Product
+          </Link>
+          {" · "}
+          <Link to="/pricing" className="hover:underline">
+            Pricing
+          </Link>
+          {" · "}
+          <Link to="/support" className="hover:underline">
+            Support
+          </Link>
+        </p>
       </div>
     </div>
   );

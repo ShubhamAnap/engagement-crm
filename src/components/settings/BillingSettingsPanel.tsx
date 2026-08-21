@@ -15,7 +15,9 @@ import {
   saveOrgOpenAiKey,
   type BillingSummary,
 } from "@/server/org-billing";
+import { createStripeCheckout } from "@/server/org-billing-stripe";
 import { isNearLimit, isUnlimited, SOFT_LIMIT_RATIO } from "@/lib/plans";
+import { SUPPORT_EMAIL } from "@/lib/public-site";
 
 const QUERY_KEY = ["org-billing"] as const;
 
@@ -88,6 +90,16 @@ export function BillingSettingsPanel() {
       toast.success("Checkout opened in a new tab");
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Checkout failed"),
+  });
+
+  const stripeCheckoutMutation = useMutation({
+    mutationFn: (planTier: "starter" | "pro") => createStripeCheckout({ data: { planTier } }),
+    onSuccess: (data) => {
+      window.open(data.checkoutUrl, "_blank", "noopener,noreferrer");
+      toast.success("Stripe checkout opened in a new tab");
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Stripe checkout failed"),
   });
 
   const saveKeyMutation = useMutation({
@@ -225,6 +237,9 @@ export function BillingSettingsPanel() {
                     <p className="font-semibold text-foreground">{plan.label}</p>
                     <p className="text-sm text-muted-foreground">
                       {plan.priceInr != null ? `${formatInr(plan.priceInr)}/mo` : "Custom"}
+                      {plan.priceUsd != null && plan.priceUsd > 0 ? (
+                        <span className="block text-xs">or ${plan.priceUsd}/mo USD</span>
+                      ) : null}
                     </p>
                   </div>
                   {plan.current ? <Pill tone="success">Current</Pill> : null}
@@ -248,30 +263,63 @@ export function BillingSettingsPanel() {
                   </li>
                 </ul>
                 {!plan.current ? (
-                  <Button
-                    size="sm"
-                    className="mt-4 w-full gap-1.5"
-                    variant={plan.tier === "pro" ? "default" : "outline"}
-                    disabled={checkoutMutation.isPending || !data.razorpayConfigured}
-                    onClick={() =>
-                      checkoutMutation.mutate(plan.tier as "starter" | "pro")
-                    }
-                  >
-                    {checkoutMutation.isPending ? (
-                      <Loader2 className="size-3.5 animate-spin" />
-                    ) : (
-                      <CreditCard className="size-3.5" />
-                    )}
-                    {data.razorpayConfigured ? "Upgrade" : "Contact support"}
-                  </Button>
+                  <div className="mt-4 space-y-2">
+                    <Button
+                      size="sm"
+                      className="w-full gap-1.5"
+                      variant={plan.tier === "pro" ? "default" : "outline"}
+                      disabled={
+                        checkoutMutation.isPending ||
+                        stripeCheckoutMutation.isPending ||
+                        !data.razorpayConfigured
+                      }
+                      onClick={() =>
+                        checkoutMutation.mutate(plan.tier as "starter" | "pro")
+                      }
+                    >
+                      {checkoutMutation.isPending ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <CreditCard className="size-3.5" />
+                      )}
+                      {data.razorpayConfigured ? "Upgrade (INR)" : "INR checkout off"}
+                    </Button>
+                    {data.stripeConfigured ? (
+                      <Button
+                        size="sm"
+                        className="w-full gap-1.5"
+                        variant="outline"
+                        disabled={
+                          checkoutMutation.isPending || stripeCheckoutMutation.isPending
+                        }
+                        onClick={() =>
+                          stripeCheckoutMutation.mutate(plan.tier as "starter" | "pro")
+                        }
+                      >
+                        {stripeCheckoutMutation.isPending ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : (
+                          <CreditCard className="size-3.5" />
+                        )}
+                        Upgrade (USD)
+                      </Button>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             ))}
         </div>
-        {!data.razorpayConfigured ? (
+        {!data.razorpayConfigured && !data.stripeConfigured ? (
           <p className="mt-3 text-xs text-muted-foreground">
-            Self-serve upgrades are not switched on yet. Contact support and we will move your
-            workspace to the plan you need.
+            Self-serve upgrades are not switched on yet. Email{" "}
+            <a href={`mailto:${SUPPORT_EMAIL}`} className="text-primary hover:underline">
+              {SUPPORT_EMAIL}
+            </a>{" "}
+            and we will move your workspace to the plan you need.
+          </p>
+        ) : !data.razorpayConfigured ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            INR (Razorpay) is off; USD Stripe checkout is available above.
           </p>
         ) : null}
         {data.hasCustomLimits ? (

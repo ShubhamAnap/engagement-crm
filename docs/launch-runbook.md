@@ -14,6 +14,7 @@ Run these in Supabase SQL Editor, in order:
 6. `044_channel_identity_uniqueness.sql`
 7. `045_billing_ops.sql`
 8. `046_platform_settings.sql`
+9. `047_stripe_billing.sql` (USD Stripe columns — required before enabling Stripe checkout)
 
 After `044`, confirm no workspace shares an inbound identifier:
 
@@ -41,6 +42,11 @@ indexes are created.
     `subscription.activated` and upgrade any workspace. Production returns 403 when unset.
   - `RAZORPAY_PLAN_STARTER`
   - `RAZORPAY_PLAN_PRO`
+- Stripe USD billing (Phase 2 worldwide — optional until India MRR is stable):
+  - `STRIPE_SECRET_KEY`
+  - `STRIPE_WEBHOOK_SECRET` — required in production for `/api/webhooks/stripe`
+  - `STRIPE_PRICE_STARTER` / `STRIPE_PRICE_PRO` — Stripe Price ids (`price_…`)
+  - Run migration `047_stripe_billing.sql` first
 - Meta webhooks (WhatsApp / Facebook / Instagram):
   - `META_APP_SECRET` — the Meta **App Secret**, not an access token. Production rejects
     unsigned or mismatched webhooks without it, because every workspace is subscribed to
@@ -210,9 +216,11 @@ Operator actions in `/platform` → select workspace:
 
 ## 7. Pre-launch signoff
 
-- [ ] Migrations 039–046 run in production Supabase
+- [ ] Migrations 039–047 run in production Supabase (047 only if enabling Stripe)
 - [ ] `channel_identity_conflicts` returns no rows
 - [ ] `npm run check:db` passes against production
+- [ ] Public pages live: `/features`, `/pricing`, `/support`, `/terms`, `/privacy`, `/dpa`, `/status`
+- [ ] Support email monitored (`support@engagecrm.com` or your operational alias)
 - [ ] `/platform` → Ops → maintenance banner can be toggled
 - [ ] `/platform` → Risk tab loads and shows no unexplained signals
 - [ ] Module switches verified: turn AI off for a test workspace, confirm replies are refused
@@ -222,5 +230,6 @@ Operator actions in `/platform` → select workspace:
 - [ ] Backup/restore drill completed
 - [ ] Delete-account and delete-workspace flows tested in staging
 - [ ] Platform admin access tested
-- [ ] Terms / Privacy copy reviewed by business/legal owner
-- [ ] Support owner has read this runbook
+- [ ] Terms / Privacy / DPA copy reviewed by business/legal owner
+- [ ] Support owner has read this runbook and `docs/india-gtm-playbook.md`
+- [ ] Razorpay env set if taking INR self-serve; Stripe env only when marketing outside India

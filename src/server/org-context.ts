@@ -183,7 +183,13 @@ export async function resolveChannelByConfig(
   return hit;
 }
 
-/** True if any channel of this type stores this verify_token (or env for the legacy org). */
+/**
+ * Meta webhook GET challenge: accept the token if any workspace channel of this type
+ * stores it. Env tokens (`WHATSAPP_VERIFY_TOKEN`, etc.) are legacy single-tenant only —
+ * they still work when the DEFAULT_ORG channel has no verify_token of its own, so an
+ * existing Meta app configured with the env value keeps verifying. New workspaces must
+ * set a unique token under Channels → Configure.
+ */
 export async function verifyTokenMatchesAnyOrg(
   supabase: ServiceSupabase,
   type: string,
@@ -192,13 +198,21 @@ export async function verifyTokenMatchesAnyOrg(
 ): Promise<boolean> {
   const want = token.trim();
   if (!want) return false;
-  if (envToken && want === envToken.trim()) return true;
-  const { data: rows } = await supabase.from("channels").select("config").eq("type", type);
+
+  const { data: rows } = await supabase.from("channels").select("org_id, config").eq("type", type);
+  let defaultOrgHasOwnToken = false;
   for (const row of rows ?? []) {
     const cfg = asConfig(row.config);
-    if (String(cfg.verify_token || "").trim() === want) return true;
+    const stored = String(cfg.verify_token || "").trim();
+    if (!stored) continue;
+    if (String(row.org_id) === DEFAULT_ORG_ID) defaultOrgHasOwnToken = true;
+    if (stored === want) return true;
   }
-  return false;
+
+  const env = envToken?.trim() || "";
+  if (!env || want !== env) return false;
+  // Env unlock only while the legacy tenant has not moved to a channel-owned token.
+  return !defaultOrgHasOwnToken;
 }
 
 export function newWidgetPublicKey(): string {

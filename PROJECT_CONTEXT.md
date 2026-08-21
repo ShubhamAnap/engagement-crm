@@ -1,11 +1,44 @@
 # Engage CRM — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
-> **Last updated:** 2026-08-20 (evening — pause ~2h; resume with sales checklist below)
+> **Last updated:** 2026-08-21 (morning — 045 applied; next: Render env + two-org smoke)
 
 ---
 
-## RESUME HERE — Sales readiness handoff (2026-08-20 ~18:15 IST)
+## RESUME HERE — Sales readiness handoff (2026-08-21)
+
+**Status:** Product live; **045 applied**; platform smoke OK. Code for remaining launch
+items shipped (maintenance banner, check:db, channels ACL harden, Meta verify tokens).
+**Apply `046_platform_settings.sql`** in Supabase when ready.
+
+### Git / deploy
+- Live: https://engagement-crm.onrender.com/
+- Platform admin: `admin@engagecrm.com`
+
+### Done for launch (ops + code)
+- [x] Migration `045` applied
+- [x] Render env + `/platform` smoke
+- [x] Maintenance banner (migration `046`, `/platform` → Ops, tenant + login shells, `/status`)
+- [x] `npm run check:db` script (030/039/044/045/046)
+- [x] channels-api no longer falls back to `select("*")` / plaintext config
+- [x] Per-channel Meta verify tokens preferred; env legacy only; Generate button; uniqueness on save
+
+### Still for you (manual — not code)
+1. Run `046_platform_settings.sql` in Supabase
+2. `npm run check:db` with production service role in `.env`
+3. Two-org isolation pass (`docs/launch-runbook.md` §3) when you have time
+4. Terms/Privacy owner review; support owner; know backups exist
+5. Razorpay / OpenAI env if taking self-serve payments / platform AI
+
+### Not required
+- Encrypt `channels.config` at rest (030 column grants already hide from non-admins)
+- Rename `x-enertech-*` headers (cosmetic)
+
+---
+
+## RESUME HERE — Sales readiness handoff (2026-08-21 morning) [superseded]
+
+## RESUME HERE — Sales readiness handoff (2026-08-20 ~18:15 IST) [superseded]
 
 **Paused for ~2 hours.** Code is deployed; next session is ops + verification, not greenfield features.
 

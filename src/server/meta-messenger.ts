@@ -754,6 +754,18 @@ export const saveMetaChannelConfig = createServerFn({ method: "POST" })
       exceptOrgId: orgId,
       label: "Instagram account",
     });
+    await assertUniqueChannelConfig({
+      supabase,
+      type: data.type,
+      configKey: "verify_token",
+      configValue: config.verify_token || "",
+      exceptOrgId: orgId,
+      label: "Meta verify token",
+      reservedEnvValue:
+        data.type === "instagram"
+          ? process.env.INSTAGRAM_VERIFY_TOKEN || process.env.META_VERIFY_TOKEN
+          : process.env.FACEBOOK_VERIFY_TOKEN || process.env.META_VERIFY_TOKEN,
+    });
 
     const { data: updated, error } = await supabase
       .from("channels")

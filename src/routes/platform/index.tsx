@@ -70,6 +70,11 @@ import {
   type PlatformOrgRow,
 } from "@/server/platform-console";
 import { getPlatformRiskSignals, type RiskSeverity } from "@/server/platform-risk";
+import {
+  getPlatformSettings,
+  setPlatformMaintenance,
+  type MaintenanceSeverity,
+} from "@/server/platform-settings";
 import { startPlatformImpersonation } from "@/server/platform-impersonation";
 import { downloadCsv } from "@/lib/csv";
 import { FEATURE_CATALOG, FEATURE_KEYS, parseFeatureFlags, type FeatureKey } from "@/lib/features";
@@ -134,7 +139,9 @@ function PlatformConsolePage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [planFilter, setPlanFilter] = useState<PlanFilter>("all");
   const [detailTab, setDetailTab] = useState<DetailTab>("overview");
-  const [shellTab, setShellTab] = useState<"tenants" | "risk" | "admins" | "activity">("tenants");
+  const [shellTab, setShellTab] = useState<"tenants" | "risk" | "admins" | "activity" | "ops">(
+    "tenants",
+  );
 
   const [suspendOpen, setSuspendOpen] = useState(false);
   const [suspendReason, setSuspendReason] = useState("");
@@ -165,6 +172,28 @@ function PlatformConsolePage() {
     queryFn: () => getPlatformRiskSignals(),
     enabled: accessQuery.isSuccess && shellTab === "risk",
   });
+
+  const settingsQuery = useQuery({
+    queryKey: ["platform-settings"],
+    queryFn: () => getPlatformSettings(),
+    enabled: accessQuery.isSuccess && shellTab === "ops",
+  });
+
+  const [maintEnabled, setMaintEnabled] = useState(false);
+  const [maintMessage, setMaintMessage] = useState("");
+  const [maintSeverity, setMaintSeverity] = useState<MaintenanceSeverity>("info");
+
+  useEffect(() => {
+    const s = settingsQuery.data;
+    if (!s) return;
+    setMaintEnabled(s.maintenanceEnabled);
+    setMaintMessage(s.maintenanceMessage);
+    setMaintSeverity(s.maintenanceSeverity);
+  }, [
+    settingsQuery.data?.maintenanceEnabled,
+    settingsQuery.data?.maintenanceMessage,
+    settingsQuery.data?.maintenanceSeverity,
+  ]);
 
   const detailQuery = useQuery({
     queryKey: ["platform-org", selectedId],
@@ -391,6 +420,24 @@ function PlatformConsolePage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Could not clear grace"),
   });
 
+  const maintenanceMutation = useMutation({
+    mutationFn: () =>
+      setPlatformMaintenance({
+        data: {
+          enabled: maintEnabled,
+          message: maintMessage,
+          severity: maintSeverity,
+        },
+      }),
+    onSuccess: async () => {
+      toast.success(maintEnabled ? "Maintenance banner on" : "Maintenance banner off");
+      await queryClient.invalidateQueries({ queryKey: ["platform-settings"] });
+      await queryClient.invalidateQueries({ queryKey: ["platform-maintenance-banner"] });
+      await queryClient.invalidateQueries({ queryKey: ["platform-audit-global"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not save maintenance"),
+  });
+
   const impersonateMutation = useMutation({
     mutationFn: () => startPlatformImpersonation({ data: { orgId: selectedId! } }),
     onSuccess: async (res) => {
@@ -542,6 +589,7 @@ function PlatformConsolePage() {
             <TabsTrigger value="tenants">Workspaces</TabsTrigger>
             <TabsTrigger value="risk">Risk</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
+            <TabsTrigger value="ops">Ops</TabsTrigger>
             <TabsTrigger value="admins">Admins</TabsTrigger>
           </TabsList>
 
@@ -1165,6 +1213,92 @@ function PlatformConsolePage() {
                   ))}
                 </ul>
               )}
+            </Panel>
+          </TabsContent>
+
+          <TabsContent value="ops" className="mt-4 space-y-4">
+            <Panel
+              title="Maintenance banner"
+              description="Shown at the top of every page, including sign-in. Use for planned downtime or incidents."
+            >
+              {settingsQuery.isLoading ? (
+                <Loader2 className="size-5 animate-spin text-muted-foreground" />
+              ) : settingsQuery.data?.missingMigration ? (
+                <EmptyState
+                  icon={AlertTriangle}
+                  title="Migration required"
+                  description="Run supabase/migrations/046_platform_settings.sql in the Supabase SQL Editor, then refresh."
+                />
+              ) : (
+                <div className="space-y-4">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={maintEnabled}
+                      onChange={(e) => setMaintEnabled(e.target.checked)}
+                    />
+                    Show maintenance banner to all workspaces
+                  </label>
+                  <div>
+                    <Label htmlFor="maint-severity">Severity</Label>
+                    <Select
+                      value={maintSeverity}
+                      onValueChange={(v) => setMaintSeverity(v as MaintenanceSeverity)}
+                    >
+                      <SelectTrigger id="maint-severity" className="mt-1 max-w-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="info">Info</SelectItem>
+                        <SelectItem value="warning">Warning</SelectItem>
+                        <SelectItem value="critical">Critical</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="maint-message">Message</Label>
+                    <Textarea
+                      id="maint-message"
+                      rows={3}
+                      className="mt-1"
+                      value={maintMessage}
+                      onChange={(e) => setMaintMessage(e.target.value)}
+                      placeholder="We are upgrading WhatsApp delivery tonight from 11pm–1am IST…"
+                      maxLength={500}
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {maintMessage.length}/500
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    disabled={maintenanceMutation.isPending}
+                    onClick={() => maintenanceMutation.mutate()}
+                  >
+                    Save banner
+                  </Button>
+                  {settingsQuery.data?.updatedAt ? (
+                    <p className="text-xs text-muted-foreground">
+                      Last updated {new Date(settingsQuery.data.updatedAt).toLocaleString()}
+                    </p>
+                  ) : null}
+                </div>
+              )}
+            </Panel>
+            <Panel title="Launch checks (operator)">
+              <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
+                <li>
+                  Apply migrations through <code className="text-xs">046_platform_settings.sql</code>{" "}
+                  in Supabase
+                </li>
+                <li>
+                  Run <code className="text-xs">npm run check:db</code> locally against production
+                  keys
+                </li>
+                <li>
+                  Full checklist: <code className="text-xs">docs/launch-runbook.md</code>
+                </li>
+              </ul>
             </Panel>
           </TabsContent>
 

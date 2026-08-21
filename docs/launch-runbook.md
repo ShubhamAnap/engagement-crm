@@ -13,6 +13,7 @@ Run these in Supabase SQL Editor, in order:
 5. `043_platform_impersonation.sql`
 6. `044_channel_identity_uniqueness.sql`
 7. `045_billing_ops.sql`
+8. `046_platform_settings.sql`
 
 After `044`, confirm no workspace shares an inbound identifier:
 
@@ -209,8 +210,10 @@ Operator actions in `/platform` → select workspace:
 
 ## 7. Pre-launch signoff
 
-- [ ] Migrations 039–045 run in production Supabase
+- [ ] Migrations 039–046 run in production Supabase
 - [ ] `channel_identity_conflicts` returns no rows
+- [ ] `npm run check:db` passes against production
+- [ ] `/platform` → Ops → maintenance banner can be toggled
 - [ ] `/platform` → Risk tab loads and shows no unexplained signals
 - [ ] Module switches verified: turn AI off for a test workspace, confirm replies are refused
 - [ ] `META_APP_SECRET` set and `META_WEBHOOK_ALLOW_UNSIGNED` empty (signed webhooks enforced)

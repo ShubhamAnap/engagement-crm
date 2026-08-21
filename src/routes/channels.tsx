@@ -2834,13 +2834,33 @@ function Page() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="wa-verify">Verify Token</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="wa-verify">Verify Token</Label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-xs"
+                    onClick={() => {
+                      const bytes = new Uint8Array(16);
+                      crypto.getRandomValues(bytes);
+                      setWaVerifyToken(
+                        `wa_${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`,
+                      );
+                    }}
+                  >
+                    Generate
+                  </Button>
+                </div>
                 <Input
                   id="wa-verify"
                   value={waVerifyToken}
                   onChange={(e) => setWaVerifyToken(e.target.value)}
-                  placeholder="Any secret string — must match Meta webhook"
+                  placeholder="Unique secret — must match Meta webhook"
                 />
+                <p className="text-xs text-muted-foreground">
+                  Each workspace should use its own token. Paste the same value into Meta → Webhooks.
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="wa-waba">WhatsApp Business Account ID (required for templates / broadcasting)</Label>
@@ -2978,12 +2998,29 @@ function Page() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="meta-verify">Verify Token</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="meta-verify">Verify Token</Label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-xs"
+                    onClick={() => {
+                      const bytes = new Uint8Array(16);
+                      crypto.getRandomValues(bytes);
+                      setMetaVerifyToken(
+                        `meta_${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`,
+                      );
+                    }}
+                  >
+                    Generate
+                  </Button>
+                </div>
                 <Input
                   id="meta-verify"
                   value={metaVerifyToken}
                   onChange={(e) => setMetaVerifyToken(e.target.value)}
-                  placeholder="Must match Meta webhook verify token"
+                  placeholder="Unique secret — must match Meta webhook"
                 />
               </div>
               <div className="space-y-2">

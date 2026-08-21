@@ -2139,6 +2139,15 @@ export const saveWhatsAppChannelConfig = createServerFn({ method: "POST" })
       configValue: config.phone_number_id || "",
       exceptOrgId: orgId,
     });
+    await assertUniqueChannelConfig({
+      supabase,
+      type: "whatsapp",
+      configKey: "verify_token",
+      configValue: config.verify_token || "",
+      exceptOrgId: orgId,
+      label: "WhatsApp verify token",
+      reservedEnvValue: process.env.WHATSAPP_VERIFY_TOKEN,
+    });
 
     const enable = data.enable ?? true;
     const { data: updated, error } = await supabase

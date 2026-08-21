@@ -19,6 +19,7 @@
     "typecheck": "tsc --noEmit",
     "check:migrations": "node scripts/check-migrations.mjs",
     "check:launch": "node --env-file=.env scripts/launch-readiness.mjs",
+    "check:db": "node --env-file=.env scripts/check-db.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { Pill } from "@/components/shared/ui-kit";
+import { getPublicMaintenanceBanner } from "@/server/platform-settings";
 
 type HealthResponse = {
   ok: boolean;
@@ -29,7 +30,14 @@ function StatusPage() {
     refetchInterval: 60_000,
   });
 
+  const maintenanceQuery = useQuery({
+    queryKey: ["platform-maintenance-banner"],
+    queryFn: () => getPublicMaintenanceBanner(),
+    staleTime: 60_000,
+  });
+
   const ok = healthQuery.data?.ok === true;
+  const maintenance = maintenanceQuery.data;
 
   return (
     <div className="min-h-screen bg-background px-4 py-12">
@@ -57,6 +65,11 @@ function StatusPage() {
                   {ok ? "All systems operational" : "Degraded"}
                 </Pill>
               </div>
+              {maintenance?.enabled && maintenance.message.trim() ? (
+                <p className="mt-4 rounded-lg border border-amber-500/30 bg-amber-50 px-3 py-2 text-left text-sm text-amber-950 dark:bg-amber-950/40 dark:text-amber-50">
+                  {maintenance.message.trim()}
+                </p>
+              ) : null}
               <dl className="mt-6 space-y-2 text-left text-sm">
                 <div className="flex justify-between gap-4">
                   <dt className="text-muted-foreground">Application</dt>

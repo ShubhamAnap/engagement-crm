@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getBrowserSupabase } from "@/lib/supabase";
 import { isBusinessEmail } from "@/lib/auth-email";
-import { Building2, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { AuthBrandMark } from "@/components/auth/AuthBrandMark";
 
 export const Route = createFileRoute("/signup")({
   head: () => ({
@@ -132,18 +133,10 @@ function SignupPage() {
       <div className="relative w-full max-w-[440px]">
         {/* Card */}
         <div className="rounded-2xl border border-border/60 bg-card/95 p-8 shadow-xl shadow-black/5 backdrop-blur-md">
-          {/* Logo + header */}
-          <div className="mb-8 flex flex-col items-center text-center">
-            <div className="mb-5 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/90 to-primary shadow-lg shadow-primary/20">
-              <Building2 className="size-7 text-primary-foreground" />
-            </div>
-            <h1 className="text-2xl font-bold tracking-[-0.03em] text-foreground">
-              Create your workspace
-            </h1>
-            <p className="mt-1.5 text-[13px] text-muted-foreground">
-              Get started free — no credit card required
-            </p>
-          </div>
+          <AuthBrandMark
+            title="Create your workspace"
+            subtitle="Get started free — no credit card required"
+          />
 
           {/* Google signup */}
           <Button

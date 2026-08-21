@@ -83,11 +83,18 @@ function Dashboard() {
 
   const data = dashboardQuery.data;
   const loading = dashboardQuery.isLoading || !orgId;
+  const firstName = (profile?.fullName || "").trim().split(/\s+/)[0] || "there";
+  const allKpis = loading
+    ? Array.from({ length: 8 }, (_, i) => ({ label: "…", value: "—" }))
+    : data?.kpis ?? [];
+  const primaryKpis = allKpis.slice(0, 4);
+  const secondaryKpis = allKpis.slice(4);
 
   return (
     <>
       <PageHeader
         title="Dashboard"
+        description={`Good to see you, ${firstName}. Here’s how your workspace is running.`}
         meta={
           <>
             <Pill tone={dashboardQuery.isError ? "danger" : "success"} dot>
@@ -174,7 +181,7 @@ function Dashboard() {
         ) : null}
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {(loading ? Array.from({ length: 8 }, (_, i) => ({ label: "…", value: "—" })) : data?.kpis ?? []).map((k, i) => (
+          {primaryKpis.map((k, i) => (
             <StatCard
               key={`${k.label}-${i}`}
               label={k.label}
@@ -189,6 +196,27 @@ function Dashboard() {
             />
           ))}
         </div>
+
+        {secondaryKpis.length > 0 ? (
+          <Panel title="Coverage" description="Mix and catalog at a glance" bodyClassName="pt-2">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {secondaryKpis.map((k, i) => (
+                <StatCard
+                  key={`sec-${k.label}-${i}`}
+                  label={k.label}
+                  value={k.value}
+                  delta={typeof (k as Record<string, unknown>).delta === "string" ? String((k as Record<string, unknown>).delta) : undefined}
+                  trend={
+                    (k as Record<string, unknown>).trend === "up" || (k as Record<string, unknown>).trend === "down"
+                      ? ((k as Record<string, unknown>).trend as "up" | "down")
+                      : undefined
+                  }
+                  hint={typeof (k as Record<string, unknown>).hint === "string" ? String((k as Record<string, unknown>).hint) : undefined}
+                />
+              ))}
+            </div>
+          </Panel>
+        ) : null}
 
         {isAdmin ? (
           <div className="space-y-4">

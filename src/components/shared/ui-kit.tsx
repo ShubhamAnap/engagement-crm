@@ -36,23 +36,23 @@ export function PageHeader({
   meta?: ReactNode;
 }) {
   return (
-        <div className="border-b border-border bg-background/80 px-4 py-3 backdrop-blur sm:px-6 sm:py-5">
-          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 sm:gap-4">
-            <div className="min-w-0">
-              <h1 className="truncate text-base font-semibold tracking-[-0.02em] text-primary sm:text-[19px]">
-                {title}
-              </h1>
-              <span className="et-grad mt-2 block h-[3px] w-24 rounded-full" aria-hidden />
-              {description ? (
-                <p className="mt-1 line-clamp-2 hidden text-sm text-muted-foreground sm:block">
-                  {description}
-                </p>
-              ) : null}
-              {meta ? <div className="mt-3 flex flex-wrap items-center gap-2">{meta}</div> : null}
-            </div>
-            {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
-          </div>
+    <div className="border-b border-border bg-background/80 px-4 py-3.5 backdrop-blur sm:px-6 sm:py-5">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 sm:gap-4">
+        <div className="min-w-0">
+          <h1 className="truncate text-base font-semibold tracking-[-0.02em] text-primary sm:text-[19px]">
+            {title}
+          </h1>
+          <span className="et-grad mt-2.5 block h-[3px] w-24 rounded-full" aria-hidden />
+          {description ? (
+            <p className="mt-2 line-clamp-2 hidden text-sm leading-relaxed text-muted-foreground sm:block">
+              {description}
+            </p>
+          ) : null}
+          {meta ? <div className="mt-3 flex flex-wrap items-center gap-2">{meta}</div> : null}
         </div>
+        {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+      </div>
+    </div>
   );
 }
 
@@ -112,7 +112,7 @@ export function StatCard({
 }) {
   const good = trend === "up";
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-[var(--et-card-shadow)] transition-colors hover:border-primary/50">
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-[var(--et-card-shadow)] transition-[border-color,box-shadow] duration-150 hover:border-primary/40 hover:shadow-[var(--et-card-shadow),0_0_0_1px_color-mix(in_oklab,var(--primary)_8%,transparent)]">
       <div className="p-4">
         <div className="flex items-center justify-between gap-2">
           <span className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -355,13 +355,13 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
-      <div className="grid size-11 place-items-center rounded-xl border border-border bg-secondary">
-        <Icon className="size-5 text-muted-foreground" />
+      <div className="grid size-12 place-items-center rounded-xl border border-primary/15 bg-primary/10">
+        <Icon className="size-5 text-primary" />
       </div>
       <div>
-        <p className="text-sm font-medium text-foreground">{title}</p>
+        <p className="text-sm font-semibold text-foreground">{title}</p>
         {description ? (
-          <p className="mt-1 max-w-sm text-sm text-muted-foreground">{description}</p>
+          <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-muted-foreground">{description}</p>
         ) : null}
       </div>
       {action}

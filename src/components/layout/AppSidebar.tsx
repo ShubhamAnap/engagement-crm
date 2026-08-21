@@ -145,19 +145,23 @@ export function AppSidebar({
             <img
               src={logoUrl}
               alt=""
-              className="size-8 shrink-0 rounded-lg object-contain"
+              className="size-8 shrink-0 rounded-lg object-contain ring-1 ring-sidebar-border"
             />
           ) : (
-            <div className="grid size-8 shrink-0 place-items-center rounded-lg border border-sidebar-border bg-sidebar-accent/70 text-sidebar-foreground">
-              <Cpu className="size-4" />
+            <div className="et-grad grid size-8 shrink-0 place-items-center rounded-lg shadow-sm">
+              <span className="text-xs font-bold text-et-grad-fg" aria-hidden>
+                {(orgShort || "E").charAt(0).toUpperCase()}
+              </span>
             </div>
           )}
           {!collapsed && (
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
+              <p className="truncate text-sm font-semibold tracking-tight text-sidebar-accent-foreground">
                 {orgShort}
               </p>
-              <p className="truncate text-[11px] text-muted-foreground">{orgPlan} workspace</p>
+              <p className="truncate text-[11px] text-muted-foreground">
+                Engage · {orgPlan}
+              </p>
             </div>
           )}
         </Link>

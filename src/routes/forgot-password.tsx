@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getBrowserSupabase } from "@/lib/supabase";
 import { ArrowLeft, Loader2, Mail } from "lucide-react";
+import { AuthBrandMark } from "@/components/auth/AuthBrandMark";
 
 export const Route = createFileRoute("/forgot-password")({
   head: () => ({
@@ -88,17 +89,10 @@ function ForgotPasswordPage() {
           ) : (
             /* Form state */
             <>
-              <div className="mb-8 flex flex-col items-center text-center">
-                <div className="mb-5 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/90 to-primary shadow-lg shadow-primary/20">
-                  <Mail className="size-7 text-primary-foreground" />
-                </div>
-                <h1 className="text-2xl font-bold tracking-[-0.03em] text-foreground">
-                  Reset your password
-                </h1>
-                <p className="mt-1.5 text-[13px] text-muted-foreground">
-                  Enter your email and we'll send you a reset link
-                </p>
-              </div>
+              <AuthBrandMark
+                title="Reset your password"
+                subtitle="Enter your email and we'll send you a reset link"
+              />
 
               <form onSubmit={onSubmit} className="space-y-4">
                 <div className="space-y-1.5">

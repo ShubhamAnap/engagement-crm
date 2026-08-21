@@ -1,7 +1,22 @@
 # Engage CRM — Project Context & Implementation Tracker
 
 > **Purpose:** Persistent memory for AI + human developers. Read this at the start of every session before making changes.
-> **Last updated:** 2026-08-21 (morning — 045 applied; next: Render env + two-org smoke)
+> **Last updated:** 2026-08-21 (UI polish pass — auth brand, dashboard hierarchy, chrome)
+
+---
+
+### Session 2026-08-21 — UI/UX polish (navy desk language)
+
+**Change (paint + hierarchy only — not a redesign):**
+1. Auth (login / signup / forgot-password): shared `AuthBrandMark` — “Engage CRM” + navy `E` tile as hero brand signal above the action headline.
+2. Dashboard: greeting + 4 primary ops KPIs above the fold; secondary coverage KPIs in a Panel; spend strip unchanged for admins.
+3. ui-kit: clearer PageHeader rhythm; EmptyState navy tint; StatCard hover polish.
+4. Sidebar: gradient letter mark when no logo; “Engage · {plan}” subtitle.
+5. TopBar: theme toggle `relative` so Moon/Sun icons align.
+
+**Left alone:** Inbox thread skins, channel logos, automation canvas, palette system.
+
+**Files:** `src/components/auth/AuthBrandMark.tsx`, login/signup/forgot-password, `index.tsx`, `ui-kit.tsx`, `AppSidebar.tsx`, `TopBar.tsx`.
 
 ---
 
